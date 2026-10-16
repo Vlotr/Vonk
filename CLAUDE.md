@@ -75,8 +75,9 @@ internal/sentry/        Sentry envelopes and events: ParseEnvelope, Event, Finge
   testdata/             real SDK requests (fixtures) and the recipes that made them (capture/)
 internal/scrub/         removes sensitive values and IP addresses before storage
 internal/ingest/        SDK endpoints: Sentry envelope handler, auth, CORS, rate limit, queue, batch writer
-internal/issues/        Hooks the writer calls on new and regressed issues (NoHooks until Task 6)
-internal/api/           dashboard JSON API under /ui/api/ (projects, issues, issue detail, User-Agent names)
+internal/issues/        Service.SetStatus (resolve, ignore, reopen) and the Hooks the writer calls on new and regressed issues (NoHooks until Task 6)
+internal/httpjson/      Write and Error: the JSON responses every endpoint shares
+internal/api/           dashboard JSON API under /ui/api/ (overview, projects, issues, issue detail, status, User-Agent names)
 internal/server/        router, dashboard guard, request logging, panic recovery, /health
 internal/web/           serves the embedded SPA with index.html fallback
 web/                    Vite + React + TypeScript dashboard
@@ -85,13 +86,13 @@ web/                    Vite + React + TypeScript dashboard
   src/brand.ts          the tool name, the only place it lives
   src/styles/tokens.css every color, font, radius and spacing value, sampled from the designs
   src/api/client.ts     typed calls to /ui/api
-  src/lib/              pure helpers with Vitest tests (format, levels, frames) and usePolling
+  src/lib/              pure helpers with Vitest tests (format, levels, frames, issueFilters) and usePolling
   src/layout/           AppShell (loads the projects), Sidebar
-  src/pages/            ProjectsPage, IssuesPage, IssueDetailPage, NotFoundPage
-  src/components/       HourBars, StackTrace, Tag, Icons, LoadError
+  src/pages/            AllProjectsPage, IssuesPage, IssueDetailPage, NotFoundPage
+  src/components/       HourBars (+ HourLegend), StackTrace, Tag, Icons, LoadError, Button.module.css
 examples/laravel/       Laravel 13 app with sentry/sentry-laravel: /boom and /boom-other fail on purpose
 examples/browser/       Vite page with @sentry/browser, DSN from ?dsn=: a TypeError and an unhandled rejection
-e2e/                    Playwright: global-setup.ts starts everything, phase1.spec.ts, screenshots/
+e2e/                    Playwright: global-setup.ts starts everything, phase1.spec.ts, phase2-issues.spec.ts, screenshots/
 tools/capture/          recorder for real SDK traffic (see "Capturing real SDK traffic")
 docs/decisions.md       one line per judgment call
 ```
@@ -106,13 +107,17 @@ Try it by hand: `bin/monitor project create --name Webshop`, then point an SDK a
 
 ## The dashboard
 
-Routes: `/` (projects), `/projects/:id/issues`, `/projects/:id/issues/:issueId`. Pages poll their data every 60 s (`usePolling`); the shell loads the project list for the sidebar, which shows the project of the URL (or the last one visited, or the first).
+Routes: `/` (All projects), `/projects/:id/issues` (tab, filters and search in the query: `?status=resolved&source=browser&sort=events&q=cart&route=/checkout`), `/projects/:id/issues/:issueId`. Pages poll their data every 60 s (`usePolling`, which also keeps the old rows while new filters load and holds polls back during an optimistic change); the shell loads the project list for the sidebar, which shows the project of the URL (or the last one visited, or the first). A status change reloads that list, so the sidebar's open count follows.
 
 API (`internal/api`, registered on the dashboard mux, so behind the guard):
 
+- `GET /ui/api/overview` → `{updatedAt, projects: [{id, name, sources, newIssues24h, errors24h, hourly, pageviews24h: null, avgTimeOnPageMs: null}], newestIssues: [{id, projectId, projectName, type, message, lastSeen}]}`. Projects with new issues first, then by errors, then by name. `newIssues24h` counts open issues first seen in the last 24 hours, `errors24h` every event of the last 24 hours; `newestIssues` are at most five of those new open issues across projects, most recently seen first. The page-view fields stay null until Task 8.
 - `GET /ui/api/projects` → `[{id, name, slug, sources, openIssues}]`
-- `GET /ui/api/projects/{id}/issues?status=open&limit=25&offset=0` → `{project, counts, new24h, total, issues: [{id, type, message, source, culprit, events, users, firstSeen, lastSeen, isNew, hourly}]}`. `hourly` is 24 clock hours (UTC), oldest first, the current hour last.
+- `GET /ui/api/projects/{id}/issues?status=open&source=laravel&sort=last_seen&q=…&route=…&limit=25&offset=0` → `{project, counts, openIssues, new24h, total, issues: [{id, type, message, source, culprit, events, users, firstSeen, lastSeen, isNew, hourly}]}`. `source` is `laravel` or `browser`; `sort` is `last_seen` (default), `first_seen`, `events` or `users`; `q` (at most 200 characters) matches title, message, culprit or the URL of any event, ignoring case; `route` keeps issues with an event on that route (filled from Task 7). `counts` and `total` follow the filters; `openIssues` and `new24h` describe the whole project (the headline). `hourly` is 24 clock hours (UTC), oldest first, the current hour last.
 - `GET /ui/api/issues/{id}` → `{issue: {…, status, projectId}, hourly, latestEvent}`. `latestEvent.frames` is the main exception's trace with the most recent call first and at most three lines of code on each side of the error line; optional fields (user, browser, os, environment, server, runtime, url, release, country) are left out when the event lacks them. Browser and system come from the request's User-Agent header.
+- `POST /ui/api/issues/{id}/status` with `Content-Type: application/json` and `{"status":"open|resolved|ignored"}` → `{id, projectId, status}`; 400 for another status, 415 for another content type (until Task 5 that keeps other sites from posting forms here), 404 for an unknown issue.
+
+Issue status lives in `issues.Service.SetStatus` (resolving records `resolved_at`). The ingest writer reopens a resolved issue when an event arrives that was received at or after the resolve: status `open`, `resolved_at` cleared, `regressed_at` set, and `Hooks.OnIssueRegressed` called once after the batch. Ignored issues stay ignored but keep counting events.
 
 The API returns exception types in full (`Illuminate\Database\QueryException`); the UI shortens them with `shortType` and shows the full name in the stack trace and as a tooltip. An issue whose exception came in as an unhandled promise rejection is titled "Unhandled rejection" (set by `sentry.Summarize` at ingest; the fingerprint still uses the exception type). Culprits are `basename:line` for server platforms and the URL's path for browsers (`assets/main.js:21`).
 
@@ -143,4 +148,5 @@ The look comes from the PNGs: Instrument Sans and JetBrains Mono (bundled with `
 - `make e2e` rewrites `e2e/screenshots/*.png` on every run (relative times and data differ). Commit them when the dashboard changed on purpose; otherwise `git checkout e2e/screenshots`. Process output of a run is in `e2e/.logs/`.
 - The e2e setup starts each process in its own process group and stops the group, because `php artisan serve` runs `php -S` as a child. It passes the DSN to Laravel as an environment variable with `--no-reload` (without it, artisan serve drops variables that are not in `.env`) and sets `SENTRY_SERVER_NAME=web-1` so screenshots never show this machine's host name.
 - The stack trace marks the error line with `aria-current="true"`; the e2e test finds it that way.
+- The e2e setup creates two projects: "Webshop" (fed by the Laravel and browser examples) and "Customer portal" (`PORTAL_DSN`; phase 2 points the browser example at it with `?dsn=`). The specs share one monitor and run in file order, but each makes the errors it checks itself.
 - `go test -race ./internal/ingest/` takes about 17 s: `TestIngest_ConcurrentLoad` sends 10 000 envelopes over HTTP. `go test ./internal/sentry/ -run '^$' -fuzz FuzzParseEnvelope -fuzztime 60s` fuzzes parse, scrub and grouping.

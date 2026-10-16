@@ -217,3 +217,46 @@ Follow-ups from the Task 2 and Task 3 reviews:
 - The Details card shows the runtime version as major.minor ("PHP 8.4" for 8.4.1), with the full version as a tooltip.
 - Long code lines already scrolled inside the code box, not the page; with headless Chromium and macOS overlay scrollbars nothing showed that, so the clipped line looked like overflow. The code box now has a CSS-only shadow at its right edge while code is hidden there (a `local` background covers it once the end is in view); lines still do not wrap.
 - A stack frame is remembered by file, line and function plus how many frames before it have the same three, so recursive frames each keep their own open or closed state across polls.
+
+Status and regressions (Step 1):
+
+- A resolved issue reopens when an event arrives that was received at or after `resolved_at` (receive time, not the event's own timestamp, which clients set): an event that was still waiting in the queue when someone clicked Resolve counts but does not undo the click. A resolved issue without `resolved_at` reopens on any event. Reopening sets `regressed_at` to the receive time and calls `OnIssueRegressed` once per regression, after the commit; reopening by hand sets neither.
+- Setting the status an issue already has changes nothing, so a double click on Resolve keeps the first `resolved_at`. Opening or ignoring clears `resolved_at`.
+- `POST /ui/api/issues/{id}/status` takes only `Content-Type: application/json` (415 otherwise) and a body of at most 1 KiB: until logins and CSRF tokens arrive (Task 5), that keeps another site from making a visitor's browser post a form here, since a JSON request needs a CORS preflight this API never answers. It answers `{id, projectId, status}`. The handler is in `internal/api/status.go`, next to the plan's `issues.go`.
+- `issues.Service` takes the clock as an argument; `api.New` passes the handler's clock, so API tests control both.
+- Migration 0002 also adds the indexes `issues (project_id, status, last_seen)` for the list and `error_events (project_id, timestamp)` for the overview (and Task 6's retention). No index on `error_events.route` yet: the column stays empty until Task 7, which can add one against real data.
+
+Issue list queries (Step 2):
+
+- `source` accepts `laravel` and `browser` (400 otherwise), the choices of the Source select; issues from other platforms (plain `php`, `node`) appear under All sources only.
+- `q` matches part of the title, message or culprit, or of the URL of any of the issue's events (`EXISTS` over the events, using the issue index), ignoring case with `LOWER(...) LIKE ? ESCAPE '\'`; `%`, `_` and `\` in the search are literal. Go lowercases only ASCII letters, the same as SQLite's `LOWER`, so a non-ASCII search still finds its exact spelling; the Postgres twin (Task 11) must keep that. `q` is trimmed and at most 200 characters (400 above).
+- `route` keeps issues with at least one event on exactly that route (controller ruling 19: this task owns the filter, Task 8 links to it).
+- The status counts (`counts`, the tabs) and `total` follow the filters, so the tabs say how many issues of each status match; the headline numbers do not: `openIssues` (new field) and `new24h` describe the whole project's open issues on every tab. `new24h` used to count the requested status; only the open tab used it.
+- Sorts: `last_seen` (default), `first_seen` (newest first), `events`, `users`, all descending, ties by last seen and then id so pages never overlap.
+
+All projects overview:
+
+- `newIssues24h` counts open issues first seen in the last 24 hours, the rule of the "New" tag and the issue list headline; a new issue that was resolved or ignored is not counted. `errors24h` counts every event of the last 24 hours whatever its issue's status (ignored issues keep counting). The bars cover the 24 clock hours that end now, so events from the oldest partial hour count in `errors24h` but not in a bar.
+- Projects are ordered by new issues, then errors, then name (the design's order fits: 6 new / 399, 1 new / 42, none / 3, none / 0).
+- Newest issues are the open issues first seen in the last 24 hours across projects, most recently seen first, at most five; with the Issues.png data that gives the design's rows (QueryException 4 min ago, TypeError 12 min ago, then Customer portal's ValidationException 2 h ago). None: "No new issues in the last 24 hours." and no "See all issues" link, which otherwise opens the issue list of the first row's project.
+- The overview queries take a list of project ids, so Task 5 can pass only the projects a member may see.
+- The bars of all rows share one scale, the busiest hour of the whole table: in the design a project with 3 errors stays light next to one with 399.
+- "Add page tracking" spans both page-view columns and is text styled like the design's link: neither Settings (Task 5) nor page tracking (Task 8) exists yet. `formatDuration` ("1m 12s", "2m 05s") is ready for the average time column.
+- The headline is kept to 16em with a 39px line height, which breaks it after "in the" as the design does; a one-line headline keeps 1.22.
+
+Dashboard (Step 3):
+
+- Status tabs are buttons with `aria-pressed` in a group labelled Status. Tab, source and sort changes add a history entry; the search replaces it. Unknown values in the URL fall back to the defaults; defaults are left out of the URL.
+- Search runs 300 ms after typing pauses (Enter runs it at once); the URL keeps the text as typed (spaces too), the API trims it; the box takes at most 200 characters.
+- "Show more" opens 25 more issues. The page loads the first 25 × pages issues (in requests of at most 100), so the minute poll refreshes everything shown; filters start at one page again. The page count is not in the URL.
+- Resolve (and Reopen on the Resolved and Ignored tabs, which the design does not show) is optimistic: the row leaves and the counts move at once, polls wait until the request is done (`usePolling.mutate`), then the list and the sidebar reload; a failure shows one line ("… could not be resolved. Try again.") and the reload brings the row back. While the rows of the previous tab or filters are still on screen (dimmed, during the next load) their buttons wait.
+- The issue page shows Resolve and Ignore for an open issue, Reopen and Ignore for a resolved one, Reopen and Resolve for an ignored one, plus an outlined "Resolved" or "Ignored" tag. The copy-link button copies the page's address (clipboard API; a selected text field where the browser has none, such as plain HTTP from another host) and shows a tick for 2 s.
+- A route filter in the URL shows as "Only errors on the page /checkout. Show all pages", which the design does not have; without it the smaller counts would be unexplained.
+- Sizes fitted to the designs: row buttons 40 px with 14 px text, Show more and the issue page buttons 44 px with 15 px text and 17 px padding (the designs use 16 and 18); selects 121 and 130 px wide with a thin arrow of our own, because the browser's native arrow is bolder than the design's; status tabs in a box with 8 px corners, the active tab and the selects with 6 px. A shared `components/Button.module.css` replaces the stack trace's own button style.
+- Compared with design-equivalent data (scratch, not committed) at 1360 × 2: Issues, Issue detail and All projects line up within 1 px except the All projects rows, 1 px taller each (line boxes of 20 and 19 px where the design has 19.5 and 18.5), and the Last seen column, set to the design's 109 px.
+- Task 3's interim projects list (`ProjectsPage`) is gone; `/` is the All projects page.
+- Below about 580 px wide the page scrolls sideways (the fixed 220 px sidebar plus the status tabs); the designs are desktop only.
+
+End-to-end (Step 4):
+
+- The e2e setup also creates "Customer portal"; phase 2 points the browser example at its DSN, so All projects shows two projects with new errors from real SDKs, as the design does. `phase2-issues.spec.ts` makes its own errors and does not depend on phase 1's.

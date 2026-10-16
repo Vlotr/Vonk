@@ -2,7 +2,7 @@
 
 A light, self-hosted tool for errors and page statistics. Your apps keep their existing SDKs: the tool pretends to be Sentry (errors from Laravel and the browser) and PostHog (page views). It runs as one Go binary with the dashboard built in, in one small container with all data on one volume. The name is not decided yet; the dashboard shows `[Tool name]`.
 
-Status: early development (phase 1 of the plan). Point a Sentry SDK at the DSN that `project create` prints: errors are stored, grouped into issues, and listed in the dashboard with their stack trace. Issue status, logins, alerts and page views come next.
+Status: early development (phase 2 of the plan). Point a Sentry SDK at the DSN that `project create` prints: errors are stored, grouped into issues, and listed in the dashboard with their stack trace. Issues can be resolved, ignored and reopened; a resolved issue opens again when the error comes back. The All projects page shows which projects have new errors. Logins, alerts and page views come next.
 
 Tested with these SDKs, sending real errors to the tool (see `examples/` and `make e2e`):
 
@@ -39,7 +39,7 @@ make test   # Go and web unit tests
 make e2e    # the real binary, both examples and the dashboard in Chromium (needs PHP and Composer)
 ```
 
-`make e2e` saves `e2e/screenshots/phase1-issues.png` and `phase1-issue-detail.png`, the dashboard as it looked during the run.
+`make e2e` saves `e2e/screenshots/phase1-issues.png`, `phase1-issue-detail.png` and `phase2-all-projects.png`, the dashboard as it looked during the run.
 
 ## Run the container
 
