@@ -134,3 +134,60 @@ Wiring (Step 8):
 - `serve` runs the writer with its own context, not the signal context, so it keeps writing while running requests finish; shutdown order is HTTP server, then `writer.Close`, then the database.
 - `issues.Hooks` lives in `internal/issues` with a no-op `NoHooks`, used by `serve` until Task 6.
 - Measured on this Mac (`TestIngest_ConcurrentLoad`, 50 goroutines × 200 envelopes over HTTP with 4 readers running): sent in about 0.2 s and all written within 0.8 s; with `-race` about 1 s and 10 s.
+
+## Task 3: Phase 1 dashboard, examples and end-to-end proof
+
+Follow-ups from earlier reviews:
+
+- The two identical JSON 404 handlers in `internal/server` are now one, `notFoundJSON`.
+- Every color, font, radius and line height of the dashboard, the Task 1 shell included, is a variable in `web/src/styles/tokens.css`; no CSS module has a literal for them.
+- The e2e test checks that both Laravel issues carry the source tag "Laravel" (sentry-laravel detection proven with the real SDK, not only in unit tests).
+
+Design tokens (Step 1):
+
+- Sans: Instrument Sans (`@fontsource-variable/instrument-sans` 5.3.0). Picked by rendering 16 candidate families over crops of the PNGs at the same cap height: its glyphs, x-height to cap-height ratio (0.71) and ink coverage match. Weights were fitted by ink coverage: headlines and numbers 600, nav 500 (600 when active), brand 700, tags 500 (New 600), buttons 600.
+- Mono: JetBrains Mono (`@fontsource-variable/jetbrains-mono` 5.3.0); its `->` ligature is the arrow in the design's code, and its width matches at 13.5 px. Code 13.5 px, culprits 13 px, frame paths and mono values 14 px.
+- Fitting sizes by text width at letter-spacing 0 gave whole pixels (34, 22, 19, 18, 17, 16, 15, 14, 13, 12), so those are the sizes; only the headline has -0.01em. The search box placeholder in Issues.png is Chrome's default #757575, so the designs were most likely rendered from HTML.
+- Variable fonts: one file per script covers weights 400 to 700. All subsets are bundled (about 125 KB in the binary); browsers fetch only Latin (`unicode-range`).
+- Tags are pills 18.5 px high (12 px text at normal line height plus 2 px padding); the outlined tags on the issue page spend 1 px of the padding on the border. The error line in the stack trace is semibold, as in the design.
+- Hover backgrounds on table rows and nav items are not in the static designs; they use existing tokens.
+
+API (Step 2):
+
+- `GET /ui/api/projects` also returns `openIssues` (beyond the plan's shape), so the sidebar badge needs no second request. `sources` follow the project's tracking choices, Laravel first.
+- Hourly buckets are clock hours in UTC: the current, unfinished hour is the last of 24, so an event 3 h ago is in bucket 20. Events up to an hour ahead (a client clock that is off) count in the current hour.
+- `isNew` and `new24h` mean first seen at most 24 h ago; `new24h` and `total` count the requested status.
+- Query parameters are checked before the project lookup, so a bad request gets 400 whether or not the project exists. `limit` is 1 to 100 (default 25), `offset` 0 or more. Missing, non-numeric and unknown ids get 404.
+- Wrong methods on the API routes get Go's standard 405 (plain text with `Allow`); the dashboard never sends them.
+- `users` is `COUNT(DISTINCT user_id)` over the issue's events at query time; a counter can replace it if it gets slow.
+- The detail's `latestEvent` is the newest by timestamp. Its frames are those of the exception that names and groups the issue (`sentry.MainException`, now exported), the most recent call first, with at most three lines of code before and after the error line (the design shows three; SDKs send five). The detail's `issue` object repeats `hourly`, like the list.
+- Browser and system are parsed from the request's User-Agent header (major versions; macOS and Windows without one, because browsers freeze them in the header), else from Sentry's `browser` and `client_os` contexts. Never from `contexts.os`: server SDKs put the server's system there. Country only from `user.geo.country_code`, since IP addresses are not stored.
+- `runtime` is `{name, version}`, so the Details card can show "PHP 8.3" as the design does.
+- A stored event that cannot be decoded still gives `latestEvent` with id and time, and a warning in the log.
+- Store queries for the dashboard live in `internal/store/dashboard.go`; `scanIssue` accepts extra columns and error events share one scan helper.
+- `internal/api/event.go` (newest event) and `useragent.go` were added next to the plan's `api.go`, `projects.go` and `issues.go`.
+
+Frontend (Step 3):
+
+- Task 3 leaves out Task 4's controls: status tabs, source and sort selects, search, Resolve, Ignore, copy link, Show more. It keeps the breadcrumbs ("All projects", "All projects / Webshop issues") and the "Showing 6 of 14 open issues" footer text, which need no API and keep the designs' layout.
+- `/` is a projects list (name, source tags, open issues) with the headline "2 projects have open issues" (one, none and no-projects variants) and "Updated HH:MM. New data comes in every minute."; Task 4 replaces it with the All projects overview.
+- The sidebar shows the project of the URL, else the last one visited, else the first by name. The badge is hidden at 0 open issues.
+- Headline variants: "No open issues in Webshop"; "1 open issue …"; under it "It is new in the last 24 hours." / "It was first seen more than 24 hours ago." for one issue, "None of them are new …", "1 of them is new …", "6 of them are new …", and for none "New errors show up here within a minute after your app sends them."
+- Times: "just now", "4 min ago", "3 h ago", "2 d ago", then a date; First seen as "Oct 15, 21:06" in local time, with the year when it is not this year.
+- Bar levels: 0 without events, else quarters of the row's busiest hour (`ceil(count / max * 4)`), so any event shows.
+- Stack trace: framework frames (not in-app) are hidden behind "14 framework lines hidden. Show them." and the "Show framework code" / "Hide framework code" button; when no frame is in-app, all are shown. The first in-app frame with source opens; others open on click. Functions show the method after `::` (full name as tooltip); files lose their leading slash and URLs show their path.
+- The message under an issue's name is clamped to two lines and a long release is cut with an ellipsis, both with the full text as a tooltip; the stack trace shows the whole message.
+- An issue whose project is not the one in the URL is "Issue not found". The error line carries `aria-current="true"`, for assistive technology and as the e2e test's hook.
+
+Examples (Step 4):
+
+- Laravel 13.37 from `composer create-project`, `sentry/sentry-laravel` 4.29.0. `.env.example` uses file sessions and cache and the sync queue, so the example needs no database. `config/sentry.php` reads `server_name` from `SENTRY_SERVER_NAME`. The skeleton's `AGENTS.md` and `CLAUDE.md` (setup instructions for coding agents, including a `curl | bash` installer) were removed. `composer.lock` is committed.
+- `/boom` throws in `CheckoutController::store`, `/boom-other` in `CheckoutController::applyCoupon`.
+- The browser example runs on the Vite dev server, so its frames point at readable `src/main.js` until source maps (Task 10). `@sentry/browser` is pinned at 11.8.0, the fixture's version.
+
+End-to-end (Step 5):
+
+- `e2e/` is its own npm package with `@playwright/test` 1.64.1 (the version Task 2 used) and `@types/node`; `make e2e` installs them and Chromium. The global setup builds with `make build` and installs the examples' packages when they are missing.
+- The Laravel routes are opened with `page.goto`, so the events carry a real browser's User-Agent. The dashboard page is reloaded until the rows appear, since it polls only once a minute.
+- Screenshots are taken at 1360 × 960 with device scale 2 (the PNGs' size), full page, and committed as the phase 1 proof. The setup sets server name `web-1` and release `example@1.0.0`.
+- Compared with design-equivalent mock data (scratch, not committed), everything shared with the designs lines up within 1 px. Left out on purpose: Task 4's controls, "Before this error" (Task 9), and Pages, Events, Alerts and Settings in the sidebar. Without the Resolve column, the issue column takes the free width, so the bars sit further right than in Issues.png.

@@ -8,12 +8,12 @@ A self-hosted monitoring tool: one Go binary that pretends to be Sentry (errors)
 | --- | --- |
 | `make dev` | Go server on `:8000` plus the Vite dev server (hot reload) on `:5173`, which forwards `/ui/api` and `/health` to Go. Data in `./data`. Ctrl-C stops both. |
 | `make test` | `go vet ./...`, `go test -race ./...`, web typecheck and Vitest. Run before every commit. |
-| `make e2e` | Playwright end-to-end tests (placeholder until Task 3). |
+| `make e2e` | Playwright end-to-end tests in `e2e/`: builds the binary, starts it with the Laravel and browser examples, checks the dashboard in Chromium and saves screenshots. Needs PHP 8.3+ and Composer. |
 | `make build` | Web build into `web/dist`, then `bin/monitor` with the dashboard embedded. |
 | `make docker` | Image `monitor:dev` for this machine's platform. |
 | `make clean` | Remove `bin/` and the web build. |
 
-Focused runs while iterating: `go test -race ./internal/store/ -run TestCreateProject`, `cd web && npm test`.
+Focused runs while iterating: `go test -race ./internal/store/ -run TestCreateProject`, `go test ./internal/api/`, `cd web && npm test`, `cd e2e && npx playwright test` (after `make build` once).
 
 Run the binary by hand:
 
@@ -76,23 +76,47 @@ internal/sentry/        Sentry envelopes and events: ParseEnvelope, Event, Finge
 internal/scrub/         removes sensitive values and IP addresses before storage
 internal/ingest/        SDK endpoints: Sentry envelope handler, auth, CORS, rate limit, queue, batch writer
 internal/issues/        Hooks the writer calls on new and regressed issues (NoHooks until Task 6)
+internal/api/           dashboard JSON API under /ui/api/ (projects, issues, issue detail, User-Agent names)
 internal/server/        router, dashboard guard, request logging, panic recovery, /health
 internal/web/           serves the embedded SPA with index.html fallback
 web/                    Vite + React + TypeScript dashboard
   embed.go              Go package monitor/web: embeds web/dist into the binary
   dist/.keep            committed placeholder so `go build` works before a web build
   src/brand.ts          the tool name, the only place it lives
+  src/styles/tokens.css every color, font, radius and spacing value, sampled from the designs
+  src/api/client.ts     typed calls to /ui/api
+  src/lib/              pure helpers with Vitest tests (format, levels, frames) and usePolling
+  src/layout/           AppShell (loads the projects), Sidebar
+  src/pages/            ProjectsPage, IssuesPage, IssueDetailPage, NotFoundPage
+  src/components/       HourBars, StackTrace, Tag, Icons, LoadError
+examples/laravel/       Laravel 13 app with sentry/sentry-laravel: /boom and /boom-other fail on purpose
+examples/browser/       Vite page with @sentry/browser, DSN from ?dsn=: a TypeError and an unhandled rejection
+e2e/                    Playwright: global-setup.ts starts everything, phase1.spec.ts, screenshots/
 tools/capture/          recorder for real SDK traffic (see "Capturing real SDK traffic")
 docs/decisions.md       one line per judgment call
 ```
 
-Packages still to come (see the plan): `internal/posthog`, `internal/api`, `internal/auth`, `internal/mail`, `internal/alerts`, `internal/jobs`, `internal/routes`, `internal/bots`; `examples/`, `e2e/`.
+Packages still to come (see the plan): `internal/posthog`, `internal/auth`, `internal/mail`, `internal/alerts`, `internal/jobs`, `internal/routes`, `internal/bots`.
 
 ## How Sentry ingest works
 
 SDKs send envelopes to `POST /api/<project id>/envelope/` (DSN `http(s)://<key>@<host>/<project id>`). The handler in `internal/ingest` authenticates the key (`X-Sentry-Auth`, `?sentry_key=` or the envelope's `dsn`), decompresses (gzip, deflate; 20 MiB limit before and after), parses with `sentry.ParseEnvelope` (event items up to 1 MiB, other item types skipped), applies the project's events-per-minute limit, scrubs each event with `scrub.Event` and puts it on the bounded `ingest.Queue` (10 000). It never waits: a full queue answers 429 with `Retry-After: 5`. One `ingest.Writer` takes events off the queue and writes them in batches (500 or every second) through `store.SaveErrorEvents`, which groups them into issues by `sentry.Fingerprint` and skips repeated event ids. Bad traffic gets a 4xx, never a 5xx; only a failing database gives 503.
 
-Try it by hand: `bin/monitor project create --name Webshop`, then point an SDK at the printed DSN, or replay a fixture: `curl -X POST http://localhost:8000/api/1/envelope/ -H "X-Sentry-Auth: Sentry sentry_key=<key>" -H 'Content-Encoding: gzip' --data-binary @internal/sentry/testdata/php-exception.envelope.gz`. There is no dashboard for issues yet (Task 3); look in the database with `sqlite3 data/monitor.db 'SELECT title, times_seen FROM issues'` while the server is stopped.
+Try it by hand: `bin/monitor project create --name Webshop`, then point an SDK at the printed DSN, or replay a fixture: `curl -X POST http://localhost:8000/api/1/envelope/ -H "X-Sentry-Auth: Sentry sentry_key=<key>" -H 'Content-Encoding: gzip' --data-binary @internal/sentry/testdata/php-exception.envelope.gz`. The issues then show in the dashboard under the project's Issues.
+
+## The dashboard
+
+Routes: `/` (projects), `/projects/:id/issues`, `/projects/:id/issues/:issueId`. Pages poll their data every 60 s (`usePolling`); the shell loads the project list for the sidebar, which shows the project of the URL (or the last one visited, or the first).
+
+API (`internal/api`, registered on the dashboard mux, so behind the guard):
+
+- `GET /ui/api/projects` → `[{id, name, slug, sources, openIssues}]`
+- `GET /ui/api/projects/{id}/issues?status=open&limit=25&offset=0` → `{project, counts, new24h, total, issues: [{id, type, message, source, culprit, events, users, firstSeen, lastSeen, isNew, hourly}]}`. `hourly` is 24 clock hours (UTC), oldest first, the current hour last.
+- `GET /ui/api/issues/{id}` → `{issue: {…, status, projectId}, hourly, latestEvent}`. `latestEvent.frames` is the main exception's trace with the most recent call first and at most three lines of code on each side of the error line; optional fields (user, browser, os, environment, server, runtime, url, release, country) are left out when the event lacks them. Browser and system come from the request's User-Agent header.
+
+The API returns exception types in full (`Illuminate\Database\QueryException`); the UI shortens them with `shortType` and shows the full name in the stack trace and as a tooltip.
+
+The look comes from the PNGs: Instrument Sans and JetBrains Mono (bundled with `@fontsource-variable`), sizes and weights fitted to the designs, all values in `tokens.css`. To compare a change with a design, render the page at 1360 px wide and device scale 2 (the PNGs' size) and put the two side by side; `make e2e` takes its screenshots at that size.
 
 ## Conventions
 
@@ -104,16 +128,19 @@ Try it by hand: `bin/monitor project create --name Webshop`, then point an SDK a
 - All writes go through `db.write` (one connection, `BEGIN IMMEDIATE`); queries use `db.read` (read-only pool).
 - Routing: public routes (SDK ingest, `/health`) go on the public mux in `internal/server`; everything else falls through the dashboard guard. Dashboard API under `/ui/api/`, camelCase JSON, errors as `{"error":"..."}`. Missing access and missing objects both return 404.
 - Never store or log IP addresses. Request logs leave out the query string and the client address. Everything an SDK sends goes through `internal/scrub` before it is queued or stored.
-- Frontend: plain CSS, design tokens as CSS variables in `web/src/styles/tokens.css` (from Task 3), CSS modules per component, no UI kit, no chart library. Fonts bundled via `@fontsource`. Light theme only. Poll every 60 s. UI copy is English and matches the designs. The tool name shows as `[Tool name]`, defined only in `web/src/brand.ts`; Go never reads it.
+- Frontend: plain CSS, design tokens as CSS variables in `web/src/styles/tokens.css`, CSS modules per component, no UI kit, no chart library. No color, font, radius or line-height literal outside `tokens.css`. Fonts bundled via `@fontsource-variable`. Light theme only. Poll every 60 s. UI copy is English and matches the designs; show only data that exists (no placeholders, no fake numbers). The tool name shows as `[Tool name]`, defined only in `web/src/brand.ts`; Go never reads it.
 - Tests first (TDD), next to the code (`*_test.go`, `*.test.ts(x)`). Tests use temp directories, never `/data`, and keep output clean.
 - Small conventional commits on branch `build/v1`, each ending with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`. Never push; there is no remote.
 
 ## Gotchas
 
 - `vite build` empties `web/dist`; a plugin in `web/vite.config.ts` writes `dist/.keep` back. A binary built without the web build answers dashboard pages with 503 and a hint.
-- `go.mod` has `ignore ./web/node_modules` so `./...` never descends into npm packages.
+- `go.mod` ignores `./web/node_modules`, `./e2e/node_modules` and `./examples`, so `./...` never descends into npm or Composer packages.
 - Without `DEV_BASIC_AUTH` the dashboard guard lets in only requests made directly from this machine: the TCP peer must be loopback and the request must carry no `Forwarded`, `X-Forwarded-For` or `X-Real-IP` header. A reverse proxy on the same host (or a container with `--network host`) connects from 127.0.0.1 too; the forwarding headers it adds are what gives it away, so a proxy that strips them would still get in. Forwarding headers are never trusted to let a request in. Behind Docker port mapping or any proxy, set `DEV_BASIC_AUTH`.
 - The runtime image is distroless (no shell, no curl); the Docker `HEALTHCHECK` runs `/monitor healthcheck`.
 - Accepted SDK requests are logged at debug (`LOG_LEVEL=debug` to see them); refused ones (401, 413, 429, ...) at info.
 - Only the ingest writer should write ingested data, and code inside a `db.write` transaction must use the `*sql.Tx`, never `db.write` itself: the write pool has one connection, so that would wait forever.
+- `make e2e` rewrites `e2e/screenshots/*.png` on every run (relative times and data differ). Commit them when the dashboard changed on purpose; otherwise `git checkout e2e/screenshots`. Process output of a run is in `e2e/.logs/`.
+- The e2e setup starts each process in its own process group and stops the group, because `php artisan serve` runs `php -S` as a child. It passes the DSN to Laravel as an environment variable with `--no-reload` (without it, artisan serve drops variables that are not in `.env`) and sets `SENTRY_SERVER_NAME=web-1` so screenshots never show this machine's host name.
+- The stack trace marks the error line with `aria-current="true"`; the e2e test finds it that way.
 - `go test -race ./internal/ingest/` takes about 17 s: `TestIngest_ConcurrentLoad` sends 10 000 envelopes over HTTP. `go test ./internal/sentry/ -run '^$' -fuzz FuzzParseEnvelope -fuzztime 60s` fuzzes parse, scrub and grouping.

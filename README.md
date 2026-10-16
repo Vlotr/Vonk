@@ -2,7 +2,15 @@
 
 A light, self-hosted tool for errors and page statistics. Your apps keep their existing SDKs: the tool pretends to be Sentry (errors from Laravel and the browser) and PostHog (page views). It runs as one Go binary with the dashboard built in, in one small container with all data on one volume. The name is not decided yet; the dashboard shows `[Tool name]`.
 
-Status: early development. This build has the skeleton (settings, database, server, CLI, container) and Sentry error ingest: point a Sentry SDK at the DSN that `project create` prints and errors are stored and grouped. The dashboard screens come next.
+Status: early development (phase 1 of the plan). Point a Sentry SDK at the DSN that `project create` prints: errors are stored, grouped into issues, and listed in the dashboard with their stack trace. Issue status, logins, alerts and page views come next.
+
+Tested with these SDKs, sending real errors to the tool (see `examples/` and `make e2e`):
+
+| SDK | Version | Tested with |
+| --- | --- | --- |
+| `sentry/sentry-laravel` | 4.29.0 (on `sentry/sentry` 4.34.0) | Laravel 13.37, PHP 8.4 |
+| `sentry/sentry` (plain PHP) | 4.34.0 | PHP 8.4 |
+| `@sentry/browser` | 11.8.0 | Chromium (Playwright 1.64.1) |
 
 ## Development quick start
 
@@ -22,11 +30,16 @@ SECRET_KEY=dev-only-secret-not-for-production BASE_URL=http://localhost:8000 DAT
   bin/monitor project create --name Webshop
 ```
 
+Send it some errors with the examples: `examples/laravel/` (sentry-laravel) and `examples/browser/` (`@sentry/browser`). Each has a README with the steps.
+
 Run the tests:
 
 ```sh
-make test
+make test   # Go and web unit tests
+make e2e    # the real binary, both examples and the dashboard in Chromium (needs PHP and Composer)
 ```
+
+`make e2e` saves `e2e/screenshots/phase1-issues.png` and `phase1-issue-detail.png`, the dashboard as it looked during the run.
 
 ## Run the container
 
