@@ -1,8 +1,8 @@
 // Package config reads the settings from environment variables.
 //
 // Required: SECRET_KEY and BASE_URL. Optional: DATABASE_URL, MAIL_URL, ADDR,
-// DATA_DIR, LOG_LEVEL and DEV_BASIC_AUTH. Load reports every problem at once,
-// so an operator can fix the whole environment in one go.
+// DATA_DIR and LOG_LEVEL. Load reports every problem at once, so an
+// operator can fix the whole environment in one go.
 package config
 
 import (
@@ -12,6 +12,8 @@ import (
 	"net/url"
 	"path/filepath"
 	"strings"
+
+	"monitor/internal/mail"
 )
 
 // Defaults for the optional settings.
@@ -35,8 +37,11 @@ type Config struct {
 	BaseURL string
 	// DatabaseURL selects Postgres instead of SQLite when set.
 	DatabaseURL string
-	// MailURL is the SMTP server for notifications; empty means Slack only.
+	// MailURL is the SMTP server for invites, reset links and
+	// notifications; empty means no mail (notifications go to Slack only).
 	MailURL string
+	// Mail is MailURL parsed; nil when MailURL is empty.
+	Mail *mail.Config
 	// Addr is the listen address of the HTTP server.
 	Addr string
 	// DataDir holds the SQLite database and backups.
@@ -45,19 +50,16 @@ type Config struct {
 	SQLitePath string
 	// LogLevel is the minimum level that is logged.
 	LogLevel slog.Level
-	// DevBasicAuth is "user:pass" for the temporary dashboard guard, or empty.
-	DevBasicAuth string
 }
 
 // Load reads the configuration through getenv (pass os.Getenv in production).
 func Load(getenv func(string) string) (Config, error) {
 	cfg := Config{
-		SecretKey:    getenv("SECRET_KEY"),
-		DatabaseURL:  strings.TrimSpace(getenv("DATABASE_URL")),
-		MailURL:      strings.TrimSpace(getenv("MAIL_URL")),
-		Addr:         withDefault(getenv("ADDR"), DefaultAddr),
-		DataDir:      withDefault(getenv("DATA_DIR"), DefaultDataDir),
-		DevBasicAuth: getenv("DEV_BASIC_AUTH"),
+		SecretKey:   getenv("SECRET_KEY"),
+		DatabaseURL: strings.TrimSpace(getenv("DATABASE_URL")),
+		MailURL:     strings.TrimSpace(getenv("MAIL_URL")),
+		Addr:        withDefault(getenv("ADDR"), DefaultAddr),
+		DataDir:     withDefault(getenv("DATA_DIR"), DefaultDataDir),
 	}
 
 	var problems []error
@@ -85,10 +87,13 @@ func Load(getenv func(string) string) (Config, error) {
 		}
 	}
 
-	if cfg.DevBasicAuth != "" {
-		user, pass, ok := strings.Cut(cfg.DevBasicAuth, ":")
-		if !ok || user == "" || pass == "" {
-			problems = append(problems, errors.New("DEV_BASIC_AUTH must look like user:password"))
+	if cfg.MailURL != "" {
+		// mail.Parse names MAIL_URL in its errors and never repeats the password.
+		mc, err := mail.Parse(cfg.MailURL)
+		if err != nil {
+			problems = append(problems, err)
+		} else {
+			cfg.Mail = &mc
 		}
 	}
 

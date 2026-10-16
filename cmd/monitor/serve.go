@@ -13,9 +13,11 @@ import (
 	"syscall"
 	"time"
 
+	"monitor/internal/auth"
 	"monitor/internal/config"
 	"monitor/internal/ingest"
 	"monitor/internal/issues"
+	"monitor/internal/mail"
 	"monitor/internal/server"
 	"monitor/internal/store"
 )
@@ -42,6 +44,9 @@ func serve(args []string, getenv func(string) string, stderr io.Writer) int {
 	// Ctrl-C ends the process at once instead of waiting for the shutdown.
 	context.AfterFunc(ctx, stop)
 
+	if getenv("DEV_BASIC_AUTH") != "" {
+		logger.Warn("DEV_BASIC_AUTH is no longer used: the dashboard has accounts now; unset it")
+	}
 	if err := runServer(ctx, cfg, logger); err != nil {
 		logger.Error("server stopped", "err", err)
 		return 1
@@ -71,10 +76,16 @@ func runServer(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 	go writer.Run(context.Background())
 	defer writer.Close() // before db.Close; also on the error paths
 
-	if cfg.DevBasicAuth == "" {
-		logger.Info("dashboard answers this machine only; set DEV_BASIC_AUTH=user:password to open it to others")
+	// Mail for invites and reset links (and, later, notifications).
+	var mailer auth.Mailer
+	if cfg.Mail != nil {
+		mailer = mail.NewSender(*cfg.Mail, cfg.BaseURL)
+		logger.Info("mail is on", "host", cfg.Mail.Host, "port", cfg.Mail.Port)
 	} else {
-		logger.Info("dashboard is protected with DEV_BASIC_AUTH")
+		logger.Info("mail is off: invite and reset links are only shown, not mailed; set MAIL_URL to mail them")
+	}
+	if n, err := db.CountUsers(ctx); err == nil && n == 0 {
+		logger.Warn("no account yet: open " + cfg.BaseURL + "/setup now and create the first admin; until then anyone who can reach it can")
 	}
 
 	srv := &http.Server{
@@ -85,6 +96,7 @@ func runServer(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			Version: version,
 			Queue:   queue,
 			Limiter: ingest.NewRateLimiter(),
+			Mailer:  mailer,
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       60 * time.Second,

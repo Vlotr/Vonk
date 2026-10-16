@@ -1,26 +1,23 @@
 // Package server wires the HTTP routes and the middleware around them.
 //
 // Routes fall in two groups. Public routes are SDK traffic (/api/... for
-// Sentry, later the PostHog endpoints) and /health; they are registered on the
-// public mux. Every other request falls through to the dashboard mux (the SPA
-// and /ui/api/...), which sits behind a temporary guard until real logins
-// exist: without DEV_BASIC_AUTH only direct loopback clients get in; with it,
-// everyone needs those credentials. New dashboard routes are therefore
-// guarded by default; only routes added to the public mux are open.
+// Sentry, later the PostHog endpoints) and /health; they are registered on
+// the public mux. Every other request is the dashboard: the sign-in pages
+// and their API (auth.PublicPages, auth.RegisterPublic) and the app's
+// assets are open, and everything else falls through auth.RequireUser to
+// the dashboard mux (the SPA and /ui/api/...). New dashboard routes are
+// therefore signed-in only by default.
 package server
 
 import (
 	"context"
-	"crypto/sha256"
-	"crypto/subtle"
 	"log/slog"
-	"net"
 	"net/http"
-	"net/netip"
 	"strings"
 	"time"
 
 	"monitor/internal/api"
+	"monitor/internal/auth"
 	"monitor/internal/config"
 	"monitor/internal/httpjson"
 	"monitor/internal/ingest"
@@ -40,6 +37,8 @@ type Deps struct {
 	Queue *ingest.Queue
 	// Limiter enforces each project's events-per-minute limit.
 	Limiter *ingest.RateLimiter
+	// Mailer sends invites and reset links; nil when MAIL_URL is not set.
+	Mailer auth.Mailer
 }
 
 // New returns the handler for the whole server.
@@ -48,24 +47,72 @@ func New(deps Deps) http.Handler {
 	if spa == nil {
 		spa = web.Handler()
 	}
+	accounts := auth.New(auth.Options{
+		DB:        deps.DB,
+		SecretKey: deps.Config.SecretKey,
+		BaseURL:   deps.Config.BaseURL,
+		Mailer:    deps.Mailer,
+		Logger:    deps.Logger,
+	})
 
-	// Dashboard: the JSON API and the single-page app.
+	// Signed in: the JSON API and the dashboard's pages.
 	dashboard := http.NewServeMux()
-	api.New(deps.DB, deps.Logger).Register(dashboard)
+	accounts.Register(dashboard)
+	api.New(deps.DB, accounts, deps.Config.BaseURL, deps.Logger).Register(dashboard)
 	dashboard.HandleFunc("/ui/api/", notFoundJSON)
 	// "/" rather than "GET /": Go's mux refuses a method-only catch-all next to
 	// "/ui/api/". The SPA handler answers other methods with 405 itself.
 	dashboard.Handle("/", spa)
 
-	// Public: SDK traffic and the health check. Anything else goes through the
-	// guard to the dashboard.
+	// The dashboard's front door: the pages and API to sign in, the app's
+	// files (the sign-in pages need them; they hold no data), and the rest
+	// only with a session.
+	ui := http.NewServeMux()
+	accounts.RegisterPublic(ui)
+	for _, page := range auth.PublicPages {
+		ui.Handle("GET "+page, spa)
+	}
+	ui.Handle("GET /assets/", spa)
+	ui.Handle("/", accounts.RequireUser(dashboard))
+
+	// Browsers say where a request comes from; a change sent from another
+	// site is refused before it reaches a handler, on top of the CSRF token.
+	sameOrigin := http.NewCrossOriginProtection()
+	// BASE_URL is ours even when a proxy hands the request on with another
+	// Host header (which an old browser without Sec-Fetch-Site is compared with).
+	if err := sameOrigin.AddTrustedOrigin(deps.Config.BaseURL); err != nil {
+		deps.Logger.Warn("BASE_URL cannot be a trusted origin", "err", err)
+	}
+	sameOrigin.SetDenyHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		httpjson.Error(w, http.StatusForbidden, "requests from other sites are refused")
+	}))
+
+	// Public: SDK traffic and the health check. Anything else is the dashboard.
 	public := http.NewServeMux()
 	public.HandleFunc("GET /health", healthHandler(deps))
 	public.Handle(ingest.SentryEnvelopePattern, ingest.NewSentryHandler(deps.DB, deps.Queue, deps.Limiter, deps.Logger))
 	public.HandleFunc("/api/", notFoundJSON)
-	public.Handle("/", dashboardGuard(deps.Config.DevBasicAuth)(dashboard))
+	public.Handle("/", dashboardHeaders(sameOrigin.Handler(ui)))
 
 	return logRequests(deps.Logger, recoverPanics(deps.Logger, public))
+}
+
+// dashboardHeaders adds the headers every dashboard answer carries: no
+// framing by other sites (clickjacking), no MIME sniffing, no full URLs in
+// Referer headers to other sites, and no caching of API answers, which hold
+// one user's data.
+func dashboardHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("X-Frame-Options", "DENY")
+		h.Set("Content-Security-Policy", "frame-ancestors 'none'")
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("Referrer-Policy", "same-origin")
+		if strings.HasPrefix(r.URL.Path, "/ui/api/") {
+			h.Set("Cache-Control", "no-store")
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // healthHandler answers whether the process and its database work.
@@ -84,76 +131,6 @@ func healthHandler(deps Deps) http.HandlerFunc {
 		}
 		httpjson.Write(w, status, body)
 	}
-}
-
-// dashboardGuard returns middleware that keeps the dashboard private until
-// real logins arrive. devBasicAuth is "user:pass" or empty.
-func dashboardGuard(devBasicAuth string) func(http.Handler) http.Handler {
-	wantUser, wantPass, useBasicAuth := strings.Cut(devBasicAuth, ":")
-
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if useBasicAuth {
-				user, pass, ok := r.BasicAuth()
-				if !ok || !equalSecret(user, wantUser) || !equalSecret(pass, wantPass) {
-					w.Header().Set("WWW-Authenticate", `Basic realm="dashboard", charset="UTF-8"`)
-					writeGuardError(w, r, http.StatusUnauthorized, "sign in with the DEV_BASIC_AUTH credentials")
-					return
-				}
-				next.ServeHTTP(w, r)
-				return
-			}
-
-			if !fromLoopback(r) {
-				writeGuardError(w, r, http.StatusForbidden,
-					"the dashboard only answers requests made directly from this machine (not through a proxy); set DEV_BASIC_AUTH=user:password to open it to others")
-				return
-			}
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-
-// writeGuardError answers in JSON for the dashboard API and in plain text for pages.
-func writeGuardError(w http.ResponseWriter, r *http.Request, status int, message string) {
-	if strings.HasPrefix(r.URL.Path, "/ui/api/") {
-		httpjson.Error(w, status, message)
-		return
-	}
-	http.Error(w, message, status)
-}
-
-// equalSecret compares in constant time, so the response time leaks nothing.
-// Hashing first makes the comparison independent of the lengths too.
-func equalSecret(got, want string) bool {
-	g, w := sha256.Sum256([]byte(got)), sha256.Sum256([]byte(want))
-	return subtle.ConstantTimeCompare(g[:], w[:]) == 1
-}
-
-// forwardingHeaders are set by reverse proxies. A loopback peer that sends one
-// is most likely a proxy on the same host (or a container with --network
-// host) relaying someone else's request.
-var forwardingHeaders = []string{"Forwarded", "X-Forwarded-For", "X-Real-IP"}
-
-// fromLoopback reports whether the request comes from this machine itself:
-// the TCP peer is loopback and no forwarding header is present. The headers
-// can only make the check stricter, never looser: anyone can send them, so a
-// non-loopback peer is refused whatever they say.
-func fromLoopback(r *http.Request) bool {
-	for _, name := range forwardingHeaders {
-		if r.Header.Get(name) != "" {
-			return false
-		}
-	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		host = r.RemoteAddr
-	}
-	addr, err := netip.ParseAddr(host)
-	if err != nil {
-		return false
-	}
-	return addr.Unmap().IsLoopback()
 }
 
 // logRequests logs one line per request. It leaves out the query string

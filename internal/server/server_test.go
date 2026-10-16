@@ -29,27 +29,26 @@ var testFiles = fstest.MapFS{
 	".keep":         {Data: nil},
 }
 
-// newTestServer builds the full handler on a fresh database. devBasicAuth is
-// the DEV_BASIC_AUTH value ("" for none).
-func newTestServer(t *testing.T, devBasicAuth string) http.Handler {
+// newTestServer builds the full handler on a fresh database.
+func newTestServer(t *testing.T) http.Handler {
 	t.Helper()
-	return newTestServerWithLog(t, devBasicAuth, io.Discard)
+	return newTestServerWithLog(t, io.Discard)
 }
 
-func newTestServerWithLog(t *testing.T, devBasicAuth string, logOutput io.Writer) http.Handler {
+func newTestServerWithLog(t *testing.T, logOutput io.Writer) http.Handler {
 	t.Helper()
-	return New(newTestDeps(t, devBasicAuth, logOutput))
+	return New(newTestDeps(t, logOutput))
 }
 
 // newTestDeps opens a fresh, migrated database and returns the server's dependencies.
-func newTestDeps(t *testing.T, devBasicAuth string, logOutput io.Writer) Deps {
+func newTestDeps(t *testing.T, logOutput io.Writer) Deps {
 	t.Helper()
 	dir := t.TempDir()
 	cfg := config.Config{
-		BaseURL:      "https://monitor.example.com",
-		DataDir:      dir,
-		SQLitePath:   filepath.Join(dir, "monitor.db"),
-		DevBasicAuth: devBasicAuth,
+		SecretKey:  "a-long-random-secret-for-tests",
+		BaseURL:    "https://monitor.example.com",
+		DataDir:    dir,
+		SQLitePath: filepath.Join(dir, "monitor.db"),
 	}
 	db, err := store.Open(context.Background(), cfg)
 	if err != nil {
@@ -68,6 +67,30 @@ func newTestDeps(t *testing.T, devBasicAuth string, logOutput io.Writer) Deps {
 		SPA:     web.NewHandler(testFiles),
 		Queue:   ingest.NewQueue(100),
 		Limiter: ingest.NewRateLimiter(),
+	}
+}
+
+// signIn creates the first account through the setup page's API and
+// returns a request option that sends its session cookie and CSRF token.
+func signIn(t *testing.T, h http.Handler) func(*http.Request) {
+	t.Helper()
+	rec := do(h, http.MethodPost, "/ui/api/setup", "", func(r *http.Request) {
+		r.Body = io.NopCloser(strings.NewReader(`{"email":"admin@example.com","password":"a good password"}`))
+		r.Header.Set("Content-Type", "application/json")
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("setup = %d %s", rec.Code, rec.Body)
+	}
+	var me struct {
+		CSRFToken string `json:"csrfToken"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &me); err != nil || len(rec.Result().Cookies()) != 1 {
+		t.Fatalf("setup answer %s, cookies %v", rec.Body, rec.Result().Cookies())
+	}
+	cookie := rec.Result().Cookies()[0]
+	return func(r *http.Request) {
+		r.AddCookie(cookie)
+		r.Header.Set("X-CSRF-Token", me.CSRFToken)
 	}
 }
 
@@ -110,7 +133,7 @@ func isHTML(rec *httptest.ResponseRecorder) bool {
 }
 
 func TestHealth_OK(t *testing.T) {
-	h := newTestServer(t, "")
+	h := newTestServer(t)
 
 	rec := do(h, http.MethodGet, "/health", "")
 	if rec.Code != http.StatusOK {
@@ -133,7 +156,7 @@ func TestHealth_OK(t *testing.T) {
 }
 
 func TestHealth_503WhenDatabaseFails(t *testing.T) {
-	deps := newTestDeps(t, "", io.Discard)
+	deps := newTestDeps(t, io.Discard)
 	h := New(deps)
 	deps.DB.Close()
 
@@ -151,11 +174,12 @@ func TestHealth_503WhenDatabaseFails(t *testing.T) {
 }
 
 func TestSPA_Fallback(t *testing.T) {
-	h := newTestServer(t, "")
+	h := newTestServer(t)
+	session := signIn(t, h)
 
 	t.Run("client route gets index.html", func(t *testing.T) {
 		for _, path := range []string{"/", "/projects/1/issues", "/index.html"} {
-			rec := do(h, http.MethodGet, path, "")
+			rec := do(h, http.MethodGet, path, "", session)
 			if rec.Code != http.StatusOK || !isHTML(rec) || !strings.Contains(rec.Body.String(), "dashboard-index") {
 				t.Errorf("GET %s = %d %q %q, want 200 index.html", path, rec.Code, rec.Header().Get("Content-Type"), rec.Body)
 			}
@@ -176,7 +200,7 @@ func TestSPA_Fallback(t *testing.T) {
 	})
 
 	t.Run("unknown dashboard API is a JSON 404", func(t *testing.T) {
-		rec := do(h, http.MethodGet, "/ui/api/nope", "")
+		rec := do(h, http.MethodGet, "/ui/api/nope", "", session)
 		if rec.Code != http.StatusNotFound {
 			t.Fatalf("status = %d, want 404", rec.Code)
 		}
@@ -188,7 +212,7 @@ func TestSPA_Fallback(t *testing.T) {
 
 	t.Run("client routes with a dot in the last segment get index.html", func(t *testing.T) {
 		for _, path := range []string{"/projects/1/users/jan@example.com", "/releases/v1.2.3", "/favicon.ico"} {
-			rec := do(h, http.MethodGet, path, "")
+			rec := do(h, http.MethodGet, path, "", session)
 			if rec.Code != http.StatusOK || !isHTML(rec) || !strings.Contains(rec.Body.String(), "dashboard-index") {
 				t.Errorf("GET %s = %d %q, want 200 index.html", path, rec.Code, rec.Header().Get("Content-Type"))
 			}
@@ -197,7 +221,7 @@ func TestSPA_Fallback(t *testing.T) {
 
 	t.Run("missing files are 404, not HTML", func(t *testing.T) {
 		for _, path := range []string{"/assets/missing.js", "/assets/v1.2.3", "/.keep"} {
-			rec := do(h, http.MethodGet, path, "")
+			rec := do(h, http.MethodGet, path, "", session)
 			if rec.Code != http.StatusNotFound || isHTML(rec) {
 				t.Errorf("GET %s = %d %q, want a 404 that is not HTML", path, rec.Code, rec.Header().Get("Content-Type"))
 			}
@@ -205,7 +229,7 @@ func TestSPA_Fallback(t *testing.T) {
 	})
 
 	t.Run("other methods are not answered with HTML", func(t *testing.T) {
-		rec := do(h, http.MethodPost, "/projects", "")
+		rec := do(h, http.MethodPost, "/projects", "", session)
 		if rec.Code != http.StatusMethodNotAllowed && rec.Code != http.StatusNotFound {
 			t.Errorf("POST /projects = %d, want 405 or 404", rec.Code)
 		}
@@ -216,18 +240,25 @@ func TestSPA_Fallback(t *testing.T) {
 }
 
 func TestDashboardAPI_Mounted(t *testing.T) {
-	h := newTestServer(t, "dev:secret-password")
+	h := newTestServer(t)
+	// Behind RequireUser like every dashboard route.
+	if rec := do(h, http.MethodGet, "/ui/api/projects", ""); rec.Code != http.StatusUnauthorized {
+		t.Errorf("GET /ui/api/projects without a session = %d, want 401", rec.Code)
+	}
+	session := signIn(t, h)
 
-	rec := do(h, http.MethodGet, "/ui/api/projects", "", func(r *http.Request) { r.SetBasicAuth("dev", "secret-password") })
+	rec := do(h, http.MethodGet, "/ui/api/projects", "", session)
 	if rec.Code != http.StatusOK || rec.Body.String() != "[]\n" {
 		t.Errorf("GET /ui/api/projects = %d %q, want 200 []", rec.Code, rec.Body)
 	}
-	// Behind the guard like every dashboard route.
-	if rec := do(h, http.MethodGet, "/ui/api/projects", ""); rec.Code != http.StatusUnauthorized {
-		t.Errorf("GET /ui/api/projects without credentials = %d, want 401", rec.Code)
+	if rec := do(h, http.MethodGet, "/ui/api/me", "", session); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "admin@example.com") {
+		t.Errorf("GET /ui/api/me = %d %s", rec.Code, rec.Body)
+	}
+	if rec := do(h, http.MethodGet, "/ui/api/settings/projects", "", session); rec.Code != http.StatusOK {
+		t.Errorf("GET /ui/api/settings/projects = %d, want 200", rec.Code)
 	}
 	// A wrong method falls through to the /ui/api/ catch-all: a JSON 404, not Go's plain-text 405.
-	rec = do(h, http.MethodDelete, "/ui/api/projects", "", func(r *http.Request) { r.SetBasicAuth("dev", "secret-password") })
+	rec = do(h, http.MethodDelete, "/ui/api/projects", "", session)
 	if rec.Code != http.StatusNotFound || rec.Body.String() != "{\"error\":\"not found\"}\n" {
 		t.Errorf("DELETE /ui/api/projects = %d %q, want 404 {\"error\":\"not found\"}", rec.Code, rec.Body)
 	}
@@ -245,110 +276,128 @@ func TestSPA_NotBuilt(t *testing.T) {
 	}
 }
 
-func TestDashboardGuard(t *testing.T) {
+func TestDashboard_SignInRequired(t *testing.T) {
+	h := newTestServer(t)
 	const remote = "203.0.113.5:40000"
 
-	t.Run("without DEV_BASIC_AUTH only loopback reaches the dashboard", func(t *testing.T) {
-		h := newTestServer(t, "")
+	// Before the first account exists, pages lead to the setup page.
+	if rec := do(h, http.MethodGet, "/projects/1/issues", remote); rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/setup" {
+		t.Errorf("GET /projects/1/issues before setup = %d %q, want 303 /setup", rec.Code, rec.Header().Get("Location"))
+	}
+	session := signIn(t, h)
 
-		for _, path := range []string{"/", "/projects/1/issues", "/ui/api/projects"} {
-			if rec := do(h, http.MethodGet, path, remote); rec.Code != http.StatusForbidden {
-				t.Errorf("GET %s from %s = %d, want 403", path, remote, rec.Code)
-			}
+	// The sign-in pages, their API and the app's files are open...
+	for _, path := range []string{"/setup", "/login", "/invite", "/forgot-password", "/reset-password"} {
+		if rec := do(h, http.MethodGet, path, remote); rec.Code != http.StatusOK || !isHTML(rec) {
+			t.Errorf("GET %s = %d, want the app's index.html", path, rec.Code)
 		}
-		if rec := do(h, http.MethodGet, "/ui/api/projects", remote); !strings.HasPrefix(rec.Header().Get("Content-Type"), "application/json") {
-			t.Errorf("403 on /ui/api has Content-Type %q, want JSON", rec.Header().Get("Content-Type"))
-		}
+	}
+	if rec := do(h, http.MethodGet, "/assets/app.js", remote); rec.Code != http.StatusOK {
+		t.Errorf("GET /assets/app.js = %d, want 200", rec.Code)
+	}
+	if rec := do(h, http.MethodGet, "/ui/api/auth/status", remote); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"setupNeeded":false`) {
+		t.Errorf("GET /ui/api/auth/status = %d %s", rec.Code, rec.Body)
+	}
 
-		for _, addr := range []string{"127.0.0.1:50000", "[::1]:50000"} {
-			if rec := do(h, http.MethodGet, "/", addr); rec.Code != http.StatusOK {
-				t.Errorf("GET / from %s = %d, want 200", addr, rec.Code)
-			}
-			if rec := do(h, http.MethodGet, "/ui/api/nope", addr); rec.Code != http.StatusNotFound {
-				t.Errorf("GET /ui/api/nope from %s = %d, want 404 (allowed through)", addr, rec.Code)
-			}
+	// ...everything else needs a session, from anywhere: this machine
+	// (loopback) gets no exception any more.
+	for _, addr := range []string{remote, "127.0.0.1:50000", "[::1]:50000"} {
+		rec := do(h, http.MethodGet, "/", addr)
+		if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/login" {
+			t.Errorf("GET / from %s without a session = %d %q, want 303 /login", addr, rec.Code, rec.Header().Get("Location"))
 		}
+		rec = do(h, http.MethodGet, "/ui/api/overview", addr)
+		if rec.Code != http.StatusUnauthorized || !strings.HasPrefix(rec.Header().Get("Content-Type"), "application/json") {
+			t.Errorf("GET /ui/api/overview from %s without a session = %d %q, want a JSON 401", addr, rec.Code, rec.Header().Get("Content-Type"))
+		}
+	}
+	if rec := do(h, http.MethodGet, "/", remote, session); rec.Code != http.StatusOK || !isHTML(rec) {
+		t.Errorf("GET / signed in = %d, want 200", rec.Code)
+	}
+	if rec := do(h, http.MethodPost, "/ui/api/setup", remote, func(r *http.Request) {
+		r.Body = io.NopCloser(strings.NewReader(`{"email":"second@example.com","password":"a good password"}`))
+		r.Header.Set("Content-Type", "application/json")
+	}); rec.Code != http.StatusNotFound {
+		t.Errorf("second setup = %d, want 404", rec.Code)
+	}
+}
+
+func TestDashboard_HealthAndIngestNeedNoSession(t *testing.T) {
+	deps := newTestDeps(t, io.Discard)
+	h := New(deps)
+	signIn(t, h)
+	p, err := deps.DB.CreateProject(context.Background(), store.NewProject{Name: "Webshop"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const remote = "203.0.113.5:40000"
+
+	if rec := do(h, http.MethodGet, "/health", remote); rec.Code != http.StatusOK {
+		t.Errorf("GET /health = %d, want 200", rec.Code)
+	}
+	// Browser SDKs send from the sites they run on: ingest takes cross-site requests.
+	rec := postEnvelope(h, p, remote, func(r *http.Request) {
+		r.Header.Set("Origin", "https://shop.example.com")
+		r.Header.Set("Sec-Fetch-Site", "cross-site")
 	})
+	if rec.Code != http.StatusOK {
+		t.Errorf("POST envelope from another site = %d %s, want 200", rec.Code, rec.Body)
+	}
+}
 
-	t.Run("a loopback peer carrying forwarding headers is a proxy and is refused", func(t *testing.T) {
-		h := newTestServer(t, "")
+func TestDashboard_ChangesFromOtherSitesRefused(t *testing.T) {
+	h := newTestServer(t)
+	session := signIn(t, h)
+	crossSite := func(r *http.Request) {
+		r.Header.Set("Sec-Fetch-Site", "cross-site")
+		r.Header.Set("Origin", "https://evil.example.com")
+	}
+	jsonBody := func(body string) func(*http.Request) {
+		return func(r *http.Request) {
+			r.Body = io.NopCloser(strings.NewReader(body))
+			r.Header.Set("Content-Type", "application/json")
+		}
+	}
 
-		headers := map[string]string{
-			"Forwarded":       "for=203.0.113.5",
-			"X-Forwarded-For": "203.0.113.5",
-			"X-Real-IP":       "203.0.113.5",
-		}
-		for name, value := range headers {
-			for _, addr := range []string{"127.0.0.1:50000", "[::1]:50000"} {
-				rec := do(h, http.MethodGet, "/", addr, func(r *http.Request) { r.Header.Set(name, value) })
-				if rec.Code != http.StatusForbidden {
-					t.Errorf("GET / from %s with %s = %d, want 403", addr, name, rec.Code)
-				}
-			}
-		}
+	// Even with the session and its CSRF token, a change sent from another site is refused...
+	rec := do(h, http.MethodPost, "/ui/api/settings/projects", "", session, jsonBody(`{"name":"Evil"}`), crossSite)
+	if rec.Code != http.StatusForbidden || !strings.HasPrefix(rec.Header().Get("Content-Type"), "application/json") {
+		t.Errorf("cross-site POST = %d %q, want a JSON 403", rec.Code, rec.Header().Get("Content-Type"))
+	}
+	rec = do(h, http.MethodPost, "/ui/api/login", "", jsonBody(`{"email":"admin@example.com","password":"a good password"}`), crossSite)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("cross-site login = %d, want 403", rec.Code)
+	}
+	// ...reading is not a change...
+	if rec := do(h, http.MethodGet, "/ui/api/projects", "", session, crossSite); rec.Code != http.StatusOK {
+		t.Errorf("cross-site GET = %d, want 200 (SameSite=Lax keeps the cookie out of real cross-site requests)", rec.Code)
+	}
+	// ...and the same change from the dashboard itself goes through.
+	rec = do(h, http.MethodPost, "/ui/api/settings/projects", "", session, jsonBody(`{"name":"Fine"}`), func(r *http.Request) {
+		r.Header.Set("Sec-Fetch-Site", "same-origin")
 	})
+	if rec.Code != http.StatusCreated {
+		t.Errorf("same-origin POST = %d %s, want 201", rec.Code, rec.Body)
+	}
+}
 
-	t.Run("with DEV_BASIC_AUTH everyone needs the credentials", func(t *testing.T) {
-		h := newTestServer(t, "user:pass")
-
-		cases := []struct {
-			name, addr string
-			setup      func(*http.Request)
-			want       int
-		}{
-			{"no credentials", remote, nil, http.StatusUnauthorized},
-			{"wrong password", remote, func(r *http.Request) { r.SetBasicAuth("user", "nope") }, http.StatusUnauthorized},
-			{"wrong user", remote, func(r *http.Request) { r.SetBasicAuth("admin", "pass") }, http.StatusUnauthorized},
-			{"loopback without credentials", "127.0.0.1:50000", nil, http.StatusUnauthorized},
-			{"right credentials", remote, func(r *http.Request) { r.SetBasicAuth("user", "pass") }, http.StatusOK},
+func TestDashboard_SecurityHeaders(t *testing.T) {
+	h := newTestServer(t)
+	session := signIn(t, h)
+	for _, path := range []string{"/", "/login", "/ui/api/projects"} {
+		rec := do(h, http.MethodGet, path, "", session)
+		if rec.Header().Get("X-Frame-Options") != "DENY" || rec.Header().Get("Content-Security-Policy") != "frame-ancestors 'none'" ||
+			rec.Header().Get("X-Content-Type-Options") != "nosniff" {
+			t.Errorf("GET %s headers = %v", path, rec.Header())
 		}
-		for _, tc := range cases {
-			for _, path := range []string{"/", "/ui/api/nope"} {
-				var setup []func(*http.Request)
-				if tc.setup != nil {
-					setup = append(setup, tc.setup)
-				}
-				rec := do(h, http.MethodGet, path, tc.addr, setup...)
-
-				want := tc.want
-				if want == http.StatusOK && path == "/ui/api/nope" {
-					want = http.StatusNotFound // allowed through to the API's 404
-				}
-				if rec.Code != want {
-					t.Errorf("%s: GET %s = %d, want %d", tc.name, path, rec.Code, want)
-				}
-				if want == http.StatusUnauthorized && !strings.HasPrefix(rec.Header().Get("WWW-Authenticate"), "Basic ") {
-					t.Errorf("%s: GET %s has no Basic WWW-Authenticate header", tc.name, path)
-				}
-			}
-		}
-	})
-
-	t.Run("health and ingest are never guarded", func(t *testing.T) {
-		for _, auth := range []string{"", "user:pass"} {
-			deps := newTestDeps(t, auth, io.Discard)
-			h := New(deps)
-			p, err := deps.DB.CreateProject(context.Background(), store.NewProject{Name: "Webshop"})
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			if rec := do(h, http.MethodGet, "/health", remote); rec.Code != http.StatusOK {
-				t.Errorf("DEV_BASIC_AUTH=%q: GET /health from %s = %d, want 200", auth, remote, rec.Code)
-			}
-			rec := postEnvelope(h, p, remote, func(r *http.Request) { r.Header.Set("X-Forwarded-For", "198.51.100.7") })
-			if rec.Code != http.StatusOK {
-				t.Errorf("DEV_BASIC_AUTH=%q: POST envelope from %s = %d, want 200; body %s", auth, remote, rec.Code, rec.Body)
-			}
-			if rec.Header().Get("WWW-Authenticate") != "" {
-				t.Errorf("DEV_BASIC_AUTH=%q: POST envelope asks for credentials", auth)
-			}
-		}
-	})
+	}
+	if cc := do(h, http.MethodGet, "/ui/api/projects", "", session).Header().Get("Cache-Control"); cc != "no-store" {
+		t.Errorf("API Cache-Control = %q, want no-store", cc)
+	}
 }
 
 func TestSentryRoute(t *testing.T) {
-	deps := newTestDeps(t, "", io.Discard)
+	deps := newTestDeps(t, io.Discard)
 	h := New(deps)
 	p, err := deps.DB.CreateProject(context.Background(), store.NewProject{Name: "Webshop"})
 	if err != nil {
@@ -385,7 +434,7 @@ func TestSentryRoute(t *testing.T) {
 
 func TestRequestLog_IngestSuccessAtDebug(t *testing.T) {
 	var logs bytes.Buffer
-	deps := newTestDeps(t, "", &logs) // the text handler logs info and up
+	deps := newTestDeps(t, &logs) // the text handler logs info and up
 	h := New(deps)
 	p, err := deps.DB.CreateProject(context.Background(), store.NewProject{Name: "Webshop"})
 	if err != nil {
@@ -404,12 +453,12 @@ func TestRequestLog_IngestSuccessAtDebug(t *testing.T) {
 
 func TestRequestLog_OmitsQueryAndIP(t *testing.T) {
 	var logs bytes.Buffer
-	h := newTestServerWithLog(t, "", &logs)
+	h := newTestServerWithLog(t, &logs)
 
 	do(h, http.MethodGet, "/ui/api/nope?sentry_key=secret123", "")
 
 	line := logs.String()
-	for _, want := range []string{"method=GET", "path=/ui/api/nope", "status=404"} {
+	for _, want := range []string{"method=GET", "path=/ui/api/nope", "status=401"} {
 		if !strings.Contains(line, want) {
 			t.Errorf("log %q does not contain %q", line, want)
 		}

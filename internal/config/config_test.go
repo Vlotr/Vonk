@@ -75,8 +75,8 @@ func TestLoadConfig_Defaults(t *testing.T) {
 	if cfg.LogLevel != slog.LevelInfo {
 		t.Errorf("LogLevel = %v, want info", cfg.LogLevel)
 	}
-	if cfg.DevBasicAuth != "" {
-		t.Errorf("DevBasicAuth = %q, want empty", cfg.DevBasicAuth)
+	if cfg.MailURL != "" || cfg.Mail != nil {
+		t.Errorf("mail = %q %+v, want none", cfg.MailURL, cfg.Mail)
 	}
 }
 
@@ -178,7 +178,6 @@ func TestLoadConfig_OptionalValues(t *testing.T) {
 	vars := validEnv()
 	vars["ADDR"] = "127.0.0.1:9000"
 	vars["LOG_LEVEL"] = "debug"
-	vars["DEV_BASIC_AUTH"] = "user:pass"
 	vars["MAIL_URL"] = "smtp://user:pass@mail.example.com:587"
 	vars["DATABASE_URL"] = "postgres://monitor@db/monitor"
 
@@ -192,11 +191,11 @@ func TestLoadConfig_OptionalValues(t *testing.T) {
 	if cfg.LogLevel != slog.LevelDebug {
 		t.Errorf("LogLevel = %v, want debug", cfg.LogLevel)
 	}
-	if cfg.DevBasicAuth != "user:pass" {
-		t.Errorf("DevBasicAuth = %q", cfg.DevBasicAuth)
-	}
 	if cfg.MailURL != vars["MAIL_URL"] {
 		t.Errorf("MailURL = %q", cfg.MailURL)
+	}
+	if cfg.Mail == nil || cfg.Mail.Host != "mail.example.com" || cfg.Mail.Port != 587 || cfg.Mail.Username != "user" {
+		t.Errorf("Mail = %+v", cfg.Mail)
 	}
 	if cfg.DatabaseURL != vars["DATABASE_URL"] {
 		t.Errorf("DatabaseURL = %q", cfg.DatabaseURL)
@@ -208,9 +207,9 @@ func TestLoadConfig_OptionalValues(t *testing.T) {
 
 func TestLoadConfig_RejectsBadOptionalValues(t *testing.T) {
 	cases := map[string]string{
-		"LOG_LEVEL":      "loud",
-		"DEV_BASIC_AUTH": "no-colon",
-		"DATABASE_URL":   "mysql://db/monitor",
+		"LOG_LEVEL":    "loud",
+		"MAIL_URL":     "http://user:secret-pass@mail.example.com",
+		"DATABASE_URL": "mysql://db/monitor",
 	}
 	for name, value := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -223,6 +222,9 @@ func TestLoadConfig_RejectsBadOptionalValues(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), name) {
 				t.Errorf("error %q does not name %s", err, name)
+			}
+			if strings.Contains(err.Error(), "secret-pass") {
+				t.Errorf("error %q shows the password", err)
 			}
 		})
 	}
