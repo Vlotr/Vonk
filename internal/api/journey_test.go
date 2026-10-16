@@ -147,3 +147,58 @@ func TestJourney_NoUserIDEmpty(t *testing.T) {
 		t.Errorf("before the error: %s; want nothing without a user id", stepsText(got.BeforeError))
 	}
 }
+
+// Ruling 41: the error's time is corrected to the server's clock with the
+// envelope's sent_at, as page views' times are, so a browser whose clock
+// is 5 minutes behind or ahead still gets exactly the pages before the
+// error; the user activity puts the error between the same pages.
+func TestJourney_ClientClockOff(t *testing.T) {
+	for _, skew := range []time.Duration{-5 * time.Minute, 5 * time.Minute} {
+		t.Run(fmt.Sprint("clock off by ", skew), func(t *testing.T) {
+			env := newTestEnv(t)
+			shop := env.pageProject(t, "Webshop")
+			// By the server's clock the error happened a second before it arrived (testNow).
+			errorAt := testNow.Add(-time.Second)
+			env.visits(t, shop.ID,
+				visit{user: "42", route: "/too-early", at: errorAt.Add(-31 * time.Minute), stay: time.Minute},
+				visit{user: "42", route: "/products/:slug", at: errorAt.Add(-4 * time.Minute), stay: 100 * time.Second},
+				visit{user: "42", route: "/cart", at: errorAt.Add(-2 * time.Minute), stay: 35 * time.Second},
+				visit{user: "42", route: "/checkout", at: errorAt.Add(-80 * time.Second)},
+				// Opened after the error (within the clock's error).
+				visit{user: "42", route: "/thanks", at: errorAt.Add(30 * time.Second)},
+			)
+			// The browser's clock is off by skew: its timestamp and its sent_at both.
+			env.saveSent(t, shop.ID, testNow.Add(skew),
+				phpEvent(t, eventSpec{id: hexID(1), userID: "42", url: "https://shop.example.com/checkout", at: errorAt.Add(skew)}))
+
+			got := journeyOf(t, env, firstIssue(t, env, shop.ID))
+			if text := stepsText(got.BeforeError); len(got.BeforeError) != 3 || got.BeforeError[0].Route != "/products/:slug" ||
+				got.BeforeError[2].Route != "/checkout" {
+				t.Errorf("before the error: %s; want /products/:slug, /cart, /checkout", text)
+			}
+			activity := getJSON[activityResponse](t, env, activityPath(shop.ID, "42", ""))
+			if text := itemsText(activity.Items); text != "pageview:/thanks error:RuntimeException pageview:/checkout pageview:/cart pageview:/products/:slug pageview:/too-early" {
+				t.Errorf("activity = %s", text)
+			}
+		})
+	}
+}
+
+// The window is the 30 minutes up to the error: a page opened exactly 30
+// minutes before it is in, one opened a millisecond earlier is not.
+func TestJourney_ThirtyMinuteEdge(t *testing.T) {
+	env := newTestEnv(t)
+	shop := env.pageProject(t, "Webshop")
+	errorAt := testNow.Add(-5 * time.Minute)
+	env.visits(t, shop.ID,
+		visit{user: "42", route: "/just-before-the-window", at: errorAt.Add(-30*time.Minute - time.Millisecond)},
+		visit{user: "42", route: "/window-start", at: errorAt.Add(-30 * time.Minute)},
+		visit{user: "42", route: "/at-the-error", at: errorAt},
+	)
+	env.save(t, shop.ID, phpEvent(t, eventSpec{id: hexID(1), userID: "42", at: errorAt}))
+
+	got := journeyOf(t, env, firstIssue(t, env, shop.ID))
+	if len(got.BeforeError) != 2 || got.BeforeError[0].Route != "/window-start" || got.BeforeError[1].Route != "/at-the-error" {
+		t.Errorf("before the error: %s; want /window-start and /at-the-error", stepsText(got.BeforeError))
+	}
+}

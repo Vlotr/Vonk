@@ -102,8 +102,12 @@ export function IssueDetailPage() {
             </time>
           </Stat>
           {issue.release && (
-            <Stat label="Release" title={`First seen in ${issue.release}. See the issues of this release.`}>
-              <Link className={styles.statLink} to={`/projects/${projectId}/issues?release=${encodeURIComponent(issue.release)}`}>
+            <Stat label="Release">
+              <Link
+                className={styles.statLink}
+                to={`/projects/${projectId}/issues?release=${encodeURIComponent(issue.release)}`}
+                title="See issues with events in this release"
+              >
                 {issue.release}
               </Link>
               {issue.regressedRelease && issue.regressedRelease !== issue.release && (

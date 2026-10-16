@@ -147,13 +147,14 @@ func (h *SentryHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	received := h.now()
+	sentAt := env.Header.SentTime() // the writer moves event times to the server's clock with it
 	items := make([]Item, len(env.Events))
 	for i, ev := range env.Events {
 		if ev.EventID == "" {
 			ev.SetEventID(newEventID())
 		}
 		scrub.Event(ev)
-		items[i] = Item{ProjectID: project.ID, ReceivedAt: received, Event: ev, Route: errorRoute(ev, project.RoutePatterns)}
+		items[i] = Item{ProjectID: project.ID, ReceivedAt: received, SentAt: sentAt, Event: ev, Route: errorRoute(ev, project.RoutePatterns)}
 	}
 	if !h.queue.TryEnqueueAll(items) {
 		h.limiter.Return(minute, asks)

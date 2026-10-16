@@ -81,6 +81,8 @@ test('the issue page shows the pages before the error; the user activity and Eve
   const release = admin.locator('dt', { hasText: /^Release$/ }).locator('xpath=following-sibling::dd[1]')
   await expect(release).toHaveText('shop@2.8.1')
   await expect(release.getByRole('link')).toHaveAttribute('href', `/projects/${projectId}/issues?release=shop%402.8.1`)
+  // The link keeps the filter's meaning (ruling 40): issues with events in that release.
+  await expect(release.getByRole('link')).toHaveAttribute('title', 'See issues with events in this release')
   await admin.screenshot({ path: join(screenshots, 'phase4-journey.png'), fullPage: true })
 
   // All activity of this user: the error, the custom events and the pages, the newest first.

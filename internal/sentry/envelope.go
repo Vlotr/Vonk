@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"time"
 )
 
 // ErrBadEnvelope is wrapped by every error ParseEnvelope returns.
@@ -43,7 +44,17 @@ type Envelope struct {
 type Header struct {
 	EventID string // normalized like Event.EventID
 	DSN     string // browser and PHP SDKs send their DSN here
-	SentAt  string
+	SentAt  string // when the SDK sent the envelope, RFC 3339 by the client's clock
+}
+
+// SentTime returns SentAt as a time, or zero when the SDK sent none or
+// one that is not RFC 3339.
+func (h Header) SentTime() time.Time {
+	t, err := time.Parse(time.RFC3339Nano, h.SentAt)
+	if err != nil {
+		return time.Time{}
+	}
+	return t.UTC()
 }
 
 // itemHeader is the JSON line before each item.

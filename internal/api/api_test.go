@@ -178,6 +178,13 @@ func (e *testEnv) project(t *testing.T, name string) store.Project {
 // their URL, through the queue and the batch writer, received at testNow.
 func (e *testEnv) save(t *testing.T, projectID int64, events ...*sentry.Event) {
 	t.Helper()
+	e.saveSent(t, projectID, time.Time{}, events...)
+}
+
+// saveSent is save for events whose envelope said it was sent at sentAt
+// (by the client's clock); zero means it did not say.
+func (e *testEnv) saveSent(t *testing.T, projectID int64, sentAt time.Time, events ...*sentry.Event) {
+	t.Helper()
 	queue := ingest.NewQueue(len(events))
 	for _, ev := range events {
 		scrub.Event(ev)
@@ -185,7 +192,7 @@ func (e *testEnv) save(t *testing.T, projectID int64, events ...*sentry.Event) {
 		if ev.Request.URL != "" {
 			route = routes.Normalize(ev.Request.URL, nil)
 		}
-		if !queue.TryEnqueue(ingest.Item{ProjectID: projectID, ReceivedAt: testNow, Event: ev, Route: route}) {
+		if !queue.TryEnqueue(ingest.Item{ProjectID: projectID, ReceivedAt: testNow, SentAt: sentAt, Event: ev, Route: route}) {
 			t.Fatal("queue full")
 		}
 	}

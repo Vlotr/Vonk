@@ -32,6 +32,10 @@ type Item struct {
 	Route string
 	// Event is a scrubbed Sentry error event, or nil.
 	Event *sentry.Event
+	// SentAt is when the SDK sent the event's envelope by the client's
+	// clock (its sent_at); zero when it did not say. The writer uses it to
+	// move the event's time to the server's clock (ruling 41).
+	SentAt time.Time
 	// Page is a scrubbed PostHog $pageview or $pageleave, or nil.
 	Page *posthog.Event
 	// Custom is a scrubbed PostHog custom event (a name without "$"), or nil.

@@ -5,6 +5,7 @@ import (
 	"compress/flate"
 	"compress/gzip"
 	"compress/zlib"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -320,4 +321,45 @@ func TestEnvelopeHandler_NeverServerError(t *testing.T) {
 		}
 	}
 	env.drain()
+}
+
+// Ruling 41: an error's time is moved to the server's clock as PostHog's
+// times are: with the envelope's sent_at, the event's timestamp plus
+// (received − sent_at), so a client clock that is minutes off cancels
+// out; without sent_at (or with one that cannot be read) the timestamp is
+// kept as sent, within the clamp.
+func TestEnvelopeHandler_CorrectsClockBySentAt(t *testing.T) {
+	env := newTestEnv(t, 100)
+	p := env.project(t, "Webshop", 1000)
+	// Received at 12:00:10 by the server; the error happened a second before.
+	happened := time.Date(2026, 10, 16, 12, 0, 9, 0, time.UTC)
+	cases := []struct {
+		name      string
+		timestamp time.Time // by the client's clock
+		header    string    // extra envelope header fields
+		want      time.Time
+	}{
+		{"clock 5 minutes ahead", happened.Add(5 * time.Minute), `,"sent_at":"2026-10-16T12:05:10Z"`, happened},
+		{"clock 5 minutes behind", happened.Add(-5 * time.Minute), `,"sent_at":"2026-10-16T11:55:10.000Z"`, happened},
+		{"clock 2 hours ahead", happened.Add(2 * time.Hour), `,"sent_at":"2026-10-16T14:00:10Z"`, happened},
+		{"no sent_at", happened.Add(-3 * time.Minute), ``, happened.Add(-3 * time.Minute)},
+		{"sent_at unreadable", happened.Add(-3 * time.Minute), `,"sent_at":"yesterday"`, happened.Add(-3 * time.Minute)},
+	}
+	for i, c := range cases {
+		body := strings.Replace(string(envelope(eventIDN(i+1), c.header)), `"timestamp":1792152010`,
+			fmt.Sprintf(`"timestamp":%d`, c.timestamp.Unix()), 1)
+		if rec := env.post(envelopePath(p), []byte(body), authHeader(p.SentryKey)); rec.Code != http.StatusOK {
+			t.Fatalf("%s: %d %s", c.name, rec.Code, rec.Body)
+		}
+	}
+	NewWriter(env.db, env.queue, &recordingHooks{}, env.logger).Close()
+	for i, c := range cases {
+		ev, err := env.db.ErrorEventByEventID(context.Background(), p.ID, eventIDN(i+1))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !ev.Timestamp.Equal(c.want) {
+			t.Errorf("%s: stored %v, want %v", c.name, ev.Timestamp.Format(time.TimeOnly), c.want.Format(time.TimeOnly))
+		}
+	}
 }

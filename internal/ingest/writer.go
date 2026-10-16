@@ -264,6 +264,18 @@ func (w *Writer) save(n int, write func() error) bool {
 	}
 }
 
+// errorTime returns when an error happened by the server's clock (ruling
+// 41), as PostHog's rule does for its events: with the envelope's sent_at,
+// the event's timestamp moved by received − sent_at, so a client clock
+// that is off cancels out; without it, the timestamp as sent. The clamp
+// applies to the result.
+func errorTime(ts, sentAt, received time.Time) time.Time {
+	if ts.IsZero() || sentAt.IsZero() {
+		return ts
+	}
+	return ts.Add(received.Sub(sentAt))
+}
+
 // clampTime returns ts, or received when ts is missing, more than an hour
 // after received (a client clock that is off) or more than 30 days before it.
 func clampTime(ts, received time.Time) time.Time {
@@ -323,7 +335,8 @@ func customEvent(item Item) (store.CustomEvent, error) {
 }
 
 // errorEvent turns a queued event into its database row: grouping, title,
-// culprit and source, the route, the stored JSON, and a timestamp that is
+// culprit and source, the route, the stored JSON (with the timestamp as
+// the SDK sent it), and a time on the server's clock (errorTime) that is
 // neither in the future nor more than 30 days old.
 func errorEvent(item Item) (store.NewErrorEvent, error) {
 	ev := item.Event
@@ -335,7 +348,7 @@ func errorEvent(item Item) (store.NewErrorEvent, error) {
 		return store.NewErrorEvent{}, err
 	}
 
-	ts := clampTime(ev.Timestamp, item.ReceivedAt)
+	ts := clampTime(errorTime(ev.Timestamp, item.SentAt, item.ReceivedAt), item.ReceivedAt)
 	summary := sentry.Summarize(ev)
 	return store.NewErrorEvent{
 		ProjectID:   item.ProjectID,
