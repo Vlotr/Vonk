@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -43,9 +44,19 @@ type issuesResponse struct {
 		Resolved int `json:"resolved"`
 		Ignored  int `json:"ignored"`
 	} `json:"counts"`
-	New24h int             `json:"new24h"`
-	Total  int             `json:"total"`
-	Issues []issueJSONTest `json:"issues"`
+	OpenIssues int             `json:"openIssues"`
+	New24h     int             `json:"new24h"`
+	Total      int             `json:"total"`
+	Issues     []issueJSONTest `json:"issues"`
+}
+
+// ids lists the issue ids of a response, in order.
+func (r issuesResponse) ids() []int64 {
+	ids := make([]int64, len(r.Issues))
+	for i, issue := range r.Issues {
+		ids[i] = issue.ID
+	}
+	return ids
 }
 
 type frameJSONTest struct {
@@ -388,5 +399,248 @@ func TestIssueDetail_UnknownID404(t *testing.T) {
 		if rec.Code != http.StatusNotFound || rec.Body.String() != "{\"error\":\"not found\"}\n" {
 			t.Errorf("GET %s = %d %q, want 404 {\"error\":\"not found\"}", path, rec.Code, rec.Body)
 		}
+	}
+}
+
+// issueIDs returns the ids of a project's issues by title, for readable assertions.
+func issueIDs(t *testing.T, env *testEnv, projectID int64) map[string]int64 {
+	t.Helper()
+	list, err := env.db.ListIssues(context.Background(), projectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := map[string]int64{}
+	for _, issue := range list {
+		ids[issue.Title] = issue.ID
+	}
+	return ids
+}
+
+func TestListIssues_FilterSource(t *testing.T) {
+	env := newTestEnv(t)
+	p := env.project(t, "Webshop")
+	env.save(t, p.ID,
+		phpEvent(t, eventSpec{id: hexID(1), typ: "QueryException"}),
+		phpEvent(t, eventSpec{id: hexID(2), typ: "TypeError", browser: true, file: "https://shop.example.com/assets/cart.js"}),
+		phpEvent(t, eventSpec{id: hexID(3), typ: "ChunkLoadError", browser: true, file: "https://shop.example.com/assets/app.js"}),
+	)
+	ids := issueIDs(t, env, p.ID)
+	env.setStatus(t, ids["ChunkLoadError"], store.IssueResolved)
+
+	browser := getJSON[issuesResponse](t, env, issuesPath(p.ID, "source=browser"))
+	if fmt.Sprint(browser.ids()) != fmt.Sprint([]int64{ids["TypeError"]}) || browser.Issues[0].Source != "browser" {
+		t.Errorf("source=browser: issues = %+v", browser.Issues)
+	}
+	// The tabs count with the filter: one open and one resolved browser issue.
+	if browser.Counts.Open != 1 || browser.Counts.Resolved != 1 || browser.Total != 1 {
+		t.Errorf("source=browser: counts %+v, total %d", browser.Counts, browser.Total)
+	}
+	// The headline counts the whole project.
+	if browser.OpenIssues != 2 || browser.New24h != 2 {
+		t.Errorf("source=browser: openIssues %d, new24h %d; want the project's 2 and 2", browser.OpenIssues, browser.New24h)
+	}
+
+	laravel := getJSON[issuesResponse](t, env, issuesPath(p.ID, "source=laravel"))
+	if fmt.Sprint(laravel.ids()) != fmt.Sprint([]int64{ids["QueryException"]}) || laravel.Counts.Resolved != 0 {
+		t.Errorf("source=laravel: issues %+v, counts %+v", laravel.Issues, laravel.Counts)
+	}
+	if rec := env.get(t, issuesPath(p.ID, "source=python")); rec.Code != http.StatusBadRequest {
+		t.Errorf("source=python = %d, want 400", rec.Code)
+	}
+}
+
+func TestListIssues_SortEventsDesc(t *testing.T) {
+	env := newTestEnv(t)
+	p := env.project(t, "Webshop")
+	// one: 1 event, seen last; two: 3 events from 1 user, first seen first;
+	// three: 2 events from 2 users.
+	env.save(t, p.ID,
+		phpEvent(t, eventSpec{id: hexID(1), typ: "One", at: testNow.Add(-time.Minute)}),
+		phpEvent(t, eventSpec{id: hexID(2), typ: "Two", userID: "u1", at: testNow.Add(-5 * time.Hour)}),
+		phpEvent(t, eventSpec{id: hexID(3), typ: "Two", userID: "u1", at: testNow.Add(-4 * time.Hour)}),
+		phpEvent(t, eventSpec{id: hexID(4), typ: "Two", userID: "u1", at: testNow.Add(-3 * time.Hour)}),
+		phpEvent(t, eventSpec{id: hexID(5), typ: "Three", userID: "u2", at: testNow.Add(-2 * time.Hour)}),
+		phpEvent(t, eventSpec{id: hexID(6), typ: "Three", userID: "u3", at: testNow.Add(-90 * time.Minute)}),
+	)
+	ids := issueIDs(t, env, p.ID)
+	order := func(titles ...string) string {
+		var want []int64
+		for _, title := range titles {
+			want = append(want, ids[title])
+		}
+		return fmt.Sprint(want)
+	}
+
+	tests := []struct {
+		sort string
+		want string
+	}{
+		{"", order("One", "Three", "Two")}, // last seen, the default
+		{"last_seen", order("One", "Three", "Two")},
+		{"events", order("Two", "Three", "One")},
+		{"users", order("Three", "Two", "One")},
+		{"first_seen", order("One", "Three", "Two")}, // newest first
+	}
+	for _, tt := range tests {
+		got := getJSON[issuesResponse](t, env, issuesPath(p.ID, "sort="+tt.sort))
+		if fmt.Sprint(got.ids()) != tt.want {
+			t.Errorf("sort=%s: ids %v, want %s", tt.sort, got.ids(), tt.want)
+		}
+	}
+
+	// Ties keep a stable order: the most recently seen first.
+	env.save(t, p.ID, phpEvent(t, eventSpec{id: hexID(7), typ: "Four", at: testNow.Add(-30 * time.Second)}))
+	ids = issueIDs(t, env, p.ID)
+	got := getJSON[issuesResponse](t, env, issuesPath(p.ID, "sort=events"))
+	if fmt.Sprint(got.ids()) != order("Two", "Three", "Four", "One") {
+		t.Errorf("sort=events with a tie: ids %v", got.ids())
+	}
+	if rec := env.get(t, issuesPath(p.ID, "sort=title")); rec.Code != http.StatusBadRequest {
+		t.Errorf("sort=title = %d, want 400", rec.Code)
+	}
+}
+
+func TestListIssues_SearchCulpritAndURL(t *testing.T) {
+	env := newTestEnv(t)
+	p := env.project(t, "Webshop")
+	env.save(t, p.ID,
+		phpEvent(t, eventSpec{id: hexID(1), typ: `Illuminate\Database\QueryException`, message: "Deadlock found", file: "/app/Http/Controllers/CartController.php"}),
+		phpEvent(t, eventSpec{id: hexID(2), typ: "TypeError", message: "Cannot read 'price'", browser: true,
+			file: "https://shop.example.com/resources/js/stock.js", url: "https://shop.example.com/checkout/pay?step=2"}),
+		phpEvent(t, eventSpec{id: hexID(3), typ: "DiscountError", message: "100% off is not allowed", file: "/app/Services/Discounts.php"}),
+	)
+	ids := issueIDs(t, env, p.ID)
+
+	tests := []struct {
+		q    string
+		want []int64
+	}{
+		{"cartcontroller", []int64{ids[`Illuminate\Database\QueryException`]}}, // culprit, any case
+		{"/checkout/pay", []int64{ids["TypeError"]}},                           // the URL of an event
+		{"js/STOCK.js", []int64{ids["TypeError"]}},                             // a browser culprit
+		{"queryexception", []int64{ids[`Illuminate\Database\QueryException`]}}, // title
+		{`database\query`, []int64{ids[`Illuminate\Database\QueryException`]}}, // a backslash is literal
+		{"deadlock", []int64{ids[`Illuminate\Database\QueryException`]}},       // message
+		{"100%", []int64{ids["DiscountError"]}},                                // "%" is literal, not a wildcard
+		{"_", nil},                                                             // so is "_"
+		{"  deadlock  ", []int64{ids[`Illuminate\Database\QueryException`]}},   // trimmed
+		{"nothing like this", nil},
+	}
+	for _, tt := range tests {
+		got := getJSON[issuesResponse](t, env, issuesPath(p.ID, "q="+url.QueryEscape(tt.q)))
+		if fmt.Sprint(got.ids()) != fmt.Sprint(append([]int64{}, tt.want...)) {
+			t.Errorf("q=%q: ids %v, want %v", tt.q, got.ids(), tt.want)
+		}
+		if got.Counts.Open != len(tt.want) || got.Total != len(tt.want) {
+			t.Errorf("q=%q: counts %+v, total %d; want %d", tt.q, got.Counts, got.Total, len(tt.want))
+		}
+	}
+	if rec := env.get(t, issuesPath(p.ID, "q="+strings.Repeat("a", 201))); rec.Code != http.StatusBadRequest {
+		t.Errorf("a 201-character search = %d, want 400", rec.Code)
+	}
+}
+
+func TestListIssues_FilterRoute(t *testing.T) {
+	env := newTestEnv(t)
+	p := env.project(t, "Webshop")
+	// Task 7 fills route from the URL; until then only stored events have one.
+	base := store.NewErrorEvent{ProjectID: p.ID, Title: "E", Level: "error", Timestamp: testNow, ReceivedAt: testNow, Data: "{}"}
+	product, cart, other := base, base, base
+	product.EventID, product.Fingerprint, product.Route = hexID(1), "a", "/products/{slug}"
+	cart.EventID, cart.Fingerprint, cart.Route = hexID(2), "b", "/cart"
+	other.EventID, other.Fingerprint, other.Route = hexID(3), "a", "/cart"
+	if _, err := env.db.SaveErrorEvents(context.Background(), []store.NewErrorEvent{product, cart, other}); err != nil {
+		t.Fatal(err)
+	}
+	list, _ := env.db.ListIssues(context.Background(), p.ID)
+	byFingerprint := map[string]int64{}
+	for _, issue := range list {
+		byFingerprint[issue.Fingerprint] = issue.ID
+	}
+
+	got := getJSON[issuesResponse](t, env, issuesPath(p.ID, "route="+url.QueryEscape("/products/{slug}")))
+	if fmt.Sprint(got.ids()) != fmt.Sprint([]int64{byFingerprint["a"]}) {
+		t.Errorf("route=/products/{slug}: ids %v, want only issue a", got.ids())
+	}
+	// Both issues had an event on /cart.
+	if got := getJSON[issuesResponse](t, env, issuesPath(p.ID, "route=/cart")); len(got.Issues) != 2 || got.Counts.Open != 2 {
+		t.Errorf("route=/cart: %d issues, counts %+v; want 2", len(got.Issues), got.Counts)
+	}
+	// Exact, not a prefix.
+	if got := getJSON[issuesResponse](t, env, issuesPath(p.ID, "route=/products")); len(got.Issues) != 0 {
+		t.Errorf("route=/products: %d issues, want 0", len(got.Issues))
+	}
+}
+
+func TestListIssues_CountsPerStatus(t *testing.T) {
+	env := newTestEnv(t)
+	p := env.project(t, "Webshop")
+	other := env.project(t, "Customer portal")
+	var events []*sentry.Event
+	for i := 1; i <= 6; i++ {
+		at := testNow.Add(-time.Duration(i) * time.Hour)
+		if i > 4 {
+			at = testNow.Add(-time.Duration(i) * 24 * time.Hour) // not new
+		}
+		events = append(events, phpEvent(t, eventSpec{id: hexID(i), typ: fmt.Sprint("E", i), browser: i%2 == 0, at: at}))
+	}
+	env.save(t, p.ID, events...)
+	env.save(t, other.ID, phpEvent(t, eventSpec{id: hexID(99), typ: "Elsewhere"}))
+	ids := issueIDs(t, env, p.ID)
+	env.setStatus(t, ids["E1"], store.IssueResolved)
+	env.setStatus(t, ids["E2"], store.IssueResolved)
+	env.setStatus(t, ids["E3"], store.IssueIgnored)
+	// Open: E4 (new, browser), E5 (old), E6 (old, browser).
+
+	for _, status := range []string{"open", "resolved", "ignored"} {
+		got := getJSON[issuesResponse](t, env, issuesPath(p.ID, "status="+status))
+		if got.Counts.Open != 3 || got.Counts.Resolved != 2 || got.Counts.Ignored != 1 {
+			t.Errorf("status=%s: counts %+v, want 3 open, 2 resolved, 1 ignored", status, got.Counts)
+		}
+		// Whatever the tab, the headline is about the project's open issues.
+		if got.OpenIssues != 3 || got.New24h != 1 {
+			t.Errorf("status=%s: openIssues %d, new24h %d; want 3 and 1 (E4)", status, got.OpenIssues, got.New24h)
+		}
+	}
+	if got := getJSON[issuesResponse](t, env, issuesPath(p.ID, "status=resolved")); got.Total != 2 || len(got.Issues) != 2 {
+		t.Errorf("status=resolved: total %d, %d issues", got.Total, len(got.Issues))
+	}
+
+	// With a filter the tabs count what matches it.
+	browser := getJSON[issuesResponse](t, env, issuesPath(p.ID, "source=browser&status=ignored"))
+	if browser.Counts.Open != 2 || browser.Counts.Resolved != 1 || browser.Counts.Ignored != 0 || browser.Total != 0 {
+		t.Errorf("source=browser: counts %+v, total %d; want 2 open (E4, E6), 1 resolved (E2), 0 ignored", browser.Counts, browser.Total)
+	}
+}
+
+func TestListIssues_Pagination(t *testing.T) {
+	env := newTestEnv(t)
+	p := env.project(t, "Webshop")
+	var events []*sentry.Event
+	for i := 1; i <= 30; i++ {
+		events = append(events, phpEvent(t, eventSpec{id: hexID(i), typ: fmt.Sprint("E", i), at: testNow.Add(-time.Duration(i) * time.Minute)}))
+	}
+	env.save(t, p.ID, events...)
+
+	first := getJSON[issuesResponse](t, env, issuesPath(p.ID, "")) // the default page of 25
+	second := getJSON[issuesResponse](t, env, issuesPath(p.ID, "limit=25&offset=25"))
+	if len(first.Issues) != 25 || len(second.Issues) != 5 || first.Total != 30 || second.Total != 30 {
+		t.Fatalf("pages of %d and %d, totals %d and %d; want 25 and 5 of 30", len(first.Issues), len(second.Issues), first.Total, second.Total)
+	}
+	// Together, every issue once, newest first.
+	seen := map[int64]bool{}
+	for i, issue := range append(first.Issues, second.Issues...) {
+		if seen[issue.ID] || issue.Type != fmt.Sprint("E", i+1) {
+			t.Fatalf("issue %d is %s (seen before: %v), want E%d", i, issue.Type, seen[issue.ID], i+1)
+		}
+		seen[issue.ID] = true
+	}
+	// Past the end: no issues, the same total.
+	if past := getJSON[issuesResponse](t, env, issuesPath(p.ID, "offset=40")); len(past.Issues) != 0 || past.Total != 30 {
+		t.Errorf("offset=40: %d issues, total %d", len(past.Issues), past.Total)
+	}
+	// The total follows the filters.
+	if got := getJSON[issuesResponse](t, env, issuesPath(p.ID, "q=E1&limit=5")); got.Total != 11 || len(got.Issues) != 5 {
+		t.Errorf("q=E1: total %d, %d issues; want 11 (E1, E10..E19) and 5", got.Total, len(got.Issues))
 	}
 }

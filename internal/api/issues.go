@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"monitor/internal/httpjson"
 	"monitor/internal/store"
@@ -16,6 +18,8 @@ import (
 const (
 	defaultLimit = 25
 	maxLimit     = 100
+	// maxSearch is the longest search the issue list takes, in characters.
+	maxSearch = 200
 	// hoursShown is the length of the "Last 24 hours" bars.
 	hoursShown = 24
 	// newWithin is how recently an issue was first seen to count as new.
@@ -59,12 +63,18 @@ type projectRefJSON struct {
 	Name string `json:"name"`
 }
 
+// issueListJSON is one page of the issue list. Counts and Total follow the
+// filters (source, q, route); OpenIssues and New24h describe the whole
+// project, for the headline above them.
 type issueListJSON struct {
-	Project projectRefJSON   `json:"project"`
-	Counts  statusCountsJSON `json:"counts"`
-	// New24h counts the issues with the requested status first seen in the last 24 hours.
+	Project projectRefJSON `json:"project"`
+	// Counts are the issues per status that match the filters: the status tabs.
+	Counts statusCountsJSON `json:"counts"`
+	// OpenIssues counts the project's open issues, ignoring the filters.
+	OpenIssues int `json:"openIssues"`
+	// New24h counts the project's open issues first seen in the last 24 hours, ignoring the filters.
 	New24h int `json:"new24h"`
-	// Total counts the issues with the requested status, for paging.
+	// Total counts the issues with the requested status that match the filters, for paging.
 	Total  int         `json:"total"`
 	Issues []issueJSON `json:"issues"`
 }
@@ -76,7 +86,8 @@ type issueDetailResponse struct {
 	LatestEvent *eventJSON `json:"latestEvent"`
 }
 
-// listIssues answers GET /ui/api/projects/{id}/issues?status=open&limit=25&offset=0.
+// listIssues answers GET /ui/api/projects/{id}/issues with the query
+// parameters status, source, sort, q, route, limit and offset (see parseIssueFilter).
 func (h *Handler) listIssues(w http.ResponseWriter, r *http.Request) {
 	projectID, ok := pathID(r, "id")
 	if !ok {
@@ -104,12 +115,19 @@ func (h *Handler) listIssues(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := h.now()
-	counts, err := h.db.CountIssueStatuses(ctx, projectID)
+	counts, err := h.db.CountIssueStatuses(ctx, filter)
 	if err != nil {
 		h.internalError(w, r, err)
 		return
 	}
-	newCount, err := h.db.CountNewIssues(ctx, projectID, filter.Status, now.Add(-newWithin))
+	projectCounts := counts
+	if filter.Source != "" || filter.Search != "" || filter.Route != "" {
+		if projectCounts, err = h.db.CountIssueStatuses(ctx, store.IssueFilter{ProjectID: projectID}); err != nil {
+			h.internalError(w, r, err)
+			return
+		}
+	}
+	newCount, err := h.db.CountNewIssues(ctx, projectID, store.IssueOpen, now.Add(-newWithin))
 	if err != nil {
 		h.internalError(w, r, err)
 		return
@@ -130,18 +148,12 @@ func (h *Handler) listIssues(w http.ResponseWriter, r *http.Request) {
 	}
 
 	list := issueListJSON{
-		Project: projectRefJSON{ID: project.ID, Name: project.Name},
-		Counts:  statusCountsJSON{Open: counts.Open, Resolved: counts.Resolved, Ignored: counts.Ignored},
-		New24h:  newCount,
-		Issues:  make([]issueJSON, 0, len(rows)),
-	}
-	switch filter.Status {
-	case store.IssueOpen:
-		list.Total = counts.Open
-	case store.IssueResolved:
-		list.Total = counts.Resolved
-	case store.IssueIgnored:
-		list.Total = counts.Ignored
+		Project:    projectRefJSON{ID: project.ID, Name: project.Name},
+		Counts:     statusCountsJSON{Open: counts.Open, Resolved: counts.Resolved, Ignored: counts.Ignored},
+		OpenIssues: projectCounts.Open,
+		New24h:     newCount,
+		Total:      counts.Of(filter.Status),
+		Issues:     make([]issueJSON, 0, len(rows)),
 	}
 	for _, row := range rows {
 		list.Issues = append(list.Issues, toIssueJSON(row, hourly[row.ID], now))
@@ -149,15 +161,43 @@ func (h *Handler) listIssues(w http.ResponseWriter, r *http.Request) {
 	httpjson.Write(w, http.StatusOK, list)
 }
 
-// parseIssueFilter reads status, limit and offset, with their defaults.
+// issueSources are the sources the issue list filters on, as the Source select offers them.
+var issueSources = map[string]bool{"laravel": true, "browser": true}
+
+// parseIssueFilter reads the issue list's query parameters, with their defaults:
+//
+//	status  open (default), resolved or ignored
+//	source  laravel or browser; empty for all
+//	sort    last_seen (default), first_seen, events or users
+//	q       part of the title, message, culprit or an event's URL; at most 200 characters
+//	route   issues with an event on this route
+//	limit   1 to 100, default 25
+//	offset  0 or more
 func parseIssueFilter(q url.Values) (store.IssueFilter, error) {
-	f := store.IssueFilter{Status: store.IssueOpen, Limit: defaultLimit}
+	f := store.IssueFilter{Status: store.IssueOpen, Sort: store.SortLastSeen, Limit: defaultLimit}
 	if s := q.Get("status"); s != "" {
-		if s != store.IssueOpen && s != store.IssueResolved && s != store.IssueIgnored {
+		if !store.ValidIssueStatus(s) {
 			return f, errors.New(`status must be "open", "resolved" or "ignored"`)
 		}
 		f.Status = s
 	}
+	if s := q.Get("source"); s != "" {
+		if !issueSources[s] {
+			return f, errors.New(`source must be "laravel" or "browser"`)
+		}
+		f.Source = s
+	}
+	if s := q.Get("sort"); s != "" {
+		if !store.ValidIssueSort(s) {
+			return f, errors.New(`sort must be "last_seen", "first_seen", "events" or "users"`)
+		}
+		f.Sort = s
+	}
+	f.Search = strings.TrimSpace(q.Get("q"))
+	if utf8.RuneCountInString(f.Search) > maxSearch {
+		return f, fmt.Errorf("q must be at most %d characters", maxSearch)
+	}
+	f.Route = q.Get("route")
 	if s := q.Get("limit"); s != "" {
 		n, err := strconv.Atoi(s)
 		if err != nil || n < 1 || n > maxLimit {
@@ -227,25 +267,36 @@ func (h *Handler) issueDetail(w http.ResponseWriter, r *http.Request) {
 // hourly returns, for each issue, its events per clock hour over the last
 // hoursShown hours, oldest first. The current hour is the last bucket.
 func (h *Handler) hourly(ctx context.Context, issueIDs []int64, now time.Time) (map[int64][]int, error) {
-	firstHour := now.Unix()/3600 - (hoursShown - 1)
-	counts, err := h.db.HourlyEventCounts(ctx, issueIDs, time.Unix(firstHour*3600, 0))
+	counts, err := h.db.HourlyEventCounts(ctx, issueIDs, firstHourStart(now))
 	if err != nil {
 		return nil, err
 	}
 	result := make(map[int64][]int, len(issueIDs))
 	for _, id := range issueIDs {
-		buckets := make([]int, hoursShown)
-		for hour, n := range counts[id] {
-			// Events up to an hour ahead of the clock (a client clock that is
-			// off) are counted in the current hour.
-			i := min(int(hour-firstHour), hoursShown-1)
-			if i >= 0 {
-				buckets[i] += n
-			}
-		}
-		result[id] = buckets
+		result[id] = hourBuckets(counts[id], now)
 	}
 	return result, nil
+}
+
+// firstHourStart is the start of the oldest of the hoursShown clock hours
+// that end with the current one.
+func firstHourStart(now time.Time) time.Time {
+	return time.Unix((now.Unix()/3600-(hoursShown-1))*3600, 0)
+}
+
+// hourBuckets turns counts per hour (unix time divided by one hour) into
+// hoursShown buckets, oldest first. Earlier hours are left out; events up to
+// an hour ahead of the clock (a client clock that is off) are counted in
+// the current hour.
+func hourBuckets(counts map[int64]int, now time.Time) []int {
+	firstHour := firstHourStart(now).Unix() / 3600
+	buckets := make([]int, hoursShown)
+	for hour, n := range counts {
+		if i := min(int(hour-firstHour), hoursShown-1); i >= 0 {
+			buckets[i] += n
+		}
+	}
+	return buckets
 }
 
 func toIssueJSON(row store.IssueRow, hourly []int, now time.Time) issueJSON {

@@ -35,6 +35,7 @@ func New(db *store.DB, logger *slog.Logger) *Handler {
 // Register adds the API routes to mux. Unknown paths under /ui/api/ are
 // left to the caller's catch-all.
 func (h *Handler) Register(mux *http.ServeMux) {
+	mux.HandleFunc("GET /ui/api/overview", h.overview)
 	mux.HandleFunc("GET /ui/api/projects", h.listProjects)
 	mux.HandleFunc("GET /ui/api/projects/{id}/issues", h.listIssues)
 	mux.HandleFunc("GET /ui/api/issues/{id}", h.issueDetail)
