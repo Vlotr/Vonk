@@ -65,8 +65,11 @@ func runServer(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 	started := time.Now()
 	logger.Info("starting", "version", version, "addr", cfg.Addr, "base_url", cfg.BaseURL, "sqlite", cfg.SQLitePath, "tz", cfg.Location.String())
 
-	db, err := openDatabase(ctx, cfg, func(path string) {
+	db, err := openDatabase(ctx, cfg, func(path string, pruneErr error) {
 		logger.Info("database backed up before the update", "path", path)
+		if pruneErr != nil {
+			logger.Warn("backups: the update goes on, but old backups stay", "err", pruneErr)
+		}
 	})
 	if err != nil {
 		return err

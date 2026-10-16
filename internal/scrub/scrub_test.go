@@ -209,13 +209,17 @@ func TestScrub_URLUserInfoPasswordWithSlash(t *testing.T) {
 		"extra":{
 			"database":"postgres://app:pa/ss-secret-1@db/x",
 			"log":"cannot reach redis://cache:se/cret-2@cache:6379/0 now",
-			"port":"https://shop.example.com:8080/orders?email=jan@example.com"}}`)
+			"port":"https://shop.example.com:8080/orders?email=jan@example.com",
+			"ipv6":"http://[::1]:8080/x?u=a@b",
+			"ipv6 dsn":"http://app:pw-secret-3@[::1]:5432/x"}}`)
 
-	assertNotContains(t, data, "ss-secret-1", "cret-2")
+	assertNotContains(t, data, "ss-secret-1", "cret-2", "pw-secret-3")
 	want := map[string]string{
 		"database": "postgres://app:[Filtered]@db/x",
 		"log":      "cannot reach redis://cache:[Filtered]@cache:6379/0 now",
 		"port":     "https://shop.example.com:8080/orders?email=jan@example.com",
+		"ipv6":     "http://[::1]:8080/x?u=a@b",
+		"ipv6 dsn": "http://app:[Filtered]@[::1]:5432/x",
 	}
 	for key, value := range want {
 		if got := at(ev.Raw, "extra", key); got != value {

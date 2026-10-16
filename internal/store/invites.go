@@ -37,8 +37,7 @@ type NewInvite struct {
 // Earlier invites for the same address that were not used yet are removed,
 // so only the newest link works. CreatedBy must still be an admin when the
 // invite is written (ErrNotAdmin otherwise), so a request that was on its
-// way while that admin was removed or made a member leaves no link behind;
-// CreatedBy 0 (tests) skips the check.
+// way while that admin was removed or made a member leaves no link behind.
 func (db *DB) CreateInvite(ctx context.Context, ni NewInvite) (Invite, error) {
 	inv := Invite{
 		Email:     NormalizeEmail(ni.Email),
@@ -57,15 +56,13 @@ func (db *DB) CreateInvite(ctx context.Context, ni NewInvite) (Invite, error) {
 	}
 	defer tx.Rollback() // no-op after Commit
 
-	if inv.CreatedBy != 0 {
-		var role string
-		err := tx.QueryRowContext(ctx, "SELECT role FROM users WHERE id = ?", inv.CreatedBy).Scan(&role)
-		if errors.Is(err, sql.ErrNoRows) || (err == nil && role != RoleAdmin) {
-			return Invite{}, ErrNotAdmin
-		}
-		if err != nil {
-			return Invite{}, err
-		}
+	var role string
+	err = tx.QueryRowContext(ctx, "SELECT role FROM users WHERE id = ?", inv.CreatedBy).Scan(&role)
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && role != RoleAdmin) {
+		return Invite{}, ErrNotAdmin
+	}
+	if err != nil {
+		return Invite{}, err
 	}
 
 	var taken int
@@ -85,14 +82,10 @@ func (db *DB) CreateInvite(ctx context.Context, ni NewInvite) (Invite, error) {
 		return Invite{}, err
 	}
 
-	var createdBy any
-	if inv.CreatedBy != 0 {
-		createdBy = inv.CreatedBy
-	}
 	err = tx.QueryRowContext(ctx, `
 		INSERT INTO invites (email, role, token_hash, created_by, created_at, expires_at)
 		VALUES (?, ?, ?, ?, ?, ?) RETURNING id`,
-		inv.Email, inv.Role, ni.TokenHash, createdBy, inv.CreatedAt.UnixMilli(), inv.ExpiresAt.UnixMilli()).Scan(&inv.ID)
+		inv.Email, inv.Role, ni.TokenHash, inv.CreatedBy, inv.CreatedAt.UnixMilli(), inv.ExpiresAt.UnixMilli()).Scan(&inv.ID)
 	if err != nil {
 		return Invite{}, fmt.Errorf("insert invite: %w", err)
 	}

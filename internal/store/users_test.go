@@ -22,7 +22,7 @@ func addUser(t *testing.T, db *DB, email, role string, projectIDs ...int64) User
 	} else {
 		// Through an invite, the only other way users are made.
 		_, err = db.CreateInvite(ctx, NewInvite{Email: email, Role: role, ProjectIDs: projectIDs,
-			TokenHash: "invite-" + email, Now: userTestNow, ExpiresAt: userTestNow.Add(time.Hour)})
+			TokenHash: "invite-" + email, CreatedBy: firstAdmin(t, db), Now: userTestNow, ExpiresAt: userTestNow.Add(time.Hour)})
 		if err == nil {
 			u, err = db.AcceptInvite(ctx, "invite-"+email, hash, userTestNow)
 		}
@@ -31,6 +31,17 @@ func addUser(t *testing.T, db *DB, email, role string, projectIDs ...int64) User
 		t.Fatalf("add user %s: %v", email, err)
 	}
 	return u
+}
+
+// firstAdmin returns the id of the oldest admin, who makes the invites of
+// test users; a test adds an admin before anyone else.
+func firstAdmin(t *testing.T, db *DB) int64 {
+	t.Helper()
+	var id int64
+	if err := db.read.QueryRow("SELECT id FROM users WHERE role = ? ORDER BY id LIMIT 1", RoleAdmin).Scan(&id); err != nil {
+		t.Fatalf("no admin to make the invite (add one first): %v", err)
+	}
+	return id
 }
 
 func addProject(t *testing.T, db *DB, name string) Project {
@@ -172,7 +183,7 @@ func TestInvites_ExpiredTakenAndReplaced(t *testing.T) {
 
 	newInvite := func(email, hash string, projects ...int64) (Invite, error) {
 		return db.CreateInvite(ctx, NewInvite{Email: email, Role: RoleMember, ProjectIDs: projects,
-			TokenHash: hash, Now: userTestNow, ExpiresAt: userTestNow.Add(week)})
+			TokenHash: hash, CreatedBy: firstAdmin(t, db), Now: userTestNow, ExpiresAt: userTestNow.Add(week)})
 	}
 
 	if _, err := newInvite("ADMIN@example.com", "h0"); !errors.Is(err, ErrEmailTaken) {
@@ -369,6 +380,7 @@ func TestProjects_UpdateRotateDelete(t *testing.T) {
 	db := openTestDB(t)
 	ctx := context.Background()
 	p := addProject(t, db, "Webshop")
+	addUser(t, db, "admin@example.com", RoleAdmin)
 	member := addUser(t, db, "piet@example.com", RoleMember, p.ID)
 
 	days := 30

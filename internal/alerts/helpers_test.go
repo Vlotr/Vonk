@@ -76,14 +76,15 @@ func (b *syncBuffer) String() string {
 // testEnv is a migrated database with two projects and three people, a
 // fake mail server, a fake Slack webhook and a started Notifier.
 type testEnv struct {
-	db     *store.DB
-	smtp   *testutil.SMTPServer
-	slack  *testutil.SlackServer
-	clock  *fakeClock
-	logs   *syncBuffer
-	n      *Notifier
-	shop   store.Project // Webshop: the admin and member@ see it
-	portal store.Project // Portal: the admin and other@ see it
+	db      *store.DB
+	smtp    *testutil.SMTPServer
+	slack   *testutil.SlackServer
+	clock   *fakeClock
+	logs    *syncBuffer
+	n       *Notifier
+	adminID int64
+	shop    store.Project // Webshop: the admin and member@ see it
+	portal  store.Project // Portal: the admin and other@ see it
 }
 
 type envOptions struct {
@@ -112,9 +113,11 @@ func newEnv(t *testing.T, opts ...func(*envOptions)) *testEnv {
 		clock: &fakeClock{t: testStart}, logs: &syncBuffer{}}
 	env.shop = env.project(t, "Webshop")
 	env.portal = env.project(t, "Portal")
-	if _, err := db.CreateFirstAdmin(ctx, "admin@example.com", "not-a-real-hash", testStart); err != nil {
+	admin, err := db.CreateFirstAdmin(ctx, "admin@example.com", "not-a-real-hash", testStart)
+	if err != nil {
 		t.Fatal(err)
 	}
+	env.adminID = admin.ID
 	env.member(t, "member@example.com", env.shop.ID)
 	env.member(t, "other@example.com", env.portal.ID)
 
@@ -153,7 +156,7 @@ func (e *testEnv) member(t *testing.T, email string, projectIDs ...int64) {
 	t.Helper()
 	ctx := context.Background()
 	if _, err := e.db.CreateInvite(ctx, store.NewInvite{Email: email, Role: store.RoleMember, ProjectIDs: projectIDs,
-		TokenHash: "invite-" + email, Now: testStart, ExpiresAt: testStart.Add(time.Hour)}); err != nil {
+		TokenHash: "invite-" + email, CreatedBy: e.adminID, Now: testStart, ExpiresAt: testStart.Add(time.Hour)}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := e.db.AcceptInvite(ctx, "invite-"+email, "not-a-real-hash", testStart); err != nil {

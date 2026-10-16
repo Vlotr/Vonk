@@ -63,17 +63,23 @@ func (n *Notifier) SendDigests(ctx context.Context, at time.Time) {
 		n.log.Error("alerts: summaries: list projects", "err", err)
 		return
 	}
+	open, err := n.db.CountOpenIssuesPerProject(ctx)
+	if err != nil {
+		n.log.Error("alerts: summaries: count open issues", "err", err)
+		return
+	}
 	for _, p := range projects {
 		if ctx.Err() != nil {
 			return
 		}
-		if err := n.sendDigest(ctx, p, at); err != nil {
+		if err := n.sendDigest(ctx, p, at, open[p.ID]); err != nil {
 			n.log.Error("alerts: summary", "project", p.ID, "err", err)
 		}
 	}
 }
 
-func (n *Notifier) sendDigest(ctx context.Context, p store.Project, at time.Time) error {
+// sendDigest sends one project's summary; open is how many of its issues are open now.
+func (n *Notifier) sendDigest(ctx context.Context, p store.Project, at time.Time, open int) error {
 	settings, err := n.db.AlertSettings(ctx, p.ID)
 	if err != nil || !settings.Digest.Any() {
 		return err
@@ -94,16 +100,12 @@ func (n *Notifier) sendDigest(ctx context.Context, p store.Project, at time.Time
 	if err != nil {
 		return err
 	}
-	open, err := n.db.CountOpenIssuesPerProject(ctx)
-	if err != nil {
-		return err
-	}
 	// Claimed last, so a failed query above leaves the period to the next run.
 	claimed, err := n.db.ClaimPeriod(ctx, fmt.Sprintf("digest:%d:%s", p.ID, settings.DigestFrequency), p.ID, period.key, n.now())
 	if err != nil || !claimed {
 		return err
 	}
-	n.send(ctx, p, settings, settings.Digest, n.digestMessage(p, period, total, newCount, newIssues, top, open[p.ID]), store.AlertDigest, false)
+	n.send(ctx, p, settings, settings.Digest, n.digestMessage(p, period, total, newCount, newIssues, top, open), store.AlertDigest, false)
 	return nil
 }
 

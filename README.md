@@ -52,13 +52,13 @@ docker compose up -d
 curl http://localhost:8000/health
 ```
 
-The compose file sets `TZ=Europe/Amsterdam`, so summaries arrive at 08:00 Amsterdam time; set `BASE_URL` (default `http://localhost:8000`) to the address people and SDKs use, and uncomment `MAIL_URL` to send mail. Data lives in the volume `data` and survives `docker compose restart` and image updates; before a database update the tool copies the database to `/data/backups/`.
+The compose file sets `TZ=Europe/Amsterdam`, so summaries arrive at 08:00 Amsterdam time; set `BASE_URL` (default `http://localhost:8000`) to the address people and SDKs use, and uncomment `MAIL_URL` to send mail. Data lives in the volume `data` and survives `docker compose restart` and image updates; before a database update the tool copies the database to `/data/backups/`. It also sets `stop_grace_period: 30s`: on a stop the tool lets running requests finish (up to 15 s), writes the events it has already accepted and gives notifications 10 s, and Docker's default of 10 s would cut that short.
 
-Or with plain Docker:
+Or with plain Docker (`--stop-timeout 30` for the same reason):
 
 ```sh
 make docker
-docker run -p 8000:8000 \
+docker run -p 8000:8000 --stop-timeout 30 \
   -e SECRET_KEY="$(openssl rand -hex 32)" \
   -e BASE_URL=http://localhost:8000 \
   -v monitor-data:/data \

@@ -40,7 +40,7 @@ func TestAccessMatrix(t *testing.T) {
 	withAccess := env.member(t, "with@example.com", shop.ID)
 	without := env.member(t, "without@example.com", portal.ID)
 	invite, err := env.db.CreateInvite(ctx, store.NewInvite{Email: "invited@example.com", Role: store.RoleMember,
-		TokenHash: "matrix-invite", Now: testNow, ExpiresAt: testNow.AddDate(0, 0, 7)})
+		TokenHash: "matrix-invite", CreatedBy: env.admin.userID, Now: testNow, ExpiresAt: testNow.AddDate(0, 0, 7)})
 	if err != nil {
 		t.Fatal(err)
 	}

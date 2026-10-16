@@ -3,6 +3,7 @@ package alerts
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"slices"
 	"strings"
 	"testing"
@@ -235,4 +236,71 @@ func countPrefix(lines []string, prefix string) int {
 		}
 	}
 	return n
+}
+
+// stuckSlack never answers: every post waits until its context ends.
+type stuckSlack struct{}
+
+func (stuckSlack) Post(ctx context.Context, _, _ string) error {
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func TestNotifier_CloseTwiceAfterTimeout(t *testing.T) {
+	logs := &syncBuffer{}
+	n := New(Options{Slack: stuckSlack{}, Logger: slog.New(slog.NewTextHandler(logs, nil))})
+	n.Start()
+	for range workers + 6 { // the workers are stuck; six wait in the queue
+		n.post(1, "test", "https://hooks.slack.com/services/T1/B1/x", "hello")
+	}
+
+	start := time.Now()
+	n.Close(50 * time.Millisecond)
+	n.Close(10 * time.Second) // serve calls it twice: the second does nothing
+	if took := time.Since(start); took > 2*time.Second {
+		t.Errorf("closing twice took %s; the second Close waited again", took)
+	}
+	if got := strings.Count(logs.String(), "stopping with notifications undelivered"); got != 1 {
+		t.Errorf("logged the undelivered warning %d times, want 1", got)
+	}
+
+	// What was left in the queue counts as done, so nothing waits on it forever.
+	done := make(chan struct{})
+	go func() {
+		n.busy.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("deliveries left in the queue are never marked done")
+	}
+}
+
+func TestNotifier_FullDeliveryQueueDrops(t *testing.T) {
+	logs := &syncBuffer{}
+	n := New(Options{Slack: stuckSlack{}, Logger: slog.New(slog.NewTextHandler(logs, nil))})
+	n.Start()
+	t.Cleanup(func() { n.Close(10 * time.Millisecond) })
+
+	// The scheduler goroutine queues summaries and suppressed counts; a
+	// full queue must not make it wait.
+	queued := make(chan struct{})
+	go func() {
+		for range queueSize + workers + 3 {
+			n.post(1, store.AlertDigest, "https://hooks.slack.com/services/T1/B1/x", "summary")
+		}
+		close(queued)
+	}()
+	select {
+	case <-queued:
+	case <-time.After(5 * time.Second):
+		t.Fatal("queueing deliveries blocked on a full queue")
+	}
+	if got := strings.Count(logs.String(), "too many messages waiting; one dropped"); got != 3 {
+		t.Errorf("dropped-message warnings = %d, want 3:\n%s", got, logs.String())
+	}
+	if strings.Contains(logs.String(), "hooks.slack.com") {
+		t.Error("the log names the webhook")
+	}
 }

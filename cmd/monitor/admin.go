@@ -43,8 +43,11 @@ func adminCommand(args []string, getenv func(string) string, stdout, stderr io.W
 		return 1
 	}
 	ctx := context.Background()
-	db, err := openDatabase(ctx, cfg, func(path string) {
+	db, err := openDatabase(ctx, cfg, func(path string, pruneErr error) {
 		fmt.Fprintf(stderr, "monitor: backed up the database to %s before updating it\n", path)
+		if pruneErr != nil {
+			fmt.Fprintf(stderr, "monitor: warning: %v\n", pruneErr)
+		}
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "monitor: %v\n", err)

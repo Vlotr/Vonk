@@ -83,7 +83,7 @@ internal/issues/        Service.SetStatus (resolve, ignore, reopen) and the Hook
 internal/httpjson/      Write and Error (the JSON responses every endpoint shares) and Read (JSON request bodies)
 internal/auth/          accounts: passwords (argon2id), sessions, CSRF, login throttle, invites and reset links, the sign-in handlers, access helpers
 internal/mail/          MAIL_URL parsing and a plain-text SMTP sender
-internal/alerts/        notifications: Notifier (issues.Hooks, delivery, caps), slack.go, email.go, spike.go, digest.go, admin.go
+internal/alerts/        notifications: Notifier (issues.Hooks, queues, delivery), cap.go (hourly cap), messages.go, slack.go, email.go, spike.go, digest.go, admin.go
 internal/jobs/          Scheduler (Every, DailyAt, injectable clock) and Retention
 internal/health/        Checker.Check: database, disk under DATA_DIR, queue depth; the /health handler
 internal/api/           dashboard JSON API under /ui/api/ (overview, projects, issues, issue detail and status, alerts, settings for projects, users and the status page)
@@ -162,7 +162,8 @@ The look comes from the PNGs: Instrument Sans and JetBrains Mono (bundled with `
 - Webhook URLs are secrets: never logged, never in an error, answered only masked (`https://hooks.slack.com/…/abcd`). They must be https; `DEV_ALLOW_HTTP_WEBHOOKS=true` allows plain http for local fakes (e2e, a container check), never in production. Only admins change a project's alerts; members see the page read-only.
 - `/health` → `{status, version, db, disk, diskFreeBytes, diskTotalBytes, queueDepth, failing}`: 200 with status `ok`, or `degraded` when a check fails but the tool works (a disk under 10 % or 1 GiB free, or one that cannot be read); 503 with status `error` only when it cannot work (the database fails, or the disk is under 1 % or 256 MiB free). The status page and the admin alerts read the same `health.Checker`.
 - Jobs (`internal/jobs`): one scheduler goroutine; retention daily (first a minute after the start) deletes each project's events older than its retention and issues last seen before it, 5000 rows per transaction; projects kept indefinitely keep everything.
-- Backups: every command opens the database through `openDatabase` (`cmd/monitor/database.go`): when migrations are pending on a database that has data, `store.BackupBeforeMigrate` first writes `VACUUM INTO <DATA_DIR>/backups/pre-migrate-<version>-<time>.db` and keeps the five newest; when that fails, the command stops before migrating.
+- Backups: every command opens the database through `openDatabase` (`cmd/monitor/database.go`): when migrations are pending on a database that has data, `store.BackupBeforeMigrate` first writes `VACUUM INTO <DATA_DIR>/backups/pre-migrate-<version>-<time>.db` and keeps the five newest; when that fails, the command stops before migrating (old backups that cannot be removed only give a warning).
+- Shutdown: HTTP server (15 s for running requests), jobs, the writer's last batch, the notifier (10 s), the database. `compose.yaml` gives the container `stop_grace_period: 30s` for that; Docker's default of 10 s would cut the last batch off.
 - Tests: `internal/testutil` has a fake SMTP server and a fake Slack webhook; `alerts` tests wait for deliveries with `n.busy.Wait()` and move a fake clock. Health checks take `DiskUsage` so tests never depend on the machine's disk.
 
 ## Conventions

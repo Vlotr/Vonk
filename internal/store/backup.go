@@ -22,6 +22,13 @@ const (
 	backupTimeFormat = "20060102T150405Z"
 )
 
+// ErrOldBackupsKept means the new backup was made, but some of the old
+// ones beyond the five newest could not be removed. The update may go on.
+var ErrOldBackupsKept = errors.New("old backups could not be removed")
+
+// removeBackup removes one old backup; tests make it fail.
+var removeBackup = os.Remove
+
 // BackupFile is one backup in <DATA_DIR>/backups.
 type BackupFile struct {
 	Name      string
@@ -35,7 +42,8 @@ type BackupFile struct {
 // are pending and at least one ran before), and returns the copy's path;
 // "" when no backup was needed. Old pre-migration backups beyond the five
 // newest are removed. Run it before Migrate and stop when it fails: the
-// update should not run without its backup.
+// update should not run without its backup. The one error to go on after
+// is ErrOldBackupsKept (the backup is there; only old ones stay).
 func (db *DB) BackupBeforeMigrate(ctx context.Context) (string, error) {
 	files, err := migrationFiles()
 	if err != nil {
@@ -82,7 +90,7 @@ func (db *DB) backupBeforeMigrate(ctx context.Context, files []migration, now ti
 		return "", fmt.Errorf("copy the database to %s: %w", path, err)
 	}
 	if err := prunePreMigrate(dir); err != nil {
-		return path, fmt.Errorf("remove old backups: %w", err)
+		return path, fmt.Errorf("%w: %w", ErrOldBackupsKept, err)
 	}
 	return path, nil
 }
@@ -137,7 +145,7 @@ func prunePreMigrate(dir string) error {
 	var errs []error
 	for i, b := range backups {
 		if i >= keepPreMigrate {
-			if err := os.Remove(b.Path); err != nil {
+			if err := removeBackup(b.Path); err != nil {
 				errs = append(errs, err)
 			}
 		}

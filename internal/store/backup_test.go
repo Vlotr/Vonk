@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -165,5 +166,39 @@ func TestBackup_FailsClearly(t *testing.T) {
 	}
 	if _, err := db.backupBeforeMigrate(ctx, files, time.Now()); err == nil {
 		t.Fatal("want an error when the backup cannot be written")
+	}
+}
+
+func TestBackup_PruneFailureKeepsTheBackup(t *testing.T) {
+	ctx := context.Background()
+	files, err := migrationFiles()
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, dir := openUnmigrated(t)
+	if err := db.migrate(ctx, files[:1]); err != nil {
+		t.Fatal(err)
+	}
+	start := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+	for i := range 5 {
+		if _, err := db.backupBeforeMigrate(ctx, files, start.Add(time.Duration(i)*time.Minute)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Removing the oldest copy fails (permissions, a busy file on another
+	// system): the new backup is made all the same, and the error says
+	// only that old backups stay.
+	removeBackup = func(string) error { return os.ErrPermission }
+	t.Cleanup(func() { removeBackup = os.Remove })
+	path, err := db.backupBeforeMigrate(ctx, files, start.Add(time.Hour))
+	if !errors.Is(err, ErrOldBackupsKept) {
+		t.Fatalf("err = %v, want ErrOldBackupsKept", err)
+	}
+	if _, statErr := os.Stat(path); path == "" || statErr != nil {
+		t.Errorf("backup %q not made: %v", path, statErr)
+	}
+	if n := len(backupFiles(t, dir)); n != 6 {
+		t.Errorf("%d backups, want 6 (the old one stays)", n)
 	}
 }

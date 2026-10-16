@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"monitor/internal/alerts"
 	"monitor/internal/api"
 	"monitor/internal/auth"
 	"monitor/internal/config"
@@ -44,7 +45,7 @@ type Deps struct {
 	Health *health.Checker
 	// Slack posts the test messages of the Alerts and Status pages; nil
 	// means the real Slack client.
-	Slack api.SlackPoster
+	Slack alerts.SlackPoster
 	// Started is when the process started, for the status page's uptime.
 	Started time.Time
 	// StoredLastHour counts the events stored in the last hour, for the status page.

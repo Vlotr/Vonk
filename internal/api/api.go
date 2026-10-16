@@ -8,7 +8,6 @@
 package api
 
 import (
-	"context"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -22,11 +21,6 @@ import (
 	"monitor/internal/store"
 )
 
-// SlackPoster posts a message to a Slack webhook; *alerts.Slack is one.
-type SlackPoster interface {
-	Post(ctx context.Context, webhook, text string) error
-}
-
 // Options configure the API handler.
 type Options struct {
 	DB *store.DB
@@ -38,7 +32,7 @@ type Options struct {
 	// Health runs the checks the status page shows.
 	Health *health.Checker
 	// Slack sends the test messages; nil means the real Slack client.
-	Slack SlackPoster
+	Slack alerts.SlackPoster
 	// Started is when the process started, for the status page's uptime.
 	Started time.Time
 	// StoredLastHour counts the events ingest stored in the last hour; nil
@@ -56,7 +50,7 @@ type Handler struct {
 	baseURL   string // for the DSNs on the setup page
 	issues    *issues.Service
 	health    *health.Checker
-	slack     SlackPoster
+	slack     alerts.SlackPoster
 	started   time.Time
 	stored    func() int
 	allowHTTP bool

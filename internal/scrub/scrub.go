@@ -244,7 +244,8 @@ func scrubURL(s string) string {
 // unencoded "#", "?" or "@" is filtered whole. When the host part has no
 // "@" but a ":" followed by something other than a port, the password
 // holds an unencoded "/" ("postgres://app:pa/ss@db/x"), and the last "@"
-// before whitespace ends it.
+// before whitespace ends it. An IPv6 host in brackets is never taken for
+// a password.
 func scrubUserInfo(s string) string {
 	if !strings.Contains(s, "://") || !strings.Contains(s, "@") {
 		return s
@@ -264,7 +265,9 @@ func scrubUserInfo(s string) string {
 			end = len(s)
 		}
 		at := strings.LastIndex(s[:end], "@")
-		if colon := strings.IndexByte(s[:end], ':'); at < 0 && colon >= 0 && !isPort(s[colon+1:end]) {
+		// A host part that starts with "[" is an IPv6 address
+		// ("http://[::1]:8080/"): its colons are no password.
+		if colon := strings.IndexByte(s[:end], ':'); at < 0 && colon >= 0 && !strings.HasPrefix(s, "[") && !isPort(s[colon+1:end]) {
 			token := strings.IndexAny(s, " \t\r\n")
 			if token < 0 {
 				token = len(s)

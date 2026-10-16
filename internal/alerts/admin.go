@@ -142,11 +142,11 @@ func (a *AdminAlerts) raise(ctx context.Context, kind string, t adminText) {
 		if admins, err := n.db.AdminEmails(ctx); err != nil {
 			n.log.Error("alerts: read admins", "err", err)
 		} else {
-			n.mailAll(ctx, 0, "admin:"+kind, admins, msg)
+			n.mailAll(0, "admin:"+kind, admins, msg)
 		}
 	}
 	if webhook, err := n.db.Setting(ctx, store.SettingAdminSlackWebhook); err == nil && webhook != "" {
-		n.post(ctx, 0, "admin:"+kind, webhook, msg.slack)
+		n.post(0, "admin:"+kind, webhook, msg.slack)
 	}
 }
 

@@ -18,5 +18,9 @@ services:
       # MAIL_URL: smtp://user:password@mail.example.com:587
     volumes: ["data:/data"]
     restart: unless-stopped
+    # On a stop the tool lets requests finish (up to 15 s), writes what is
+    # still queued and gives notifications 10 s; Docker's default of 10 s
+    # would cut that short.
+    stop_grace_period: 30s
 volumes:
   data:

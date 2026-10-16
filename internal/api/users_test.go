@@ -333,3 +333,31 @@ func TestInvites_GoneWithTheirAdmin(t *testing.T) {
 		t.Errorf("pending invites = %+v, want none", list.Invites)
 	}
 }
+
+// An admin who is made a member while their invite request is on its way
+// (after the sign-in check, before the invite is written) gets 404, as
+// every admin route answers members, and no invite is left behind.
+func TestInvites_AdminDemotedMeanwhile(t *testing.T) {
+	env := newTestEnv(t)
+	demoted := env.user(t, "demoted@example.com", store.RoleAdmin)
+	member := store.RoleMember
+	demoteFirst := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, err := env.db.UpdateUser(r.Context(), demoted.userID, store.UserChange{Role: &member}); err != nil {
+			t.Error(err)
+		}
+		env.guarded.ServeHTTP(w, r)
+	})
+	env.handler = env.auth.RequireUser(demoteFirst)
+
+	rec := env.as(t, demoted, "POST", "/ui/api/settings/invites", `{"email":"late@example.com","role":"admin","projectIds":[]}`)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("invite by an admin made a member meanwhile = %d %s, want 404", rec.Code, rec.Body)
+	}
+	invites, err := env.db.PendingInvites(context.Background(), testNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(invites) != 0 {
+		t.Errorf("invites = %+v, want none", invites)
+	}
+}

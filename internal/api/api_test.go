@@ -42,6 +42,8 @@ type testEnv struct {
 	health *health.Checker
 	// dir is DATA_DIR.
 	dir string
+	// guarded is what RequireUser hands signed-in requests to (the API).
+	guarded http.Handler
 }
 
 // fakeSlack records posts; err makes them fail.
@@ -120,7 +122,7 @@ func newTestEnv(t *testing.T, opts ...envOption) *testEnv {
 	svc.RegisterPublic(public)
 	public.Handle("/", svc.RequireUser(guarded))
 
-	env := &testEnv{db: db, auth: svc, handler: public, slack: slack, health: checker, dir: dir}
+	env := &testEnv{db: db, auth: svc, handler: public, slack: slack, health: checker, dir: dir, guarded: guarded}
 	admin, err := db.CreateFirstAdmin(context.Background(), "admin@example.com", "not-a-real-hash", testNow)
 	if err != nil {
 		t.Fatal(err)
@@ -145,7 +147,7 @@ func (e *testEnv) user(t *testing.T, email, role string, projectIDs ...int64) *s
 	t.Helper()
 	ctx := context.Background()
 	_, err := e.db.CreateInvite(ctx, store.NewInvite{Email: email, Role: role, ProjectIDs: projectIDs,
-		TokenHash: "test-" + email, Now: testNow, ExpiresAt: testNow.Add(time.Hour)})
+		TokenHash: "test-" + email, CreatedBy: e.admin.userID, Now: testNow, ExpiresAt: testNow.Add(time.Hour)})
 	if err != nil {
 		t.Fatal(err)
 	}
