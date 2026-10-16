@@ -173,6 +173,29 @@ type EventStats struct {
 	Bots int64
 }
 
+// ProjectsWithCustomEvents returns the ids of the projects that have any
+// custom event in their hourly summaries.
+func (db *DB) ProjectsWithCustomEvents(ctx context.Context) (map[int64]bool, error) {
+	ids, err := queryIDs(ctx, db.read,
+		"SELECT id FROM projects WHERE EXISTS (SELECT 1 FROM event_hourly e WHERE e.project_id = projects.id)")
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[int64]bool, len(ids))
+	for _, id := range ids {
+		out[id] = true
+	}
+	return out, nil
+}
+
+// HasCustomEvents reports whether a project has any custom event in its
+// hourly summaries.
+func (db *DB) HasCustomEvents(ctx context.Context, projectID int64) (bool, error) {
+	var n int
+	err := db.read.QueryRowContext(ctx, "SELECT COUNT(*) FROM (SELECT 1 FROM event_hourly WHERE project_id = ? LIMIT 1)", projectID).Scan(&n)
+	return n > 0, err
+}
+
 // EventStats sums a project's hourly event summaries over the hours that
 // start in [from, to).
 func (db *DB) EventStats(ctx context.Context, projectID int64, from, to time.Time) (EventStats, error) {

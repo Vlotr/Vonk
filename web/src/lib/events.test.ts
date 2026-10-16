@@ -3,7 +3,7 @@ import type { EventList } from '../api/client'
 import { botEventsLine, eventsHeadline, eventSeriesTitle, selectedEvent, timesText } from './events'
 
 function list(events: EventList['events'], extra: Partial<EventList> = {}): EventList {
-  return { project: { id: 1, name: 'Webshop', tracksPageviews: true }, range: '7d', events, bots: 0, ...extra }
+  return { project: { id: 1, name: 'Webshop', tracksPageviews: true, hasCustomEvents: events.length > 0 }, range: '7d', events, bots: 0, ...extra }
 }
 
 const shop = list([
@@ -31,6 +31,19 @@ describe('eventsHeadline', () => {
     expect(eventsHeadline(shop, 'refund_requested')).toEqual({
       title: 'refund_requested did not happen in the last 7\u00a0days',
       lead: 'Webshop, last 7 days.',
+    })
+  })
+
+  test('events in an earlier period, none in this one', () => {
+    const earlier = (range: EventList['range']) =>
+      list([], { range, project: { id: 1, name: 'Webshop', tracksPageviews: false, hasCustomEvents: true } })
+    expect(eventsHeadline(earlier('7d'), '')).toEqual({
+      title: 'No custom events in the last 7\u00a0days',
+      lead: 'Webshop had events before then. A longer period shows them.',
+    })
+    expect(eventsHeadline(earlier('30d'), '')).toEqual({
+      title: 'No custom events in the last 30\u00a0days',
+      lead: 'Webshop had events before then.',
     })
   })
 

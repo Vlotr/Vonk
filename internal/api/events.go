@@ -1,12 +1,10 @@
 package api
 
 import (
-	"errors"
 	"net/http"
 	"time"
 
 	"monitor/internal/httpjson"
-	"monitor/internal/store"
 )
 
 // The Events screen, from the hourly event summaries only (store.EventStats
@@ -26,8 +24,8 @@ import (
 const maxEventsListed = 100
 
 type eventsJSON struct {
-	Project pagesProjectJSON `json:"project"`
-	Range   string           `json:"range"`
+	Project eventsProjectJSON `json:"project"`
+	Range   string            `json:"range"`
 	// Events are the custom events people sent in the range, the most
 	// frequent first (then by name), at most 100.
 	Events []eventTotalsJSON `json:"events"`
@@ -49,45 +47,22 @@ type eventSeriesJSON struct {
 	Series []eventPointJSON `json:"series"`
 }
 
+// eventsProjectJSON is the project of the Events screen. HasCustomEvents
+// tells "no events yet" from "none in this period".
+type eventsProjectJSON struct {
+	pagesProjectJSON
+	HasCustomEvents bool `json:"hasCustomEvents"`
+}
+
 // eventPointJSON is one bar: the events of the hour or day that starts at Start.
 type eventPointJSON struct {
 	Start time.Time `json:"start"`
 	Count int64     `json:"count"`
 }
 
-// eventsRange reads the project of the URL (404 for one the user may not
-// see) and the range of the query (400 for an unknown one), answering
-// either failure itself.
-func (h *Handler) eventsRange(w http.ResponseWriter, r *http.Request) (store.Project, string, pageRange, bool) {
-	id, ok := pathID(r, "id")
-	if !ok || !canSee(r, id) {
-		notFound(w)
-		return store.Project{}, "", pageRange{}, false
-	}
-	project, err := h.db.ProjectByID(r.Context(), id)
-	if errors.Is(err, store.ErrNotFound) {
-		notFound(w)
-		return store.Project{}, "", pageRange{}, false
-	}
-	if err != nil {
-		h.internalError(w, r, err)
-		return store.Project{}, "", pageRange{}, false
-	}
-	name := r.URL.Query().Get("range")
-	if name == "" {
-		name = "7d"
-	}
-	period, err := pageRangeFor(name, h.now(), viewerLocation(r.URL.Query().Get("tz")))
-	if err != nil {
-		httpjson.Error(w, http.StatusBadRequest, err.Error())
-		return store.Project{}, "", pageRange{}, false
-	}
-	return project, name, period, true
-}
-
 // projectEvents answers GET /ui/api/projects/{id}/events.
 func (h *Handler) projectEvents(w http.ResponseWriter, r *http.Request) {
-	project, rangeName, period, ok := h.eventsRange(w, r)
+	project, rangeName, period, ok := h.projectRange(w, r)
 	if !ok {
 		return
 	}
@@ -96,8 +71,13 @@ func (h *Handler) projectEvents(w http.ResponseWriter, r *http.Request) {
 		h.internalError(w, r, err)
 		return
 	}
+	hasEvents, err := h.db.HasCustomEvents(r.Context(), project.ID)
+	if err != nil {
+		h.internalError(w, r, err)
+		return
+	}
 	resp := eventsJSON{
-		Project: pagesProjectJSON{ID: project.ID, Name: project.Name, TracksPageviews: project.TracksPageviews},
+		Project: eventsProjectJSON{pagesProjectJSON{ID: project.ID, Name: project.Name, TracksPageviews: project.TracksPageviews}, hasEvents},
 		Range:   rangeName,
 		Events:  []eventTotalsJSON{},
 		Bots:    stats.Bots,
@@ -114,7 +94,7 @@ func (h *Handler) projectEvents(w http.ResponseWriter, r *http.Request) {
 // eventSeries answers GET /ui/api/projects/{id}/events/{name}: an event
 // without data in the range has zeros, not 404.
 func (h *Handler) eventSeries(w http.ResponseWriter, r *http.Request) {
-	project, rangeName, period, ok := h.eventsRange(w, r)
+	project, rangeName, period, ok := h.projectRange(w, r)
 	if !ok {
 		return
 	}

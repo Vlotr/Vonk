@@ -59,9 +59,7 @@ func (e *testEnv) writeQueue() {
 func TestCustomEvents_StoredAndAggregated(t *testing.T) {
 	env := newTestEnv(t, 100)
 	p := env.project(t, "Webshop", 1000)
-	if _, err := env.db.SetRoutePatterns(context.Background(), p.ID, []string{"/products/:slug"}); err != nil {
-		t.Fatal(err)
-	}
+	p = env.setRoutePatterns(t, p, "/products/:slug")
 	event := func(uuid, name, user, url string, extra string) string {
 		return `{"event":"` + name + `","uuid":"` + uuid + `","timestamp":"2026-10-16T12:00:05Z","properties":{"distinct_id":"` + user +
 			`","$current_url":"` + url + `","$ip":"203.0.113.9","$browser":"Chrome","token":"` + p.PosthogToken + `"` + extra + `}}`

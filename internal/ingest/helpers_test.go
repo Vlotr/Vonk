@@ -122,6 +122,18 @@ func (e *testEnv) project(t *testing.T, name string, rateLimit int) store.Projec
 	return p
 }
 
+// setRoutePatterns gives a project route patterns, as Edit project does
+// (store.UpdateProject), and returns the project as it is afterwards.
+func (e *testEnv) setRoutePatterns(t *testing.T, p store.Project, patterns ...string) store.Project {
+	t.Helper()
+	p, err := e.db.UpdateProject(context.Background(), p.ID, store.ProjectSettings{Name: p.Name, RetentionDays: p.RetentionDays,
+		TracksLaravel: p.TracksLaravel, TracksBrowser: p.TracksBrowser, TracksPageviews: p.TracksPageviews, RoutePatterns: &patterns})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
 // post sends body to path as a Sentry SDK would and returns the response.
 func (e *testEnv) post(path string, body []byte, setup ...func(*http.Request)) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(body))

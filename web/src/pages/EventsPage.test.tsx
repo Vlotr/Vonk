@@ -12,7 +12,7 @@ import { EventsPage } from './EventsPage'
 const days = ['2026-10-10', '2026-10-11', '2026-10-12', '2026-10-13', '2026-10-14', '2026-10-15', '2026-10-16']
 
 const week: EventList = {
-  project: { id: 1, name: 'Webshop', tracksPageviews: true },
+  project: { id: 1, name: 'Webshop', tracksPageviews: true, hasCustomEvents: true },
   range: '7d',
   events: [
     { name: 'checkout_completed', count: 1_204, users: 980 },
@@ -131,9 +131,19 @@ test('choosing another event shows its chart and keeps it in the URL', async () 
 })
 
 test('no custom events yet: what to do', async () => {
-  list = { ...week, events: [], bots: 0 }
+  list = { ...week, project: { ...week.project, hasCustomEvents: false }, events: [], bots: 0 }
   await render()
   expect(container.querySelector('h1')?.textContent).toBe('No custom events yet')
   expect(container.querySelector('table')).toBeNull()
   expect(text()).toContain("posthog.capture('checkout_completed')")
+})
+
+// A project without page views shows Events when it sends events from a
+// server (posthog-node): the empty state names that way, not only posthog-js.
+test('a project that sends events from a server, none in this period', async () => {
+  list = { ...week, project: { ...week.project, tracksPageviews: false, hasCustomEvents: true }, events: [], bots: 0 }
+  await render()
+  expect(container.querySelector('h1')?.textContent).toBe('No custom events in the last 7\u00a0days')
+  expect(text()).toContain('posthog-node')
+  expect(text()).toContain('Setup and keys')
 })

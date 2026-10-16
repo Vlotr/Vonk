@@ -436,10 +436,7 @@ func TestPosthog_BotsMarked(t *testing.T) {
 func TestWriter_PageEventsAndErrorRoutes(t *testing.T) {
 	env := newTestEnv(t, 100)
 	p := env.project(t, "Webshop", 1000)
-	if _, err := env.db.SetRoutePatterns(context.Background(), p.ID, []string{"/checkout/:step"}); err != nil {
-		t.Fatal(err)
-	}
-	p, _ = env.db.ProjectByID(context.Background(), p.ID)
+	p = env.setRoutePatterns(t, p, "/checkout/:step")
 
 	// The envelope's event has request.url https://shop.example.com/checkout?token=abc.
 	if rec := env.post(envelopePath(p), envelope(eventIDN(1), ""), authHeader(p.SentryKey)); rec.Code != http.StatusOK {

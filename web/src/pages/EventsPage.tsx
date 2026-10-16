@@ -176,8 +176,9 @@ function EmptyCard({ list }: { list: EventList }) {
           </>
         ) : (
           <>
-            <Link to={setup}>Turn on page views</Link> for {list.project.name} to get the posthog-js setup; events you send with{' '}
-            <code>posthog.capture('checkout_completed')</code> then show here.
+            Any PostHog SDK sends events with the project token: posthog-node on a server (
+            <code>{"posthog.capture({ distinctId: '42', event: 'invoice_paid' })"}</code>), or posthog-js in the browser. The token, and
+            the browser setup once you turn on page views, are on <Link to={setup}>Setup and keys</Link>.
           </>
         )}
       </p>

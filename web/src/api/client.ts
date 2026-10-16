@@ -17,8 +17,10 @@ export interface Project {
   slug: string
   sources: Source[]
   openIssues: number
-  /** tracksPageviews puts Pages in the sidebar. */
+  /** tracksPageviews puts Pages and Events in the sidebar. */
   tracksPageviews: boolean
+  /** hasCustomEvents puts Events in the sidebar for a project that sends events without page views. */
+  hasCustomEvents: boolean
 }
 
 export interface Issue {
@@ -312,7 +314,8 @@ export function getPages(projectId: number, range: PageRange, signal?: AbortSign
 
 /** EventList is the Events screen: the app's own PostHog events in a period. */
 export interface EventList {
-  project: { id: number; name: string; tracksPageviews: boolean }
+  /** hasCustomEvents: the project has events in some period ("none yet" against "none in this period"). */
+  project: { id: number; name: string; tracksPageviews: boolean; hasCustomEvents: boolean }
   range: PageRange
   /** The most frequent first, at most 100. */
   events: { name: string; count: number; users: number }[]

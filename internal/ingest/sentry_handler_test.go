@@ -365,6 +365,43 @@ func TestEnvelopeHandler_CorrectsClockBySentAt(t *testing.T) {
 	}
 }
 
+// Ruling 42: the corrected time is never after the receive time.
+// sentry-php writes sent_at in whole seconds (11:56:49Z for an envelope
+// sent at 11:56:49.78), so timestamp + (received − sent_at) lands up to a
+// second after the error arrived; it is capped at the receive time, then
+// the usual clamps apply.
+func TestEnvelopeHandler_CorrectedTimeNeverAfterReceipt(t *testing.T) {
+	env := newTestEnv(t, 100)
+	p := env.project(t, "Webshop", 0)
+
+	// The PHP fixture, received when it was recorded.
+	received := time.Date(2026, 10, 16, 11, 56, 49, 800365000, time.UTC)
+	env.clock.Set(received)
+	body, req := fixtureRequest(t, "php-exception", p)
+	rec := serveRequest(env, req, body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d %s", rec.Code, rec.Body)
+	}
+	var resp map[string]string
+	json.Unmarshal(rec.Body.Bytes(), &resp)
+	NewWriter(env.db, env.queue, &recordingHooks{}, env.logger).Close()
+	ev, err := env.db.ErrorEventByEventID(context.Background(), p.ID, resp["id"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Its timestamp is 11:56:49.783 by the PHP server's clock; uncapped it
+	// would be stored at 11:56:50.583.
+	if ev.Timestamp.After(received) {
+		t.Errorf("PHP fixture stored at %v, after it was received at %v", ev.Timestamp.Format(time.StampMicro), received.Format(time.StampMicro))
+	}
+
+	// A corrected time more than 30 days back is clamped to the receive time.
+	old := received.Add(-40 * 24 * time.Hour)
+	if got := clampTime(errorTime(old, received.Add(-time.Second), received), received); !got.Equal(received) {
+		t.Errorf("40-day-old error stored at %v, want the receive time", got)
+	}
+}
+
 // Source maps are applied before the event is scrubbed: symbolication
 // looks the minified file up by the URL the SDK sent, and the frame URLs
 // are masked afterwards (an inline script's page keeps no token).

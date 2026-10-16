@@ -130,21 +130,24 @@ func avgMs(r store.RouteStats) *int64 {
 	return nil
 }
 
-// projectPages answers GET /ui/api/projects/{id}/pages.
-func (h *Handler) projectPages(w http.ResponseWriter, r *http.Request) {
+// projectRange reads the project of the URL (404 for one the user may not
+// see) and the range of the query (7d without one; 400 for an unknown
+// one), answering either failure itself. The Pages and Events screens
+// share it.
+func (h *Handler) projectRange(w http.ResponseWriter, r *http.Request) (store.Project, string, pageRange, bool) {
 	id, ok := pathID(r, "id")
 	if !ok || !canSee(r, id) {
 		notFound(w)
-		return
+		return store.Project{}, "", pageRange{}, false
 	}
 	project, err := h.db.ProjectByID(r.Context(), id)
 	if errors.Is(err, store.ErrNotFound) {
 		notFound(w)
-		return
+		return store.Project{}, "", pageRange{}, false
 	}
 	if err != nil {
 		h.internalError(w, r, err)
-		return
+		return store.Project{}, "", pageRange{}, false
 	}
 	name := r.URL.Query().Get("range")
 	if name == "" {
@@ -153,6 +156,15 @@ func (h *Handler) projectPages(w http.ResponseWriter, r *http.Request) {
 	period, err := pageRangeFor(name, h.now(), viewerLocation(r.URL.Query().Get("tz")))
 	if err != nil {
 		httpjson.Error(w, http.StatusBadRequest, err.Error())
+		return store.Project{}, "", pageRange{}, false
+	}
+	return project, name, period, true
+}
+
+// projectPages answers GET /ui/api/projects/{id}/pages.
+func (h *Handler) projectPages(w http.ResponseWriter, r *http.Request) {
+	project, name, period, ok := h.projectRange(w, r)
+	if !ok {
 		return
 	}
 	stats, err := h.db.PageStats(r.Context(), project.ID, period.from, period.to)

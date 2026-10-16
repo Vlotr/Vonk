@@ -155,25 +155,6 @@ const (
 	MaxRoutePatternChars = 300
 )
 
-// SetRoutePatterns replaces a project's route patterns (blank ones are
-// left out; at most MaxRoutePatterns of at most MaxRoutePatternChars) and
-// returns the project, or ErrNotFound. They apply to data that comes in
-// from now on.
-func (db *DB) SetRoutePatterns(ctx context.Context, id int64, patterns []string) (Project, error) {
-	data, err := routePatternsJSON(patterns)
-	if err != nil {
-		return Project{}, err
-	}
-	res, err := db.write.ExecContext(ctx, "UPDATE projects SET route_patterns = ? WHERE id = ?", data, id)
-	if err != nil {
-		return Project{}, err
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return Project{}, ErrNotFound
-	}
-	return db.projectByIDForWrite(ctx, id)
-}
-
 // routePatternsJSON returns the route_patterns column for patterns: blank
 // ones left out, the others trimmed, or an error when there are too many
 // or one is too long.
@@ -326,8 +307,10 @@ type ProjectSettings struct {
 	TracksLaravel   bool
 	TracksBrowser   bool
 	TracksPageviews bool
-	// RoutePatterns replace the project's route patterns (see
-	// SetRoutePatterns); nil leaves them as they are.
+	// RoutePatterns replace the project's route patterns (blank ones are
+	// left out; at most MaxRoutePatterns of at most MaxRoutePatternChars);
+	// nil leaves them as they are. They apply to data that comes in from
+	// now on.
 	RoutePatterns *[]string
 }
 

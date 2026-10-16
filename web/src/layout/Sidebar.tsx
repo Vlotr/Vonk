@@ -11,7 +11,9 @@ function navClass({ isActive }: { isActive: boolean }): string {
 
 // Sidebar is the navigation on the left, with Settings at the bottom.
 // Pages and Events (both from PostHog) show for projects that track page
-// views, between Issues and Alerts as the designs order them.
+// views, between Issues and Alerts as the designs order them; Events also
+// for a project that sends custom events without page views (from a
+// server, with posthog-node).
 export function Sidebar({ project }: { project?: Project }) {
   return (
     <aside className={styles.sidebar}>
@@ -42,16 +44,16 @@ export function Sidebar({ project }: { project?: Project }) {
                 )}
               </NavLink>
               {project.tracksPageviews && (
-                <>
-                  <NavLink to={`/projects/${project.id}/pages`} className={navClass}>
-                    <FileIcon className={styles.icon} />
-                    Pages
-                  </NavLink>
-                  <NavLink to={`/projects/${project.id}/events`} className={navClass}>
-                    <ActivityIcon className={styles.icon} />
-                    Events
-                  </NavLink>
-                </>
+                <NavLink to={`/projects/${project.id}/pages`} className={navClass}>
+                  <FileIcon className={styles.icon} />
+                  Pages
+                </NavLink>
+              )}
+              {(project.tracksPageviews || project.hasCustomEvents) && (
+                <NavLink to={`/projects/${project.id}/events`} className={navClass}>
+                  <ActivityIcon className={styles.icon} />
+                  Events
+                </NavLink>
               )}
               <NavLink to={`/projects/${project.id}/alerts`} className={navClass}>
                 <BellIcon className={styles.icon} />

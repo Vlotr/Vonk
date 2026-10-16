@@ -272,7 +272,11 @@ func TestProjects_RoutePatterns(t *testing.T) {
 	if len(p.RoutePatterns) != 0 {
 		t.Errorf("new project has patterns %v", p.RoutePatterns)
 	}
-	got, err := db.SetRoutePatterns(ctx, p.ID, []string{" /products/:slug ", "", "/blog/:post"})
+	setPatterns := func(id int64, patterns ...string) (Project, error) {
+		return db.UpdateProject(ctx, id, ProjectSettings{Name: p.Name, RetentionDays: p.RetentionDays,
+			TracksLaravel: p.TracksLaravel, RoutePatterns: &patterns})
+	}
+	got, err := setPatterns(p.ID, " /products/:slug ", "", "/blog/:post")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -280,10 +284,10 @@ func TestProjects_RoutePatterns(t *testing.T) {
 	if fmt.Sprint(got.RoutePatterns) != "[/products/:slug /blog/:post]" || fmt.Sprint(again.RoutePatterns) != fmt.Sprint(got.RoutePatterns) {
 		t.Errorf("patterns = %v, reloaded %v", got.RoutePatterns, again.RoutePatterns)
 	}
-	if _, err := db.SetRoutePatterns(ctx, p.ID+99, nil); err != ErrNotFound {
+	if _, err := setPatterns(p.ID + 99); err != ErrNotFound {
 		t.Errorf("unknown project: %v", err)
 	}
-	if _, err := db.SetRoutePatterns(ctx, p.ID, []string{"/" + string(make([]byte, 400))}); err == nil {
+	if _, err := setPatterns(p.ID, "/"+string(make([]byte, 400))); err == nil {
 		t.Error("a 400-character pattern was accepted")
 	}
 }

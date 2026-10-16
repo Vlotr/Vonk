@@ -16,8 +16,11 @@ type projectJSON struct {
 	Sources []string `json:"sources"`
 	// OpenIssues feeds the count next to Issues in the sidebar.
 	OpenIssues int `json:"openIssues"`
-	// TracksPageviews puts Pages in the sidebar.
+	// TracksPageviews puts Pages and Events in the sidebar.
 	TracksPageviews bool `json:"tracksPageviews"`
+	// HasCustomEvents puts Events in the sidebar for projects that send
+	// custom events without page views (posthog-node on a server).
+	HasCustomEvents bool `json:"hasCustomEvents"`
 }
 
 // listProjects answers GET /ui/api/projects: the projects the signed-in
@@ -33,6 +36,11 @@ func (h *Handler) listProjects(w http.ResponseWriter, r *http.Request) {
 		h.internalError(w, r, err)
 		return
 	}
+	withEvents, err := h.db.ProjectsWithCustomEvents(r.Context())
+	if err != nil {
+		h.internalError(w, r, err)
+		return
+	}
 
 	list := make([]projectJSON, 0, len(projects))
 	for _, p := range projects {
@@ -43,6 +51,7 @@ func (h *Handler) listProjects(w http.ResponseWriter, r *http.Request) {
 			Sources:         sources(p),
 			OpenIssues:      open[p.ID],
 			TracksPageviews: p.TracksPageviews,
+			HasCustomEvents: withEvents[p.ID],
 		})
 	}
 	httpjson.Write(w, http.StatusOK, list)

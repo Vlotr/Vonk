@@ -101,6 +101,51 @@ func TestNotify_RegressionOncePerReopen(t *testing.T) {
 	}
 }
 
+// A returning issue names the release it came back in, when the event
+// that reopened it had one, in Slack and in the mail.
+func TestNotify_RegressionNamesItsRelease(t *testing.T) {
+	env := newEnv(t)
+	env.withSlack(t, env.shop.ID)
+	ctx := context.Background()
+	inRelease := func(n int, release string) *sentry.Event {
+		ev := errorEvent(t, n, "charge")
+		if release != "" {
+			ev.Raw["release"] = release
+			ev.Refresh()
+		}
+		return ev
+	}
+
+	env.ingest(t, env.shop.ID, inRelease(1, "v2.8.1"))
+	issues, _ := env.db.ListIssues(ctx, env.shop.ID)
+	resolve := func() {
+		env.clock.Add(time.Minute)
+		if _, err := env.db.SetIssueStatus(ctx, issues[0].ID, store.IssueResolved, env.clock.Now()); err != nil {
+			t.Fatal(err)
+		}
+		env.clock.Add(time.Minute)
+	}
+	resolve()
+	env.ingest(t, env.shop.ID, inRelease(2, "v2.9.0"))
+
+	msgs := env.slack.Messages()
+	if last := msgs[len(msgs)-1]; !strings.Contains(last, "*Returning issue in Webshop*") || !strings.Contains(last, "Came back in v2.9.0") {
+		t.Errorf("Slack message = %q, want the release it came back in", last)
+	}
+	_, bodies := env.mails()
+	if body := bodies[len(bodies)-1]; !strings.Contains(body, "Came back in v2.9.0") {
+		t.Errorf("mail body:\n%s", body)
+	}
+
+	// Without a release on the event, no release line.
+	resolve()
+	env.ingest(t, env.shop.ID, inRelease(3, ""))
+	msgs = env.slack.Messages()
+	if last := msgs[len(msgs)-1]; !strings.Contains(last, "Returning issue") || strings.Contains(last, "Came back in") {
+		t.Errorf("Slack message without a release = %q", last)
+	}
+}
+
 func TestNotify_DisabledKindSendsNothing(t *testing.T) {
 	env := newEnv(t)
 	env.withSlack(t, env.shop.ID)

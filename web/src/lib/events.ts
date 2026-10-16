@@ -11,6 +11,11 @@ function count(n: number): string {
   return n.toLocaleString('en-US')
 }
 
+/** titlePeriod keeps "7 days" on one line when a headline wraps. */
+function titlePeriod(period: string): string {
+  return period.replace(/ (\S+)$/, '\u00a0$1')
+}
+
 /** timesText writes how often something happened: "once", "2 times", "1,204 times". */
 export function timesText(n: number): string {
   return n === 1 ? 'once' : `${count(n)} times`
@@ -36,17 +41,21 @@ export function eventsHeadline(list: EventList, selected: string): { title: stri
         lead: `${count(list.bots)} bot ${list.bots === 1 ? 'event' : 'events'} in the ${period}, not counted.`,
       }
     }
+    if (list.project.hasCustomEvents) {
+      return {
+        title: `No custom events in the ${titlePeriod(period)}`,
+        lead: `${name} had events before then.${list.range === '30d' ? '' : ' A longer period shows them.'}`,
+      }
+    }
     return {
       title: 'No custom events yet',
       lead: `${name}, ${period}. Events your app sends with posthog.capture() show up here a minute or two later.`,
     }
   }
-  // "7 days" stays on one line when the headline wraps.
-  const titlePeriod = period.replace(/ (\S+)$/, '\u00a0$1')
   const event = list.events.find((e) => e.name === selected)
-  if (!event) return { title: `${selected} did not happen in the ${titlePeriod}`, lead: `${name}, ${period}.` }
+  if (!event) return { title: `${selected} did not happen in the ${titlePeriod(period)}`, lead: `${name}, ${period}.` }
   return {
-    title: `${event.name} happened ${timesText(event.count)} in the ${titlePeriod}`,
+    title: `${event.name} happened ${timesText(event.count)} in the ${titlePeriod(period)}`,
     lead: `By ${count(event.users)} ${event.users === 1 ? 'user' : 'users'}. ${name}, ${period}.`,
   }
 }

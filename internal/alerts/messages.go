@@ -32,10 +32,19 @@ func (n *Notifier) issueMessage(kind string, p store.Project, issue store.Issue)
 		details = append(details, sourceLabel(issue.Source))
 	}
 
+	// The release it came back in, as the issue page says it.
+	cameBack := ""
+	if kind == store.AlertRegression && issue.RegressedRelease != "" {
+		cameBack = "Came back in " + issue.RegressedRelease
+	}
+
 	var text strings.Builder
 	fmt.Fprintf(&text, "%s\n\n%s\n", lead, line)
 	if len(details) > 0 {
 		fmt.Fprintf(&text, "%s\n", strings.Join(details, " · "))
+	}
+	if cameBack != "" {
+		fmt.Fprintf(&text, "%s\n", cameBack)
 	}
 	fmt.Fprintf(&text, "\nOpen the issue: %s\n", link)
 	text.WriteString(n.footer(p))
@@ -43,6 +52,9 @@ func (n *Notifier) issueMessage(kind string, p store.Project, issue store.Issue)
 	slack := fmt.Sprintf("*%s in %s*\n%s", head, slackEscape(p.Name), slackLink(link, line))
 	if issue.Culprit != "" {
 		slack += "\n`" + strings.ReplaceAll(slackEscape(issue.Culprit), "`", "'") + "`"
+	}
+	if cameBack != "" {
+		slack += "\n" + slackEscape(cameBack)
 	}
 	return message{
 		subject: fmt.Sprintf("[%s] %s: %s", p.Name, head, cut(line, 150)),

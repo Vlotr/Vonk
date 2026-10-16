@@ -267,13 +267,18 @@ func (w *Writer) save(n int, write func() error) bool {
 // errorTime returns when an error happened by the server's clock (ruling
 // 41), as PostHog's rule does for its events: with the envelope's sent_at,
 // the event's timestamp moved by received − sent_at, so a client clock
-// that is off cancels out; without it, the timestamp as sent. The clamp
-// applies to the result.
+// that is off cancels out; without it, the timestamp as sent. The
+// corrected time is never after the receive time (ruling 42): sentry-php
+// writes sent_at in whole seconds, which would put its errors up to a
+// second after they arrived. The clamp applies to the result.
 func errorTime(ts, sentAt, received time.Time) time.Time {
 	if ts.IsZero() || sentAt.IsZero() {
 		return ts
 	}
-	return ts.Add(received.Sub(sentAt))
+	if corrected := ts.Add(received.Sub(sentAt)); corrected.Before(received) {
+		return corrected
+	}
+	return received
 }
 
 // clampTime returns ts, or received when ts is missing, more than an hour

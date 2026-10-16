@@ -195,7 +195,18 @@ function PageViewsCard({ project, onChange }: { project: ProjectKeys; onChange: 
         </>
       ) : (
         <>
-          <p className={form.note}>Page views are off for this project.</p>
+          <p className={form.note}>
+            Page views are off for this project. Events your server sends with a PostHog SDK (such as posthog-node) still show under
+            Events; they need this token and host:
+          </p>
+          <div className={form.field}>
+            <span className={form.label}>Project token</span>
+            <CopyBlock label="PostHog token" value={project.posthogToken} />
+          </div>
+          <div className={form.field}>
+            <span className={form.label}>API host</span>
+            <CopyBlock label="PostHog host" value={project.posthogHost} />
+          </div>
           <div className={form.buttons}>
             <button type="button" className={button.button} onClick={turnOn}>
               Turn on page views

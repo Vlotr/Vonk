@@ -112,3 +112,39 @@ func TestEvents_BadRange(t *testing.T) {
 		t.Errorf("unknown project = %d, want 404", rec.Code)
 	}
 }
+
+// Custom events come from every PostHog SDK with the project's token
+// (posthog-node on a server too), not only from projects that track page
+// views: the sidebar shows Events for a project that has any.
+func TestEvents_ProjectsWithCustomEvents(t *testing.T) {
+	env := newTestEnv(t)
+	server := env.project(t, "Billing")   // no page views; events from posthog-node
+	quiet := env.project(t, "Portal")     // nothing at all
+	shop := env.pageProject(t, "Webshop") // page views, no events yet
+	env.saveCustomEvents(t, customEvent(server.ID, 1, "invoice_paid", "42", "", testNow.Add(-time.Hour)))
+	env.aggregate(t)
+
+	projects := getJSON[[]struct {
+		ID              int64 `json:"id"`
+		TracksPageviews bool  `json:"tracksPageviews"`
+		HasCustomEvents bool  `json:"hasCustomEvents"`
+	}](t, env, "/ui/api/projects")
+	got := map[int64][2]bool{}
+	for _, p := range projects {
+		got[p.ID] = [2]bool{p.TracksPageviews, p.HasCustomEvents}
+	}
+	want := map[int64][2]bool{server.ID: {false, true}, quiet.ID: {false, false}, shop.ID: {true, false}}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("tracksPageviews, hasCustomEvents = %v, want %v", got, want)
+	}
+
+	// The Events screen says the same, so its empty state can tell "none yet" from "none in this period".
+	list := getJSON[struct {
+		Project struct {
+			HasCustomEvents bool `json:"hasCustomEvents"`
+		} `json:"project"`
+	}](t, env, eventsPath(server, "?range=24h"))
+	if !list.Project.HasCustomEvents {
+		t.Error("the Events screen's project has no custom events")
+	}
+}
