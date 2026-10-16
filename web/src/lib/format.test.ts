@@ -5,10 +5,12 @@ import {
   formatDateTime,
   formatTime,
   hiddenFramesSentence,
+  emptyIssuesSentence,
+  formatDuration,
   issuesHeadline,
   majorMinor,
   newIssuesSentence,
-  projectsHeadline,
+  overviewHeadline,
   runtimeLabel,
   shortFunction,
   shortType,
@@ -59,17 +61,45 @@ describe('newIssuesSentence', () => {
 
 describe('showingSentence', () => {
   test('counts the rows shown of the total', () => {
-    expect(showingSentence(6, 14)).toBe('Showing 6 of 14 open issues')
-    expect(showingSentence(1, 1)).toBe('Showing 1 of 1 open issue')
+    expect(showingSentence(6, 14, 'open')).toBe('Showing 6 of 14 open issues')
+    expect(showingSentence(1, 1, 'open')).toBe('Showing 1 of 1 open issue')
+  })
+
+  test('names the status of the tab', () => {
+    expect(showingSentence(25, 128, 'resolved')).toBe('Showing 25 of 128 resolved issues')
+    expect(showingSentence(1, 1, 'ignored')).toBe('Showing 1 of 1 ignored issue')
   })
 })
 
-describe('projectsHeadline', () => {
-  test('counts the projects with open issues', () => {
-    expect(projectsHeadline([{ openIssues: 3 }, { openIssues: 1 }, { openIssues: 0 }])).toBe('2 projects have open issues')
-    expect(projectsHeadline([{ openIssues: 3 }, { openIssues: 0 }])).toBe('1 project has open issues')
-    expect(projectsHeadline([{ openIssues: 0 }])).toBe('No open issues in any project')
-    expect(projectsHeadline([])).toBe('No projects yet')
+describe('emptyIssuesSentence', () => {
+  test('says what is missing on each tab', () => {
+    expect(emptyIssuesSentence('open', false, '')).toBe('No open issues right now.')
+    expect(emptyIssuesSentence('resolved', false, '')).toBe('No resolved issues.')
+    expect(emptyIssuesSentence('ignored', false, '')).toBe('No ignored issues.')
+  })
+
+  test('mentions the filters or the search', () => {
+    expect(emptyIssuesSentence('open', true, '')).toBe('No open issues match these filters.')
+    expect(emptyIssuesSentence('resolved', true, 'cart.js')).toBe('No resolved issues match \u201ccart.js\u201d.')
+  })
+})
+
+describe('overviewHeadline', () => {
+  const project = (newIssues24h: number) => ({ newIssues24h })
+
+  test('counts the projects with new errors, as in the design', () => {
+    expect(overviewHeadline([project(6), project(1), project(0), project(0)])).toBe(
+      '2 projects have new errors in the last 24 hours',
+    )
+    expect(overviewHeadline([project(0), project(3)])).toBe('1 project has new errors in the last 24 hours')
+  })
+
+  test('says so when nothing is new', () => {
+    expect(overviewHeadline([project(0), project(0)])).toBe('No new errors in the last 24 hours')
+  })
+
+  test('without projects', () => {
+    expect(overviewHeadline([])).toBe('No projects yet')
   })
 })
 
@@ -110,6 +140,15 @@ describe('formatDateTime', () => {
   test('adds the year when it is not this year', () => {
     // The same style as dates without a time: "Jan 2, 2025".
     expect(formatDateTime(new Date(2025, 11, 31, 23, 59), now)).toBe('Dec 31, 2025, 23:59')
+  })
+})
+
+describe('formatDuration', () => {
+  test('writes minutes and two-digit seconds, as the design does', () => {
+    expect(formatDuration(72_000)).toBe('1m 12s')
+    expect(formatDuration(125_000)).toBe('2m 05s')
+    expect(formatDuration(48_400)).toBe('0m 48s')
+    expect(formatDuration(0)).toBe('0m 00s')
   })
 })
 

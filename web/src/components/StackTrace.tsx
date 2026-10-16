@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { EventDetail, Frame } from '../api/client'
 import { displayFile, hiddenFramesSentence, shortFunction } from '../lib/format'
 import { codeLines, frameKey, isFrameOpen, visibleFrames } from '../lib/frames'
+import button from './Button.module.css'
 import styles from './StackTrace.module.css'
 
 // StackTrace shows the newest event's exception and its frames, the most
@@ -29,7 +30,7 @@ export function StackTrace({ event }: { event: EventDetail }) {
           Stack trace
         </h2>
         {hasFramework && (
-          <button type="button" className={styles.button} onClick={() => setShowFramework((v) => !v)}>
+          <button type="button" className={button.button} onClick={() => setShowFramework((v) => !v)}>
             {showFramework ? 'Hide framework code' : 'Show framework code'}
           </button>
         )}

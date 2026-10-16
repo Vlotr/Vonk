@@ -1,11 +1,33 @@
-/* The design has 2px more under the breadcrumb here than on the issue list. */
+/* The design has 2px more under the breadcrumb here than on the issue list.
+   The buttons sit at the bottom right, level with the tags. */
 .header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-4) var(--space-6);
   margin-bottom: var(--space-6);
   padding-top: 2px;
 }
 
+.heading {
+  flex: 1 1 400px;
+  min-width: 0;
+}
+
 .header h1 {
   margin-bottom: 10px;
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.failed {
+  margin: calc(-1 * var(--space-3)) 0 var(--space-6);
+  color: var(--color-highlight-text);
+  font-size: var(--font-size-small);
 }
 
 .message {

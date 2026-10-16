@@ -31,16 +31,27 @@ export function newIssuesSentence(open: number, newCount: number): string {
 }
 
 /** showingSentence is the footer of the issue list: "Showing 6 of 14 open issues". */
-export function showingSentence(shown: number, total: number): string {
-  return `Showing ${shown} of ${plural(total, 'open issue')}`
+export function showingSentence(shown: number, total: number, status: string): string {
+  return `Showing ${shown} of ${plural(total, `${status} issue`)}`
 }
 
-/** projectsHeadline is the headline of the projects page. */
-export function projectsHeadline(projects: { openIssues: number }[]): string {
+/**
+ * emptyIssuesSentence is what the issue list says when a tab has no rows:
+ * "No resolved issues.", or with filters "No open issues match these
+ * filters." and with a search "No open issues match “cart.js”."
+ */
+export function emptyIssuesSentence(status: string, filtered: boolean, search: string): string {
+  if (search) return `No ${status} issues match \u201c${search}\u201d.`
+  if (filtered) return `No ${status} issues match these filters.`
+  return status === 'open' ? 'No open issues right now.' : `No ${status} issues.`
+}
+
+/** overviewHeadline is the All projects headline: "2 projects have new errors in the last 24 hours". */
+export function overviewHeadline(projects: { newIssues24h: number }[]): string {
   if (projects.length === 0) return 'No projects yet'
-  const withOpen = projects.filter((p) => p.openIssues > 0).length
-  if (withOpen === 0) return 'No open issues in any project'
-  return `${plural(withOpen, 'project')} ${withOpen === 1 ? 'has' : 'have'} open issues`
+  const withNew = projects.filter((p) => p.newIssues24h > 0).length
+  if (withNew === 0) return 'No new errors in the last 24 hours'
+  return `${plural(withNew, 'project')} ${withNew === 1 ? 'has' : 'have'} new errors in the last 24 hours`
 }
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -66,6 +77,12 @@ export function formatTime(date: Date): string {
  */
 export function formatDateTime(date: Date, now: Date): string {
   return `${formatDate(date, now)}, ${formatTime(date)}`
+}
+
+/** formatDuration writes a time on a page: "1m 12s", "0m 48s". */
+export function formatDuration(ms: number): string {
+  const seconds = Math.round(ms / 1000)
+  return `${Math.floor(seconds / 60)}m ${twoDigits(seconds % 60)}s`
 }
 
 /** timeAgo writes "4 min ago", "3 h ago", "2 d ago", and a date after a month. */

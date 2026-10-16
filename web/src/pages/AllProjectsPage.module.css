@@ -1,0 +1,143 @@
+/* The design breaks the headline after "in the": it is kept to about 16
+   words wide, its two lines closer together than a one-line headline. */
+.headline {
+  max-width: 16em;
+  line-height: var(--line-height-title-wrapped);
+}
+
+.card {
+  margin-top: var(--space-7);
+}
+
+.cardHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+  padding: var(--card-padding-top) var(--space-4) 15px;
+}
+
+/* Column widths of the design (cells include their padding); the project takes the rest. */
+.newColumn {
+  width: 113px;
+}
+
+.errorsColumn {
+  width: 114px;
+}
+
+.barsColumn {
+  width: 311px;
+}
+
+.viewsColumn {
+  width: 180px;
+}
+
+.timeColumn {
+  width: 160px;
+}
+
+.table td {
+  white-space: nowrap;
+}
+
+/* A block of its own, so the row's taller body line height does not add to it. */
+.name {
+  display: block;
+  width: fit-content;
+  color: var(--color-text);
+  font-size: var(--font-size-name);
+  font-weight: var(--font-weight-semibold);
+  line-height: normal;
+  text-decoration: none;
+}
+
+.name:hover {
+  text-decoration: underline;
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--meta-gap);
+}
+
+.newCount {
+  display: inline-block;
+  padding: 0 9px;
+  border-radius: var(--radius-pill);
+  background: var(--color-new-bg);
+  color: var(--color-new-text);
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-pill);
+}
+
+.none {
+  color: var(--color-text-muted);
+}
+
+/* Styled as the design's link; it becomes one when page tracking can be set up (Task 8). */
+.addTracking {
+  color: var(--color-link);
+  text-decoration: underline;
+}
+
+.newestCard {
+  margin-top: var(--space-7);
+}
+
+.newestHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+  padding: var(--card-padding-top) var(--space-4) 6px;
+  border-bottom: var(--border-width) solid var(--color-divider);
+}
+
+.seeAll {
+  font-size: var(--font-size-body);
+}
+
+.newestEmpty {
+  color: var(--color-text-muted);
+}
+
+.newestTable td {
+  padding-top: 12.5px;
+  padding-bottom: 12.5px;
+}
+
+.issueCell {
+  overflow-wrap: anywhere;
+}
+
+.issue {
+  color: var(--color-text-secondary);
+  text-decoration: none;
+}
+
+.issue strong {
+  color: var(--color-text);
+  font-weight: var(--font-weight-semibold);
+}
+
+.issue:hover strong {
+  text-decoration: underline;
+}
+
+.muted {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-small);
+  text-align: right;
+}
+
+/* As wide as the design's time column, so the project names line up at the right. */
+.ago {
+  width: 104px;
+}

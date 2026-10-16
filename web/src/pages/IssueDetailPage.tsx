@@ -1,7 +1,9 @@
-import type { ReactNode } from 'react'
+import { type ReactNode, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router'
-import { ApiError, getIssue, type EventDetail } from '../api/client'
+import { ApiError, type EventDetail, getIssue, type IssueStatus, setIssueStatus } from '../api/client'
+import button from '../components/Button.module.css'
 import { HourBars } from '../components/HourBars'
+import { CheckIcon, LinkIcon } from '../components/Icons'
 import { LoadError } from '../components/LoadError'
 import { StackTrace } from '../components/StackTrace'
 import { Tag } from '../components/Tag'
@@ -22,14 +24,32 @@ import { NotFoundPage } from './NotFoundPage'
 import page from './Page.module.css'
 
 // IssueDetailPage shows one issue: its numbers, events per hour, the stack
-// trace of its newest event, and who and where it happened. Fields the event
-// did not carry are left out.
+// trace of its newest event, and who and where it happened, with buttons to
+// resolve, ignore or reopen it and to copy its link. Fields the event did
+// not carry are left out.
 export function IssueDetailPage() {
   const params = useParams()
   const projectId = Number(params.id)
   const issueId = Number(params.issueId)
-  const { data, error } = usePolling((signal) => getIssue(issueId, signal), `issue-${issueId}`)
-  const project = useProjects().data?.find((p) => p.id === projectId)
+  const polled = usePolling((signal) => getIssue(issueId, signal), `issue-${issueId}`)
+  const { data, error } = polled
+  const projects = useProjects()
+  const project = projects.data?.find((p) => p.id === projectId)
+  const [failed, setFailed] = useState('')
+
+  // The new status shows at once; the next load brings what the server says.
+  const changeStatus = async (to: IssueStatus) => {
+    setFailed('')
+    const settle = polled.mutate((d) => ({ ...d, issue: { ...d.issue, status: to } }))
+    try {
+      await setIssueStatus(issueId, to)
+      projects.reload()
+    } catch {
+      setFailed(`The issue could not be ${to === 'open' ? 'reopened' : to}. Try again.`)
+    } finally {
+      settle()
+    }
+  }
 
   const notFound = (error instanceof ApiError && error.status === 404) || (data && data.issue.projectId !== projectId)
   if (notFound) return <NotFoundPage what="Issue" />
@@ -50,20 +70,29 @@ export function IssueDetailPage() {
       </nav>
 
       <header className={styles.header}>
-        <h1 className={page.title} title={issue.type}>
-          {shortType(issue.type)}
-        </h1>
-        {message && (
-          <p className={styles.message} title={message}>
-            {message}
-          </p>
-        )}
-        <div className={styles.tags}>
-          {issue.isNew && <Tag tone="new">New</Tag>}
-          <Tag outline>{sourceLabel(issue.source)}</Tag>
-          {event?.environment && <Tag outline>{event.environment}</Tag>}
+        <div className={styles.heading}>
+          <h1 className={page.title} title={issue.type}>
+            {shortType(issue.type)}
+          </h1>
+          {message && (
+            <p className={styles.message} title={message}>
+              {message}
+            </p>
+          )}
+          <div className={styles.tags}>
+            {issue.status !== 'open' && <Tag outline>{issue.status === 'resolved' ? 'Resolved' : 'Ignored'}</Tag>}
+            {issue.isNew && <Tag tone="new">New</Tag>}
+            <Tag outline>{sourceLabel(issue.source)}</Tag>
+            {event?.environment && <Tag outline>{event.environment}</Tag>}
+          </div>
         </div>
+        <StatusActions status={issue.status} onChange={changeStatus} path={`/projects/${projectId}/issues/${issueId}`} />
       </header>
+      {failed && (
+        <p className={styles.failed} role="alert">
+          {failed}
+        </p>
+      )}
 
       <div className={`${page.card} ${styles.stats}`}>
         <dl className={styles.numbers}>
@@ -110,6 +139,66 @@ export function IssueDetailPage() {
         )}
       </div>
     </section>
+  )
+}
+
+/**
+ * StatusActions are the buttons at the top right: Resolve and Ignore for an
+ * open issue, Reopen and the other one for a resolved or ignored issue, and
+ * the copy-link button.
+ */
+function StatusActions({ status, onChange, path }: { status: IssueStatus; onChange: (to: IssueStatus) => void; path: string }) {
+  const large = `${button.button} ${button.large}`
+  const choice = (to: IssueStatus, label: string, primary = false) => (
+    <button type="button" className={primary ? `${large} ${button.primary}` : large} onClick={() => onChange(to)}>
+      {label}
+    </button>
+  )
+  return (
+    <div className={styles.actions}>
+      {status === 'open' && choice('resolved', 'Resolve', true)}
+      {status !== 'open' && choice('open', 'Reopen', true)}
+      {status === 'ignored' && choice('resolved', 'Resolve')}
+      {status !== 'ignored' && choice('ignored', 'Ignore')}
+      <CopyLinkButton path={path} />
+    </div>
+  )
+}
+
+/** COPIED_MS is how long the copy-link button shows its tick. */
+const COPIED_MS = 2000
+
+/** CopyLinkButton copies the address of this issue's page. */
+function CopyLinkButton({ path }: { path: string }) {
+  const [copied, setCopied] = useState(false)
+  useEffect(() => {
+    if (!copied) return
+    const timer = setTimeout(() => setCopied(false), COPIED_MS)
+    return () => clearTimeout(timer)
+  }, [copied])
+
+  const copy = async () => {
+    const url = new URL(path, window.location.origin).href
+    try {
+      await navigator.clipboard.writeText(url)
+    } catch {
+      // No clipboard API (plain HTTP from elsewhere than localhost): copy
+      // through a selected text field instead.
+      const field = document.createElement('textarea')
+      field.value = url
+      document.body.appendChild(field)
+      field.select()
+      document.execCommand('copy')
+      field.remove()
+    }
+    setCopied(true)
+  }
+
+  const label = copied ? 'Link copied' : 'Copy link'
+  return (
+    <button type="button" className={`${button.button} ${button.large} ${button.icon}`} onClick={copy} aria-label={label} title={label}>
+      {copied ? <CheckIcon /> : <LinkIcon />}
+    </button>
   )
 }
 

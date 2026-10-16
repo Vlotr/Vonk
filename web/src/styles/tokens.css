@@ -51,7 +51,9 @@
 
   /* Buttons */
   --color-button-primary: #1b2430;
+  --color-button-primary-hover: #2f3a48; /* not in the designs: a step lighter */
   --color-button-primary-text: #ffffff;
+  --color-button-primary-count: #d1d3d6; /* "14" next to "Open" in the active status tab */
 
   /* The shadow at the edge of a code box that scrolls sideways */
   --color-scroll-shadow: rgba(27, 36, 48, 0.14);
@@ -81,17 +83,20 @@
 
   --letter-spacing-title: -0.01em;
   --line-height-title: 1.22;
+  --line-height-title-wrapped: 39px; /* the All projects headline, which runs to two lines */
   --line-height-body: 1.4;
   --line-height-field: 22.5px; /* rows of the User and Details cards */
   --line-height-exception: 21px; /* the exception line above a stack trace */
   --line-height-code: 23px;
   --line-height-frame: 20px; /* the file and function line of a stack frame */
   --line-height-badge: 19px; /* the open-issue count in the sidebar */
+  --line-height-pill: 18px; /* "6 new" on the All projects page */
 
   /* Corners */
   --radius-card: 10px;
   --radius-nav: 8px;
-  --radius-button: 6px;
+  --radius-button: 6px; /* buttons, selects, the search box, the active status tab */
+  --radius-segmented: 8px; /* the box around the status tabs */
   --radius-code: 6px;
   --radius-tag: var(--radius-pill);
   --radius-hour-block: 3px;
@@ -113,14 +118,22 @@
   --sidebar-width: 220px;
   --page-padding: 40px;
   --nav-item-height: 44px;
-  --button-height: 40px;
+  --button-height: 40px; /* Resolve in a row, Show framework code */
+  --button-height-large: 44px; /* Show more, the buttons of the issue page, selects and search */
+  --button-padding-x: 14px;
+  --button-padding-x-large: 17px;
+  --segmented-padding: 4px; /* around and between the status tabs */
   --icon-size: 18px;
+  --icon-size-button: 16px; /* an icon alone in a button */
   --border-width: 1px;
   --card-padding-top: 18px; /* above a card's title */
   --row-padding-y: 14px; /* above and below a table row or a stack frame */
   --table-header-height: 40px;
   --meta-gap: 6px; /* between a name and the tags under it */
   --hour-bars-width: 168px; /* the "Last 24 hours" bars of the issue list */
+  --hour-bars-wide-width: 240px; /* the same bars on the All projects page */
+  --hour-bars-wide-height: 24px;
+  --legend-square: 14px; /* the five squares of "Errors per hour none … many" */
   --side-column-width: 358px; /* the User and Details cards on the issue page */
   --list-footer-height: 72px; /* "Showing 6 of 14 open issues" */
 }

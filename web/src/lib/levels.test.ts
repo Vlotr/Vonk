@@ -32,3 +32,15 @@ describe('barLevels', () => {
     expect(barLevels([0, 0, 0])).toEqual([0, 0, 0])
   })
 })
+
+describe('barLevels with a shared maximum', () => {
+  test('rows of a table share one scale, so a quiet project stays light', () => {
+    // The busiest hour of all rows is 40: 3 errors is level 1, not 4.
+    expect(barLevels([0, 3, 1], 40)).toEqual([0, 1, 1])
+    expect(barLevels([40, 20, 11], 40)).toEqual([4, 2, 2])
+  })
+
+  test('a maximum below the row is raised to the row', () => {
+    expect(barLevels([0, 8], 2)).toEqual([0, 4])
+  })
+})

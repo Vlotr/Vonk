@@ -1,0 +1,58 @@
+/* Buttons as the designs draw them: outlined white by default, dark for
+   the main action. The small size sits in table rows and card headers, the
+   large one in footers and the issue page header. */
+
+.button {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  height: var(--button-height);
+  padding: 0 var(--button-padding-x);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-button);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold);
+  line-height: normal;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.button:hover {
+  background: var(--color-bg);
+}
+
+.button:disabled {
+  cursor: default;
+}
+
+.large {
+  height: var(--button-height-large);
+  padding: 0 var(--button-padding-x-large);
+  font-size: var(--font-size-body);
+}
+
+.primary {
+  border-color: var(--color-button-primary);
+  background: var(--color-button-primary);
+  color: var(--color-button-primary-text);
+}
+
+.primary:hover {
+  border-color: var(--color-button-primary-hover);
+  background: var(--color-button-primary-hover);
+}
+
+/* A square button with only an icon, such as the copy-link button. */
+.icon {
+  width: var(--button-height-large);
+  padding: 0;
+}
+
+.icon svg {
+  width: var(--icon-size-button);
+  height: var(--icon-size-button);
+}
