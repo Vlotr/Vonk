@@ -34,8 +34,8 @@ test('the sidebar links to Settings', () => {
   expect(render('/')).toContain('href="/settings"')
 })
 
-test('the alerts and status pages render inside the shell', () => {
-  for (const path of ['/projects/1/alerts', '/settings/status']) {
+test('the alerts, pages and status pages render inside the shell', () => {
+  for (const path of ['/projects/1/alerts', '/projects/1/pages', '/settings/status']) {
     const html = render(path)
     expect(html).toContain(TOOL_NAME)
     expect(html).not.toContain('Page not found')

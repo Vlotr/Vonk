@@ -10,6 +10,7 @@ import { IssueDetailPage } from './pages/IssueDetailPage'
 import { IssuesPage } from './pages/IssuesPage'
 import { LoginPage } from './pages/LoginPage'
 import { NotFoundPage } from './pages/NotFoundPage'
+import { PagesPage } from './pages/PagesPage'
 import { ProjectSetupPage } from './pages/ProjectSetupPage'
 import { ResetPasswordPage } from './pages/ResetPasswordPage'
 import { SettingsProjectsPage } from './pages/SettingsProjectsPage'
@@ -32,6 +33,7 @@ export function App() {
         <Route index element={<AllProjectsPage />} />
         <Route path="projects/:id/issues" element={<IssuesPage />} />
         <Route path="projects/:id/issues/:issueId" element={<IssueDetailPage />} />
+        <Route path="projects/:id/pages" element={<PagesPage />} />
         <Route path="projects/:id/alerts" element={<AlertsPage />} />
         <Route path="settings" element={<SettingsHome />} />
         <Route path="settings/projects" element={<SettingsProjectsPage />} />

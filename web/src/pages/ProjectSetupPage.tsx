@@ -8,7 +8,7 @@ import form from '../components/Form.module.css'
 import { LoadError } from '../components/LoadError'
 import { SettingsHeader } from '../components/SettingsHeader'
 import { useProjects } from '../layout/ProjectsContext'
-import { browserSnippet, laravelEnvLine } from '../lib/settings'
+import { browserSnippet, identifySnippet, LARAVEL_USER_SNIPPET, laravelEnvLine, posthogSnippet } from '../lib/settings'
 import { problem } from '../lib/signin'
 import { NotFoundPage } from './NotFoundPage'
 import page from './Page.module.css'
@@ -22,8 +22,8 @@ const LARAVEL_BOOTSTRAP = `use Sentry\\Laravel\\Integration;
 })`
 
 // ProjectSetupPage is "Setup and keys": the project's DSN and PostHog token,
-// and the steps to send errors from Laravel and the browser. The PostHog
-// steps for page views follow when page views are collected.
+// the steps to send errors from Laravel and the browser, the posthog-js
+// setup for page views, and how to give both SDKs the same user id.
 export function ProjectSetupPage() {
   return (
     <AdminOnly>
@@ -129,6 +129,7 @@ function SetupAndKeys() {
       )}
 
       <PageViewsCard project={project} onChange={setProject} />
+      {project.tracksPageviews && <SameUserCard project={project} />}
 
       {untracked.length > 0 && (
         <p className={`${form.note} ${styles.untracked}`}>
@@ -140,8 +141,8 @@ function SetupAndKeys() {
 }
 
 /**
- * PageViewsCard shows the PostHog token. Page views are not collected yet;
- * the posthog-js steps arrive with them.
+ * PageViewsCard shows the PostHog token and the posthog-js setup this tool
+ * was tested with, or offers to turn page views on.
  */
 function PageViewsCard({ project, onChange }: { project: ProjectKeys; onChange: (p: ProjectKeys) => void }) {
   const sidebar = useProjects()
@@ -163,7 +164,9 @@ function PageViewsCard({ project, onChange }: { project: ProjectKeys; onChange: 
       </h2>
       {project.tracksPageviews ? (
         <>
-          <p className={form.note}>The PostHog SDK sends page views with this token, to this server.</p>
+          <p className={form.note}>
+            The PostHog SDK sends page views with this token, to this server. They show up under Pages a minute or two later.
+          </p>
           <div className={form.field}>
             <span className={form.label}>Project token</span>
             <CopyBlock label="PostHog token" value={project.posthogToken} />
@@ -172,8 +175,22 @@ function PageViewsCard({ project, onChange }: { project: ProjectKeys; onChange: 
             <span className={form.label}>API host</span>
             <CopyBlock label="PostHog host" value={project.posthogHost} />
           </div>
+          <ol className={styles.steps}>
+            <li>
+              <p>Install the PostHog SDK for the browser:</p>
+              <CopyBlock label="Install command" value="npm install posthog-js" />
+            </li>
+            <li>
+              <p>Start it on every page, as early as possible:</p>
+              <CopyBlock label="PostHog setup" value={posthogSnippet(project.posthogToken, project.posthogHost)} />
+            </li>
+          </ol>
           <p className={form.note}>
-            Page views are not collected yet. When they are, the steps to set up posthog-js appear here; the token and host stay the same.
+            It sets no cookies and stores nothing in the browser (<code>persistence: &apos;memory&apos;</code>), so it needs no cookie
+            banner. The price: a visitor who is not signed in counts as a new visitor on every page load. posthog-js warns about this in the
+            browser console (&ldquo;PostHog will mint a new distinct ID on every page load&rdquo;, with advice about PostHog&apos;s person
+            pages); this tool has no such limit, so the warning can be ignored. A page view ends when the visitor leaves the page or opens
+            the next one, which gives the time on the page. Session recording stays off.
           </p>
         </>
       ) : (
@@ -191,6 +208,41 @@ function PageViewsCard({ project, onChange }: { project: ProjectKeys; onChange: 
           {error}
         </p>
       )}
+    </section>
+  )
+}
+
+/**
+ * SameUserCard explains how to give the Sentry and PostHog SDKs the same
+ * user id, so an issue's users and their page views are the same people.
+ * It shows for projects that track page views; the Laravel step for those
+ * that track Laravel errors.
+ */
+function SameUserCard({ project }: { project: ProjectKeys }) {
+  return (
+    <section className={`${page.card} ${styles.card}`} aria-labelledby="same-user-title">
+      <h2 id="same-user-title" className={page.cardTitle}>
+        The same user in errors and page views
+      </h2>
+      <p className={form.note}>
+        Give both SDKs your app&apos;s id of the signed-in user. Then the user of an error and the visitor of a page are the same person, and
+        signed-in visitors count once however many pages they open. Send the id only, never an email address.
+      </p>
+      <ol className={styles.steps}>
+        <li>
+          <p>In the browser, where your app knows who signed in:</p>
+          <CopyBlock label="Browser user id" value={identifySnippet()} />
+        </li>
+        {project.tracksLaravel && (
+          <li>
+            <p>
+              In Laravel, in <code>app/Providers/AppServiceProvider.php</code> (the <code>use</code> lines at the top, the listener in{' '}
+              <code>boot()</code>):
+            </p>
+            <CopyBlock label="Laravel user id" value={LARAVEL_USER_SNIPPET} />
+          </li>
+        )}
+      </ol>
     </section>
   )
 }

@@ -47,9 +47,10 @@
   --color-heat-4: #a8370a;
 
   /* Charts of page views (Pages screen) */
-  --color-chart: #2b59c3;
-  --color-chart-light: #9db3e6;
-  --color-chart-track: #e8eefa;
+  --color-chart: #2b59c3; /* the latest bar, the time bars */
+  --color-chart-light: #9db3e6; /* the other bars */
+  --color-chart-track: #e8eefa; /* behind a time bar */
+  --color-errors-link: #a8370a; /* "1,204" errors on a page, linking to its issues */
 
   /* Buttons */
   --color-button-primary: #1b2430;
@@ -103,6 +104,7 @@
   --radius-tag: var(--radius-pill);
   --radius-hour-block: 3px;
   --radius-hour-bar: 1px;
+  --radius-chart-bar: 5px; /* the top corners of a bar of page views */
   --radius-pill: 999px;
 
   /* Spacing */
@@ -144,4 +146,7 @@
   --legend-square: 14px; /* the five squares of "Errors per hour none … many" */
   --side-column-width: 358px; /* the User and Details cards on the issue page */
   --list-footer-height: 72px; /* "Showing 6 of 14 open issues" */
+  --chart-bar-width: 56px; /* a day of page views; more bars get narrower */
+  --chart-bar-height: 170px; /* the busiest bar of page views */
+  --time-bar-height: 10px; /* the average time on a page, in the Pages table */
 }

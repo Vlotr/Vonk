@@ -1,0 +1,72 @@
+/* Page views per day (or hour): the bars stand on one line, the busiest
+   at --chart-bar-height, with room above for its number. A week's bars
+   are --chart-bar-width wide and spread out; more bars get narrower. */
+.chart {
+  margin: 0;
+}
+
+.plot,
+.labels {
+  display: flex;
+  justify-content: space-between;
+  gap: 3px;
+  padding: 0 16px;
+}
+
+.plot {
+  align-items: flex-end;
+  height: 231px;
+  border-bottom: var(--border-width) solid var(--color-border);
+}
+
+.column,
+.label {
+  display: flex;
+  flex: 0 1 var(--chart-bar-width);
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+}
+
+.value {
+  margin-bottom: 5px;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-semibold);
+  line-height: normal;
+  white-space: nowrap;
+}
+
+.bar {
+  width: 100%;
+  border-radius: var(--radius-chart-bar) var(--radius-chart-bar) 0 0;
+  background: var(--color-chart-light);
+}
+
+.latest {
+  background: var(--color-chart);
+}
+
+.labels {
+  margin-top: 10px;
+}
+
+.label {
+  overflow: visible;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-label);
+  line-height: normal;
+  white-space: nowrap;
+}
+
+/* The numbers as a list, for screen readers. */
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

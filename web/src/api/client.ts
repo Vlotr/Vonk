@@ -17,6 +17,8 @@ export interface Project {
   slug: string
   sources: Source[]
   openIssues: number
+  /** tracksPageviews puts Pages in the sidebar. */
+  tracksPageviews: boolean
 }
 
 export interface Issue {
@@ -75,8 +77,9 @@ export interface OverviewProject {
   errors24h: number
   /** Error events per clock hour, oldest first; the last entry is the current hour. */
   hourly: number[]
-  /** Null until page tracking exists. */
+  /** Page views by people in the last 24 clock hours; null for projects that do not track page views. */
   pageviews24h: number | null
+  /** Their average time on a page; null without page tracking, or while no page view has a time. */
   avgTimeOnPageMs: number | null
 }
 
@@ -242,6 +245,50 @@ export function getOverview(signal?: AbortSignal): Promise<Overview> {
   return getJSON('/ui/api/overview', signal)
 }
 
+/** The periods of the Pages screen. */
+export type PageRange = '24h' | '7d' | '30d'
+
+/** PageRow is a row of the Pages table. */
+export interface PageRow {
+  /** The route, such as /products/:slug. */
+  route: string
+  /** Page views by people. */
+  views: number
+  visitors: number
+  /** Null when no page view of it has a time (nobody left the page yet). */
+  avgTimeMs: number | null
+  /** Error events on the page; the issue list filtered by route shows their issues. */
+  errors: number
+}
+
+export interface PageStats {
+  project: { id: number; name: string; tracksPageviews: boolean }
+  range: PageRange
+  totals: { views: number; visitors: number; avgTimeMs: number | null }
+  /** A bar per hour (24 hours) or per day (7 and 30 days, in the browser's time zone), oldest first. */
+  series: { start: string; views: number }[]
+  /** The pages people or bots visited, the most views first, at most 100. */
+  pages: PageRow[]
+  /** Page views by bots, in no other number. */
+  bots: number
+}
+
+/** browserTimeZone is the IANA name of the browser's zone ("Europe/Amsterdam"), for the days of the chart. */
+function browserTimeZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone ?? ''
+  } catch {
+    return ''
+  }
+}
+
+export function getPages(projectId: number, range: PageRange, signal?: AbortSignal): Promise<PageStats> {
+  const query = new URLSearchParams({ range })
+  const tz = browserTimeZone()
+  if (tz) query.set('tz', tz)
+  return getJSON(`/ui/api/projects/${projectId}/pages?${query}`, signal)
+}
+
 // Accounts. The sign-in endpoints work without a session; they answer with
 // the signed-in user (Me) and set the session cookie.
 
@@ -341,6 +388,8 @@ export interface SettingsProject {
   tracksLaravel: boolean
   tracksBrowser: boolean
   tracksPageviews: boolean
+  /** routePatterns such as /products/:slug turn paths into routes before the automatic rules. */
+  routePatterns: string[]
 }
 
 /** ProjectKeys is a project with what its Setup and keys page shows. */
@@ -365,9 +414,20 @@ export function getProjectKeys(projectId: number, signal?: AbortSignal): Promise
   return getJSON(`/ui/api/settings/projects/${projectId}`, signal)
 }
 
-/** updateProject changes the settings that are given; the others stay. */
-export function updateProject(projectId: number, change: Partial<ProjectSettings>): Promise<ProjectKeys> {
+/** updateProject changes the settings that are given; the others stay. Route patterns apply to new data only. */
+export function updateProject(projectId: number, change: Partial<ProjectSettings & { routePatterns: string[] }>): Promise<ProjectKeys> {
   return send('PATCH', `/ui/api/settings/projects/${projectId}`, change)
+}
+
+/** RoutePreview is a recent path of a project (secrets masked) and the route it gets. */
+export interface RoutePreview {
+  path: string
+  route: string
+}
+
+/** previewRoutes shows recent paths with the routes they would get under routePatterns; nothing is saved. */
+export function previewRoutes(projectId: number, routePatterns: string[]): Promise<{ paths: RoutePreview[] }> {
+  return send('POST', `/ui/api/settings/projects/${projectId}/route-preview`, { routePatterns })
 }
 
 /** rotateKeys gives the project a new DSN key and PostHog token; the old ones stop working at once. */

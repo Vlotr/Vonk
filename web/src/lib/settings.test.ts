@@ -1,5 +1,17 @@
 import { expect, test } from 'vitest'
-import { browserSnippet, expiresIn, laravelEnvLine, retentionLabel, roleLabel, trackingLabels } from './settings'
+import {
+  browserSnippet,
+  expiresIn,
+  identifySnippet,
+  LARAVEL_USER_SNIPPET,
+  laravelEnvLine,
+  parsePatterns,
+  patternsText,
+  posthogSnippet,
+  retentionLabel,
+  roleLabel,
+  trackingLabels,
+} from './settings'
 
 test('retentionLabel names the Keep data for choices', () => {
   expect(retentionLabel(30)).toBe('30 days')
@@ -37,4 +49,29 @@ test('setup snippets carry the DSN', () => {
   expect(laravelEnvLine(dsn)).toBe('SENTRY_LARAVEL_DSN=https://0123abcd@monitor.example.com/1')
   expect(browserSnippet(dsn)).toContain("import * as Sentry from '@sentry/browser'")
   expect(browserSnippet(dsn)).toContain(`dsn: '${dsn}'`)
+})
+
+// The setup Task 7 proved with posthog-js 1.438 (internal/posthog/testdata/capture/src/app.js).
+test('the PostHog snippet is the proven setup: cookieless, page views on history changes, page leave on, no recording', () => {
+  expect(posthogSnippet('phc_abc', 'https://monitor.example.com')).toBe(`import posthog from 'posthog-js'
+
+posthog.init('phc_abc', {
+  api_host: 'https://monitor.example.com',
+  persistence: 'memory',
+  capture_pageview: 'history_change',
+  capture_pageleave: true,
+  disable_session_recording: true,
+})`)
+})
+
+test('the same user id goes to both SDKs', () => {
+  expect(identifySnippet()).toContain('posthog.identify(String(user.id))')
+  expect(identifySnippet()).toContain('Sentry.setUser({ id: String(user.id) })')
+  expect(LARAVEL_USER_SNIPPET).toContain("$scope->setUser(['id' => (string) $event->user->getAuthIdentifier()])")
+})
+
+test('route patterns are edited one per line', () => {
+  expect(patternsText(['/products/:slug', '/blog/:year/:post'])).toBe('/products/:slug\n/blog/:year/:post')
+  expect(parsePatterns(' /products/:slug \n\n  \n/blog/:year/:post\r\n')).toEqual(['/products/:slug', '/blog/:year/:post'])
+  expect(parsePatterns('')).toEqual([])
 })

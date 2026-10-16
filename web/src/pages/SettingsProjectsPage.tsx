@@ -18,10 +18,11 @@ import { SettingsHeader } from '../components/SettingsHeader'
 import { Tag } from '../components/Tag'
 import { useProjects } from '../layout/ProjectsContext'
 import { formatFullDate } from '../lib/format'
-import { RETENTION_CHOICES, retentionLabel, trackingLabels } from '../lib/settings'
+import { parsePatterns, patternsText, RETENTION_CHOICES, retentionLabel, trackingLabels } from '../lib/settings'
 import { problem } from '../lib/signin'
 import { usePolling } from '../lib/usePolling'
 import page from './Page.module.css'
+import { RoutePatternsField } from './RoutePatternsField'
 import styles from './SettingsProjectsPage.module.css'
 
 /** NEW_PROJECT is how a new project starts out, as the design shows it. */
@@ -95,9 +96,10 @@ function ManageProjects() {
           key={editing.id}
           title={`Edit ${editing.name}`}
           initial={editing}
+          routePatterns={{ projectId: editing.id, initial: editing.routePatterns }}
           submitLabel="Save changes"
-          onSubmit={async (settings) => {
-            await updateProject(editing.id, settings)
+          onSubmit={async (settings, routePatterns) => {
+            await updateProject(editing.id, { ...settings, routePatterns })
             changed()
             close()
           }}
@@ -188,17 +190,21 @@ function retentionValue(days: number | null): string {
 interface ProjectFormProps {
   title: string
   initial: ProjectSettings
+  /** routePatterns adds the route patterns field (Edit project only). */
+  routePatterns?: { projectId: number; initial: string[] }
   note?: string
   submitLabel: string
-  onSubmit: (settings: ProjectSettings) => Promise<void>
+  /** onSubmit gets the route patterns too when the form has them. */
+  onSubmit: (settings: ProjectSettings, routePatterns?: string[]) => Promise<void>
   /** onCancel closes the form; without it there is no Cancel button. */
   onCancel?: () => void
   children?: ReactNode
 }
 
-/** ProjectForm is the New project card: name, how long to keep data, what to track. */
-function ProjectForm({ title, initial, note, submitLabel, onSubmit, onCancel, children }: ProjectFormProps) {
+/** ProjectForm is the New project card: name, how long to keep data, what to track (and, when editing, the route patterns). */
+function ProjectForm({ title, initial, routePatterns, note, submitLabel, onSubmit, onCancel, children }: ProjectFormProps) {
   const [settings, setSettings] = useState<ProjectSettings>(initial)
+  const [patterns, setPatterns] = useState(patternsText(routePatterns?.initial ?? []))
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const set = (change: Partial<ProjectSettings>) => setSettings((s) => ({ ...s, ...change }))
@@ -212,7 +218,7 @@ function ProjectForm({ title, initial, note, submitLabel, onSubmit, onCancel, ch
     setBusy(true)
     setError('')
     try {
-      await onSubmit({ ...settings, name: settings.name.trim() })
+      await onSubmit({ ...settings, name: settings.name.trim() }, routePatterns ? parsePatterns(patterns) : undefined)
     } catch (err) {
       setError(problem(err))
     } finally {
@@ -275,6 +281,8 @@ function ProjectForm({ title, initial, note, submitLabel, onSubmit, onCancel, ch
             {check('tracksPageviews', 'Page views and events', 'PostHog SDK')}
           </div>
         </fieldset>
+
+        {routePatterns && <RoutePatternsField projectId={routePatterns.projectId} text={patterns} onChange={setPatterns} />}
 
         {note && <p className={`${form.note} ${styles.note}`}>{note}</p>}
         {error && (

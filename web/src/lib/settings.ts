@@ -60,3 +60,55 @@ Sentry.init({
   dsn: '${dsn}',
 })`
 }
+
+/**
+ * posthogSnippet sets up posthog-js the way this tool was tested with
+ * (posthog-js 1.438): no cookies (persistence 'memory'), page views on
+ * load and on history changes, page leaves for the time on a page, no
+ * session recording, sending to this server.
+ */
+export function posthogSnippet(token: string, host: string): string {
+  return `import posthog from 'posthog-js'
+
+posthog.init('${token}', {
+  api_host: '${host}',
+  persistence: 'memory',
+  capture_pageview: 'history_change',
+  capture_pageleave: true,
+  disable_session_recording: true,
+})`
+}
+
+/** identifySnippet gives the browser SDKs the signed-in user's id, so errors and page views of one person match. */
+export function identifySnippet(): string {
+  return `// After sign-in (and on every page load while signed in):
+posthog.identify(String(user.id))
+Sentry.setUser({ id: String(user.id) })
+
+// After sign-out:
+posthog.reset()
+Sentry.setUser(null)`
+}
+
+/** LARAVEL_USER_SNIPPET gives Laravel's errors the signed-in user's id (only the id), in AppServiceProvider::boot(). */
+export const LARAVEL_USER_SNIPPET = `use Illuminate\\Auth\\Events\\Authenticated;
+use Illuminate\\Support\\Facades\\Event;
+
+Event::listen(function (Authenticated $event) {
+    \\Sentry\\configureScope(function (\\Sentry\\State\\Scope $scope) use ($event) {
+        $scope->setUser(['id' => (string) $event->user->getAuthIdentifier()]);
+    });
+});`
+
+/** patternsText shows route patterns one per line, for the Edit project field. */
+export function patternsText(patterns: string[]): string {
+  return patterns.join('\n')
+}
+
+/** parsePatterns reads the Edit project field: one pattern per line, blank lines left out. */
+export function parsePatterns(text: string): string[] {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line !== '')
+}

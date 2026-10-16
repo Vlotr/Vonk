@@ -11,10 +11,10 @@ import styles from './AllProjectsPage.module.css'
 import page from './Page.module.css'
 
 // AllProjectsPage is the overview: per project the new issues and errors of
-// the last 24 hours with a bar per hour, then the newest issues of all
-// projects. Page views arrive with page tracking (Task 8); until then their
-// columns say "Add page tracking", which for admins turns page views on and
-// opens the project's Setup and keys.
+// the last 24 hours with a bar per hour, its page views and average time on
+// a page, then the newest issues of all projects. For projects without page
+// tracking the page columns say "Add page tracking", which for admins turns
+// page views on and opens the project's Setup and keys.
 export function AllProjectsPage() {
   const { data, error } = usePolling(getOverview, 'overview')
   if (!data) return <section aria-busy={!error}>{error ? <LoadError /> : null}</section>

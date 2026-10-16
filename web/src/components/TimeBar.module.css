@@ -1,0 +1,34 @@
+/* The bar fills the cell; the time sits right-aligned after it, as wide
+   as "2m 14s" with room to spare. */
+.time {
+  display: flex;
+  align-items: center;
+}
+
+.track {
+  flex: 1;
+  height: var(--time-bar-height);
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: var(--color-chart-track);
+}
+
+.fill {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--color-chart);
+}
+
+.value {
+  flex: none;
+  min-width: 69px;
+  padding-left: var(--space-3);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.none {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-label);
+}
