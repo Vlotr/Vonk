@@ -191,3 +191,9 @@ End-to-end (Step 5):
 - The Laravel routes are opened with `page.goto`, so the events carry a real browser's User-Agent. The dashboard page is reloaded until the rows appear, since it polls only once a minute.
 - Screenshots are taken at 1360 × 960 with device scale 2 (the PNGs' size), full page, and committed as the phase 1 proof. The setup sets server name `web-1` and release `example@1.0.0`.
 - Compared with design-equivalent mock data (scratch, not committed), everything shared with the designs lines up within 1 px. Left out on purpose: Task 4's controls, "Before this error" (Task 9), and Pages, Events, Alerts and Settings in the sidebar. Without the Resolve column, the issue column takes the free width, so the bars sit further right than in Issues.png.
+
+Fix round 1 (review of Task 3):
+
+- The issue page keys the stack trace by issue, not by event, and remembers opened frames by `file:line`: the minute poll often brings a newer event of the same issue, and that used to fold the framework frames and close opened frames again.
+- Controller ruling 26: an issue whose main exception has mechanism `onunhandledrejection` (or `….onunhandledrejection`, as `@sentry/browser` 11 sends: `auto.browser.global_handlers.onunhandledrejection`) is titled "Unhandled rejection". The rule is in `sentry.Summarize`, so the stored title and every place that shows it agree; the fingerprint is unchanged and the real type stays in the stack trace. New fixture `browser-rejection.envelope`, captured from the browser example.
+- Controller ruling 27: for platform `javascript` the culprit is the frame URL's path without origin, query, fragment and leading slash (`assets/index-D8xk2Lp1.js:8301`, `src/main.js:21`); other platforms keep the file name. This replaces the Task 2 rule for browsers only; grouping inputs are unchanged.

@@ -37,7 +37,7 @@ go run ./tools/capture -addr 127.0.0.1:19999 -out /tmp/captured
 The Sentry fixtures in `internal/sentry/testdata/` were made with the recipes in `internal/sentry/testdata/capture/` (SDK versions in `docs/decisions.md`). To redo them after an SDK update, copy a recipe to a temp directory and:
 
 - PHP: `composer install`, then `SENTRY_DSN=<dsn> php -S 127.0.0.1:18091 public/index.php`, and `curl -X POST 'http://localhost:18091/checkout?coupon=SPRING&token=tok_abc123' -H 'Cookie: laravel_session=eyJpdiI6IjEyMyJ9; XSRF-TOKEN=abc123' -H 'Authorization: Bearer sk_live_abc123' -H 'X-Forwarded-For: 203.0.113.9' -H 'X-Real-IP: 203.0.113.9' --data 'email=jan@example.com&password=hunter2&card_number=4111111111111111'`. The recorded request becomes `php-exception.envelope.gz` and `php-exception.headers.json`.
-- Browser: `npm install && npx playwright install chromium && npm run build && SENTRY_DSN=<dsn> npm run capture`. The request whose body holds `"exception"` becomes `browser-typeerror.envelope`; the first session envelope is `browser-session.envelope`.
+- Browser: `npm install && npx playwright install chromium && npm run build && SENTRY_DSN=<dsn> npm run capture`. The request whose body holds `"exception"` becomes `browser-typeerror.envelope`; the first session envelope is `browser-session.envelope`. `browser-rejection.envelope` came from the "Reject a promise" button of `examples/browser` (served by Vite, DSN pointing at the recorder).
 
 Never commit a recording as it is: it contains this machine's paths (with your user name), host name and kernel build. Sanitize each one into `internal/sentry/testdata/`:
 
@@ -114,7 +114,7 @@ API (`internal/api`, registered on the dashboard mux, so behind the guard):
 - `GET /ui/api/projects/{id}/issues?status=open&limit=25&offset=0` → `{project, counts, new24h, total, issues: [{id, type, message, source, culprit, events, users, firstSeen, lastSeen, isNew, hourly}]}`. `hourly` is 24 clock hours (UTC), oldest first, the current hour last.
 - `GET /ui/api/issues/{id}` → `{issue: {…, status, projectId}, hourly, latestEvent}`. `latestEvent.frames` is the main exception's trace with the most recent call first and at most three lines of code on each side of the error line; optional fields (user, browser, os, environment, server, runtime, url, release, country) are left out when the event lacks them. Browser and system come from the request's User-Agent header.
 
-The API returns exception types in full (`Illuminate\Database\QueryException`); the UI shortens them with `shortType` and shows the full name in the stack trace and as a tooltip.
+The API returns exception types in full (`Illuminate\Database\QueryException`); the UI shortens them with `shortType` and shows the full name in the stack trace and as a tooltip. An issue whose exception came in as an unhandled promise rejection is titled "Unhandled rejection" (set by `sentry.Summarize` at ingest; the fingerprint still uses the exception type). Culprits are `basename:line` for server platforms and the URL's path for browsers (`assets/main.js:21`).
 
 The look comes from the PNGs: Instrument Sans and JetBrains Mono (bundled with `@fontsource-variable`), sizes and weights fitted to the designs, all values in `tokens.css`. To compare a change with a design, render the page at 1360 px wide and device scale 2 (the PNGs' size) and put the two side by side; `make e2e` takes its screenshots at that size.
 
