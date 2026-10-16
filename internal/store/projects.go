@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -34,6 +35,9 @@ type Project struct {
 	TracksPageviews    bool
 	RateLimitPerMinute int
 	CreatedAt          time.Time
+	// RoutePatterns are the project's route patterns ("/products/:slug"),
+	// tried before the automatic rules of routes.Normalize.
+	RoutePatterns []string
 }
 
 // NewProject holds the choices for a project that is about to be created.
@@ -51,7 +55,7 @@ type NewProject struct {
 
 // projectColumns lists the columns scanProject expects, in order.
 const projectColumns = `id, name, slug, sentry_key, posthog_token, retention_days,
-	tracks_laravel, tracks_browser, tracks_pageviews, rate_limit_per_minute, created_at`
+	tracks_laravel, tracks_browser, tracks_pageviews, rate_limit_per_minute, created_at, route_patterns`
 
 // CreateProject stores a new project with fresh keys and a unique slug.
 func (db *DB) CreateProject(ctx context.Context, np NewProject) (Project, error) {
@@ -80,6 +84,7 @@ func (db *DB) CreateProject(ctx context.Context, np NewProject) (Project, error)
 		TracksBrowser:      np.TracksBrowser,
 		TracksPageviews:    np.TracksPageviews,
 		RateLimitPerMinute: np.RateLimitPerMinute,
+		RoutePatterns:      []string{},
 		// Stored as unix milliseconds; truncate now so the value we return
 		// equals the value a later read returns.
 		CreatedAt: time.UnixMilli(time.Now().UnixMilli()).UTC(),
@@ -130,6 +135,52 @@ func (db *DB) ProjectByID(ctx context.Context, id int64) (Project, error) {
 	return scanProject(row)
 }
 
+// ProjectByPosthogToken returns the project with this PostHog token, or ErrNotFound.
+func (db *DB) ProjectByPosthogToken(ctx context.Context, token string) (Project, error) {
+	row := db.read.QueryRowContext(ctx, "SELECT "+projectColumns+" FROM projects WHERE posthog_token = ?", token)
+	return scanProject(row)
+}
+
+// MaxRoutePatterns is how many route patterns a project has at most, and
+// MaxRoutePatternBytes how long one may be.
+const (
+	MaxRoutePatterns     = 100
+	MaxRoutePatternBytes = 300
+)
+
+// SetRoutePatterns replaces a project's route patterns (blank ones are
+// left out; at most MaxRoutePatterns of at most MaxRoutePatternBytes) and
+// returns the project, or ErrNotFound. They apply to data that comes in
+// from now on.
+func (db *DB) SetRoutePatterns(ctx context.Context, id int64, patterns []string) (Project, error) {
+	clean := []string{}
+	for _, p := range patterns {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		if len(p) > MaxRoutePatternBytes {
+			return Project{}, fmt.Errorf("a route pattern is longer than %d characters", MaxRoutePatternBytes)
+		}
+		clean = append(clean, p)
+	}
+	if len(clean) > MaxRoutePatterns {
+		return Project{}, fmt.Errorf("at most %d route patterns", MaxRoutePatterns)
+	}
+	data, err := json.Marshal(clean)
+	if err != nil {
+		return Project{}, err
+	}
+	res, err := db.write.ExecContext(ctx, "UPDATE projects SET route_patterns = ? WHERE id = ?", string(data), id)
+	if err != nil {
+		return Project{}, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return Project{}, ErrNotFound
+	}
+	return db.projectByIDForWrite(ctx, id)
+}
+
 // ProjectBySentryKey returns the project that owns this DSN key, or ErrNotFound.
 func (db *DB) ProjectBySentryKey(ctx context.Context, key string) (Project, error) {
 	row := db.read.QueryRowContext(ctx, "SELECT "+projectColumns+" FROM projects WHERE sentry_key = ?", key)
@@ -165,9 +216,10 @@ func scanProject(s scanner) (Project, error) {
 		p         Project
 		retention sql.NullInt64
 		createdAt int64
+		patterns  string
 	)
 	err := s.Scan(&p.ID, &p.Name, &p.Slug, &p.SentryKey, &p.PosthogToken, &retention,
-		&p.TracksLaravel, &p.TracksBrowser, &p.TracksPageviews, &p.RateLimitPerMinute, &createdAt)
+		&p.TracksLaravel, &p.TracksBrowser, &p.TracksPageviews, &p.RateLimitPerMinute, &createdAt, &patterns)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Project{}, ErrNotFound
 	}
@@ -179,6 +231,12 @@ func scanProject(s scanner) (Project, error) {
 		p.RetentionDays = &days
 	}
 	p.CreatedAt = time.UnixMilli(createdAt).UTC()
+	if err := json.Unmarshal([]byte(patterns), &p.RoutePatterns); err != nil {
+		return Project{}, fmt.Errorf("project %d: route patterns: %w", p.ID, err)
+	}
+	if p.RoutePatterns == nil {
+		p.RoutePatterns = []string{}
+	}
 	return p, nil
 }
 

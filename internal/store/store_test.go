@@ -140,7 +140,8 @@ func TestMigrate_Idempotent(t *testing.T) {
 		t.Errorf("schema_migrations has %d rows, want %d (one per file)", rows, len(files))
 	}
 
-	for _, table := range []string{"projects", "issues", "error_events", "users", "project_access", "sessions", "invites", "invite_projects", "password_resets"} {
+	for _, table := range []string{"projects", "issues", "error_events", "users", "project_access", "sessions", "invites", "invite_projects", "password_resets",
+		"alerts", "alert_state", "settings", "pageviews", "pageleaves", "hourly_stats", "stats_dirty_hours"} {
 		var name string
 		err := db.read.QueryRowContext(ctx,
 			"SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?", table).Scan(&name)

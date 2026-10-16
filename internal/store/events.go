@@ -60,7 +60,8 @@ type SaveResult struct {
 // SaveErrorEvents stores a batch of events in one transaction: each event is
 // added to the issue with its fingerprint (created when new, opened again
 // when it was resolved; see upsertIssue), and events whose id is already
-// stored are skipped. An error means nothing was stored.
+// stored are skipped. Events with a route mark their hour for the
+// aggregation job (errors per page). An error means nothing was stored.
 func (db *DB) SaveErrorEvents(ctx context.Context, events []NewErrorEvent) (SaveResult, error) {
 	var result SaveResult
 	if len(events) == 0 {
@@ -76,6 +77,7 @@ func (db *DB) SaveErrorEvents(ctx context.Context, events []NewErrorEvent) (Save
 	projects := map[int64]bool{}
 	issues := map[issueKey]*Issue{}
 	var created, regressed []*Issue
+	dirty := map[projectHour]bool{} // hours whose errors per route change
 
 	for _, ev := range events {
 		exists, known := projects[ev.ProjectID]
@@ -122,6 +124,12 @@ func (db *DB) SaveErrorEvents(ctx context.Context, events []NewErrorEvent) (Save
 			return SaveResult{}, fmt.Errorf("event %s: %w", ev.EventID, err)
 		}
 		result.Stored++
+		if ev.Route != "" {
+			dirty[projectHour{ev.ProjectID, hourOf(ev.Timestamp)}] = true
+		}
+	}
+	if err := markDirty(ctx, tx, dirty); err != nil {
+		return SaveResult{}, err
 	}
 
 	if err := tx.Commit(); err != nil {
