@@ -1,13 +1,15 @@
-// Page views with posthog-js and errors with @sentry/browser, both sent to
-// the monitoring tool, and both told the same user id. The setup is the one
-// the tool's "Setup and keys" page gives. The keys come from the
-// environment when Vite starts (see README.md).
+// Page views and the shop's own events with posthog-js and errors with
+// @sentry/browser, both sent to the monitoring tool, and both told the same
+// user id. The setup is the one the tool's "Setup and keys" page gives. The
+// keys (and the release) come from the environment when Vite starts (see
+// README.md).
 import * as Sentry from '@sentry/browser'
 import posthog from 'posthog-js'
 
 const token = import.meta.env.VITE_POSTHOG_TOKEN
 const host = import.meta.env.VITE_POSTHOG_HOST
 const dsn = import.meta.env.VITE_SENTRY_DSN
+const release = import.meta.env.VITE_SENTRY_RELEASE
 
 if (token && host) {
   posthog.init(token, {
@@ -19,7 +21,7 @@ if (token && host) {
   })
 }
 if (dsn) {
-  Sentry.init({ dsn })
+  Sentry.init({ dsn, release })
 }
 
 // The shop's own sign-in: a real app knows the user from its session on
@@ -47,6 +49,11 @@ export function signOut() {
 
 export function currentUser() {
   return sessionStorage.getItem(USER_KEY)
+}
+
+// The shop's own events (Events in the dashboard, and the user's activity).
+export function track(name, properties) {
+  posthog.capture(name, properties)
 }
 
 export const configured = Boolean(token && host && dsn)

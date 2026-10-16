@@ -7,8 +7,9 @@
 // its views and average time, the bot counted apart, and the checkout's
 // error links to the issues of that page.
 
-import { type Browser, expect, test } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 import { join } from 'node:path'
+import { chrome, visitorContext } from './visitor'
 
 const env = (name: string) => {
   const value = process.env[name]
@@ -18,24 +19,7 @@ const env = (name: string) => {
 
 const screenshots = join(__dirname, 'screenshots')
 
-const chrome = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36'
 const googlebot = 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)'
-
-/**
- * visitorContext is a browser whose requests carry userAgent. posthog-js
- * sends nothing from a browser that looks automated or calls itself a bot
- * in navigator.userAgent, so the page always sees a visitor's Chrome; the
- * monitor tells a bot by the User-Agent of its requests.
- */
-async function visitorContext(browser: Browser, userAgent: string) {
-  const context = await browser.newContext({ userAgent })
-  await context.addInitScript((pageUserAgent) => {
-    Object.defineProperty(Navigator.prototype, 'webdriver', { get: () => false })
-    Object.defineProperty(Navigator.prototype, 'userAgentData', { get: () => undefined })
-    Object.defineProperty(Navigator.prototype, 'userAgent', { get: () => pageUserAgent })
-  }, chrome)
-  return context
-}
 
 test('Pages shows the views and average time per page, with bots apart and errors per page', async ({ browser }) => {
   test.setTimeout(240_000)

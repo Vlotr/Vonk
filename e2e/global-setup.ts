@@ -8,7 +8,7 @@
 //      reads their DSNs;
 //   5. serves the Laravel example (php artisan serve) with that DSN;
 //   6. serves the browser example (Vite) on another free port;
-//   7. serves the PostHog example (Vite) with Webshop's PostHog token and DSN.
+//   7. serves the PostHog example (Vite) with Webshop's PostHog token, DSN and a release.
 //
 // The tests read the addresses and the admin's session from the environment.
 // Process output goes to e2e/.logs/ for when something fails.
@@ -214,7 +214,8 @@ export default async function globalSetup() {
     await waitFor(browserURL, 'browser example', browserExample)
 
     // The PostHog example: posthog-js and @sentry/browser for Webshop, with
-    // the setup the Setup and keys page gives (phase 3).
+    // the setup the Setup and keys page gives (phases 3 and 4); its errors
+    // carry a release.
     const posthogPort = await freePort()
     const posthogURL = `http://127.0.0.1:${posthogPort}`
     const posthogExample = start(
@@ -222,7 +223,7 @@ export default async function globalSetup() {
       'npx',
       ['vite', '--host', '127.0.0.1', '--port', String(posthogPort), '--strictPort'],
       posthogDir,
-      { ...process.env, VITE_POSTHOG_TOKEN: posthogToken, VITE_POSTHOG_HOST: monitorURL, VITE_SENTRY_DSN: dsn },
+      { ...process.env, VITE_POSTHOG_TOKEN: posthogToken, VITE_POSTHOG_HOST: monitorURL, VITE_SENTRY_DSN: dsn, VITE_SENTRY_RELEASE: 'shop@2.8.1' },
     )
     children.push(posthogExample)
     await waitFor(posthogURL, 'PostHog example', posthogExample)
