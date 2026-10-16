@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"monitor/internal/config"
+	"monitor/internal/ingest"
+	"monitor/internal/issues"
 	"monitor/internal/server"
 	"monitor/internal/store"
 )
@@ -60,6 +62,15 @@ func runServer(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 		return fmt.Errorf("database migration failed: %w", err)
 	}
 
+	// Ingest: handlers put accepted events on the queue, one writer stores
+	// them in batches. The writer gets its own context, not ctx, so it keeps
+	// writing while the server lets running requests finish; Close below
+	// writes whatever is still queued.
+	queue := ingest.NewQueue(ingest.DefaultQueueCapacity)
+	writer := ingest.NewWriter(db, queue, issues.NoHooks{}, logger)
+	go writer.Run(context.Background())
+	defer writer.Close() // before db.Close; also on the error paths
+
 	if cfg.DevBasicAuth == "" {
 		logger.Info("dashboard answers this machine only; set DEV_BASIC_AUTH=user:password to open it to others")
 	} else {
@@ -72,6 +83,8 @@ func runServer(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			DB:      db,
 			Logger:  logger,
 			Version: version,
+			Queue:   queue,
+			Limiter: ingest.NewRateLimiter(),
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       60 * time.Second,
@@ -105,6 +118,7 @@ func runServer(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 	if err := <-serveErr; !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
+	writer.Close()
 	logger.Info("stopped")
 	return nil
 }

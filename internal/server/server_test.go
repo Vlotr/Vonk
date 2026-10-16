@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	"testing/fstest"
 
 	"monitor/internal/config"
+	"monitor/internal/ingest"
 	"monitor/internal/store"
 	"monitor/internal/web"
 )
@@ -64,7 +66,28 @@ func newTestDeps(t *testing.T, devBasicAuth string, logOutput io.Writer) Deps {
 		Logger:  slog.New(slog.NewTextHandler(logOutput, nil)),
 		Version: "test",
 		SPA:     web.NewHandler(testFiles),
+		Queue:   ingest.NewQueue(100),
+		Limiter: ingest.NewRateLimiter(),
 	}
+}
+
+// sentryEnvelope is a minimal envelope with one event.
+const sentryEnvelope = `{"event_id":"9ec79c33ec9942ab8353589fcb2e04dc"}
+{"type":"event"}
+{"platform":"php","exception":{"values":[{"type":"RuntimeException","value":"Checkout failed"}]}}
+`
+
+// postEnvelope sends sentryEnvelope for project p from remoteAddr.
+func postEnvelope(h http.Handler, p store.Project, remoteAddr string, setup ...func(*http.Request)) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/%d/envelope/", p.ID), strings.NewReader(sentryEnvelope))
+	req.RemoteAddr = remoteAddr
+	req.Header.Set("X-Sentry-Auth", "Sentry sentry_version=7, sentry_key="+p.SentryKey)
+	for _, f := range setup {
+		f(req)
+	}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
 }
 
 // do sends one request from remoteAddr ("" means loopback) and returns the recorded response.
@@ -285,20 +308,80 @@ func TestDashboardGuard(t *testing.T) {
 
 	t.Run("health and ingest are never guarded", func(t *testing.T) {
 		for _, auth := range []string{"", "user:pass"} {
-			h := newTestServer(t, auth)
+			deps := newTestDeps(t, auth, io.Discard)
+			h := New(deps)
+			p, err := deps.DB.CreateProject(context.Background(), store.NewProject{Name: "Webshop"})
+			if err != nil {
+				t.Fatal(err)
+			}
 
 			if rec := do(h, http.MethodGet, "/health", remote); rec.Code != http.StatusOK {
 				t.Errorf("DEV_BASIC_AUTH=%q: GET /health from %s = %d, want 200", auth, remote, rec.Code)
 			}
-			rec := do(h, http.MethodPost, "/api/1/envelope/", remote)
-			if rec.Code == http.StatusUnauthorized || rec.Code == http.StatusForbidden {
-				t.Errorf("DEV_BASIC_AUTH=%q: POST /api/1/envelope/ from %s = %d, want it not guarded", auth, remote, rec.Code)
+			rec := postEnvelope(h, p, remote, func(r *http.Request) { r.Header.Set("X-Forwarded-For", "198.51.100.7") })
+			if rec.Code != http.StatusOK {
+				t.Errorf("DEV_BASIC_AUTH=%q: POST envelope from %s = %d, want 200; body %s", auth, remote, rec.Code, rec.Body)
 			}
 			if rec.Header().Get("WWW-Authenticate") != "" {
-				t.Errorf("DEV_BASIC_AUTH=%q: POST /api/1/envelope/ asks for credentials", auth)
+				t.Errorf("DEV_BASIC_AUTH=%q: POST envelope asks for credentials", auth)
 			}
 		}
 	})
+}
+
+func TestSentryRoute(t *testing.T) {
+	deps := newTestDeps(t, "", io.Discard)
+	h := New(deps)
+	p, err := deps.DB.CreateProject(context.Background(), store.NewProject{Name: "Webshop"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const remote = "203.0.113.5:40000"
+
+	if rec := postEnvelope(h, p, remote); rec.Code != http.StatusOK {
+		t.Fatalf("POST envelope = %d; body %s", rec.Code, rec.Body)
+	}
+	if deps.Queue.Len() != 1 {
+		t.Errorf("queue holds %d items, want the accepted event", deps.Queue.Len())
+	}
+
+	rec := do(h, http.MethodOptions, fmt.Sprintf("/api/%d/envelope/", p.ID), remote)
+	if rec.Code != http.StatusOK || rec.Header().Get("Access-Control-Allow-Origin") != "*" {
+		t.Errorf("preflight = %d %v", rec.Code, rec.Header())
+	}
+
+	// Without the trailing slash, Go's mux redirects with 307, which keeps the method and body.
+	rec = do(h, http.MethodPost, fmt.Sprintf("/api/%d/envelope", p.ID), remote)
+	if rec.Code != http.StatusTemporaryRedirect || rec.Header().Get("Location") != fmt.Sprintf("/api/%d/envelope/", p.ID) {
+		t.Errorf("POST without trailing slash = %d, Location %q", rec.Code, rec.Header().Get("Location"))
+	}
+
+	// Other /api/ paths stay a JSON 404.
+	for _, path := range []string{"/api/1/store/", "/api/0/projects/", fmt.Sprintf("/api/%d/envelope/extra", p.ID)} {
+		rec := do(h, http.MethodPost, path, remote)
+		if rec.Code != http.StatusNotFound || !strings.HasPrefix(rec.Header().Get("Content-Type"), "application/json") {
+			t.Errorf("POST %s = %d %q, want a JSON 404", path, rec.Code, rec.Header().Get("Content-Type"))
+		}
+	}
+}
+
+func TestRequestLog_IngestSuccessAtDebug(t *testing.T) {
+	var logs bytes.Buffer
+	deps := newTestDeps(t, "", &logs) // the text handler logs info and up
+	h := New(deps)
+	p, err := deps.DB.CreateProject(context.Background(), store.NewProject{Name: "Webshop"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	postEnvelope(h, p, "203.0.113.5:40000")
+	if strings.Contains(logs.String(), "/envelope/") {
+		t.Errorf("an accepted envelope was logged at info: %s", logs.String())
+	}
+	postEnvelope(h, p, "203.0.113.5:40000", func(r *http.Request) { r.Header.Set("X-Sentry-Auth", "sentry_key=wrong") })
+	if !strings.Contains(logs.String(), "status=401") {
+		t.Errorf("a refused envelope was not logged: %s", logs.String())
+	}
 }
 
 func TestRequestLog_OmitsQueryAndIP(t *testing.T) {

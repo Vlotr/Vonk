@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"monitor/internal/config"
+	"monitor/internal/ingest"
 	"monitor/internal/store"
 	"monitor/internal/web"
 )
@@ -34,6 +35,10 @@ type Deps struct {
 	Version string
 	// SPA serves the dashboard; nil means the build embedded in the binary.
 	SPA http.Handler
+	// Queue receives accepted SDK data; an ingest.Writer empties it.
+	Queue *ingest.Queue
+	// Limiter enforces each project's events-per-minute limit.
+	Limiter *ingest.RateLimiter
 }
 
 // New returns the handler for the whole server.
@@ -56,6 +61,7 @@ func New(deps Deps) http.Handler {
 	// guard to the dashboard.
 	public := http.NewServeMux()
 	public.HandleFunc("GET /health", healthHandler(deps))
+	public.Handle(ingest.SentryEnvelopePattern, ingest.NewSentryHandler(deps.DB, deps.Queue, deps.Limiter, deps.Logger))
 	public.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not found")
 	})
@@ -161,8 +167,11 @@ func logRequests(logger *slog.Logger, next http.Handler) http.Handler {
 		next.ServeHTTP(rec, r)
 
 		level := slog.LevelInfo
-		if r.URL.Path == "/health" {
+		switch {
+		case r.URL.Path == "/health":
 			level = slog.LevelDebug // the Docker health check calls it every 30 s
+		case strings.HasPrefix(r.URL.Path, "/api/") && rec.status < 300:
+			level = slog.LevelDebug // accepted SDK traffic: one line per error event would flood the log
 		}
 		logger.Log(r.Context(), level, "request",
 			"method", r.Method,
