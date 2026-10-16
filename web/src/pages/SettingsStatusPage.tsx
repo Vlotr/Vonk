@@ -126,7 +126,7 @@ function BackupLine({ status, now }: { status: ToolStatus; now: Date }) {
         <p className={styles.none}>The database is Postgres, so the tool makes no backups of it. Back it up with pg_dump, also before each update:</p>
         <CopyBlock label="Backup command" value={PG_DUMP} />
         <p className={form.note}>
-          pg_restore --clean --dbname="$DATABASE_URL" monitor.dump puts it back. Your database host may make backups too.
+          <code>pg_restore --clean --dbname="$DATABASE_URL" monitor.dump</code> puts it back. Your database host may make backups too.
         </p>
       </>
     )
