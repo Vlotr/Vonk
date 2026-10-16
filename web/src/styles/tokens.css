@@ -35,8 +35,13 @@
   --color-highlight-bg: #fdece3;
   --color-highlight-text: #a8370a;
 
-  /* Accent: the logo corner and error markers */
+  /* Accent: the logo corner and error markers ("Before this error", user activity) */
   --color-accent: #c2410c;
+  --color-on-accent: #ffffff; /* the "!" on an error marker */
+
+  /* The numbered pages of "Before this error", and page views in a user's activity */
+  --color-step-bg: #e8eefa;
+  --color-step-text: #2b59c3;
   --color-logo-square: #d5dbe2;
 
   /* Errors per hour, five steps from none to many */
@@ -149,4 +154,5 @@
   --chart-bar-width: 56px; /* a day of page views; more bars get narrower */
   --chart-bar-height: 170px; /* the busiest bar of page views */
   --time-bar-height: 10px; /* the average time on a page, in the Pages table */
+  --step-size: 24px; /* a numbered circle of "Before this error", a marker in a user's activity */
 }

@@ -61,6 +61,8 @@ export interface IssueQuery {
   /** Part of the title, message, culprit or an event's URL. */
   q?: string
   route?: string
+  /** Only issues with an event in this release. */
+  release?: string
   /** 1 to 100. */
   limit?: number
   offset?: number
@@ -124,15 +126,34 @@ export interface EventDetail {
   server?: string
   runtime?: { name: string; version: string }
   url?: string
+  /** The route of the page it happened on, such as /checkout. */
+  route?: string
   release?: string
   /** ISO 3166 country code. */
   country?: string
 }
 
+/** JourneyStep is a page the user of the latest event saw before the error. */
+export interface JourneyStep {
+  route: string
+  /** The time on the page; null while nothing closed it (often the page of the error itself). */
+  durationMs: number | null
+  start: string
+}
+
 export interface IssueDetail {
-  issue: Issue & { status: IssueStatus; projectId: number }
+  issue: Issue & {
+    status: IssueStatus
+    projectId: number
+    /** The release the issue was first seen in; missing when that event had none. */
+    release?: string
+    /** The release of the event that last opened it again after a resolve. */
+    regressedRelease?: string
+  }
   hourly: number[]
   latestEvent: EventDetail | null
+  /** The pages the latest event's user saw in the 30 minutes before it, oldest first; empty without a user id. */
+  beforeError: JourneyStep[]
 }
 
 /** ApiError is a response that was not 2xx; status 404 means "not found or not yours". */
@@ -287,6 +308,73 @@ export function getPages(projectId: number, range: PageRange, signal?: AbortSign
   const tz = browserTimeZone()
   if (tz) query.set('tz', tz)
   return getJSON(`/ui/api/projects/${projectId}/pages?${query}`, signal)
+}
+
+/** EventList is the Events screen: the app's own PostHog events in a period. */
+export interface EventList {
+  project: { id: number; name: string; tracksPageviews: boolean }
+  range: PageRange
+  /** The most frequent first, at most 100. */
+  events: { name: string; count: number; users: number }[]
+  /** Events sent by bots, in no other number. */
+  bots: number
+}
+
+/** EventSeries is one event over a period: a bar per hour (24 hours) or per day. */
+export interface EventSeries {
+  name: string
+  range: PageRange
+  count: number
+  users: number
+  series: { start: string; count: number }[]
+}
+
+export function getEvents(projectId: number, range: PageRange, signal?: AbortSignal): Promise<EventList> {
+  return getJSON(`/ui/api/projects/${projectId}/events?${new URLSearchParams({ range })}`, signal)
+}
+
+export function getEventSeries(projectId: number, name: string, range: PageRange, signal?: AbortSignal): Promise<EventSeries> {
+  const query = new URLSearchParams({ range })
+  const tz = browserTimeZone()
+  if (tz) query.set('tz', tz)
+  return getJSON(`/ui/api/projects/${projectId}/events/${encodeURIComponent(name)}?${query}`, signal)
+}
+
+/** ActivityItem is one thing a user did: a page view, an error or a custom event. */
+export type ActivityItem =
+  | {
+      kind: 'pageview'
+      at: string
+      /** The page's address, secrets masked; route is its route. */
+      path: string
+      route: string
+      /** Missing while nothing closed the page view. */
+      durationMs?: number
+    }
+  | { kind: 'error'; at: string; issueId: number; type: string; message: string; path?: string; route?: string }
+  | { kind: 'event'; at: string; name: string; path?: string; route?: string; properties?: Record<string, unknown> }
+
+export interface UserActivity {
+  project: { id: number; name: string }
+  userId: string
+  /** The newest first. */
+  items: ActivityItem[]
+  /** The before of the next, older page; null after the last. */
+  next: string | null
+}
+
+/** getUserActivity reads what a user id did in a project, the newest first, before `before` (exclusive). */
+export function getUserActivity(
+  projectId: number,
+  userId: string,
+  options: { before?: string; limit?: number } = {},
+  signal?: AbortSignal,
+): Promise<UserActivity> {
+  const query = new URLSearchParams()
+  if (options.before) query.set('before', options.before)
+  if (options.limit) query.set('limit', String(options.limit))
+  const qs = query.toString()
+  return getJSON(`/ui/api/projects/${projectId}/users/${encodeURIComponent(userId)}/activity${qs ? `?${qs}` : ''}`, signal)
 }
 
 // Accounts. The sign-in endpoints work without a session; they answer with

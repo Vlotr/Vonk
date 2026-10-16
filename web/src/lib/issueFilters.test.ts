@@ -5,17 +5,18 @@ const parse = (query: string) => parseIssueFilters(new URLSearchParams(query))
 
 describe('parseIssueFilters', () => {
   test('an empty query is the default list: open, all sources, last seen', () => {
-    expect(parse('')).toEqual({ status: 'open', source: '', sort: 'last_seen', q: '', route: '' })
+    expect(parse('')).toEqual({ status: 'open', source: '', sort: 'last_seen', q: '', route: '', release: '' })
     expect(parse('')).toEqual(DEFAULT_FILTERS)
   })
 
   test('reads every filter', () => {
-    expect(parse('status=resolved&source=browser&sort=events&q=cart.js&route=%2Fcheckout')).toEqual({
+    expect(parse('status=resolved&source=browser&sort=events&q=cart.js&route=%2Fcheckout&release=v2.8.1')).toEqual({
       status: 'resolved',
       source: 'browser',
       sort: 'events',
       q: 'cart.js',
       route: '/checkout',
+      release: 'v2.8.1',
     })
   })
 
@@ -35,7 +36,7 @@ describe('filtersToParams', () => {
   })
 
   test('round-trips', () => {
-    const filters = { status: 'ignored', source: 'laravel', sort: 'first_seen', q: '/api/stock', route: '/products/{slug}' } as const
+    const filters = { status: 'ignored', source: 'laravel', sort: 'first_seen', q: '/api/stock', route: '/products/{slug}', release: 'shop@1.4.2' } as const
     expect(parseIssueFilters(filtersToParams(filters))).toEqual(filters)
   })
 
@@ -46,12 +47,13 @@ describe('filtersToParams', () => {
 })
 
 describe('hasFilters', () => {
-  test('source, search and route filter; status and sort do not', () => {
+  test('source, search, route and release filter; status and sort do not', () => {
     expect(hasFilters(DEFAULT_FILTERS)).toBe(false)
     expect(hasFilters({ ...DEFAULT_FILTERS, status: 'resolved', sort: 'events' })).toBe(false)
     expect(hasFilters({ ...DEFAULT_FILTERS, source: 'browser' })).toBe(true)
     expect(hasFilters({ ...DEFAULT_FILTERS, q: 'x' })).toBe(true)
     expect(hasFilters({ ...DEFAULT_FILTERS, q: '   ' })).toBe(false)
     expect(hasFilters({ ...DEFAULT_FILTERS, route: '/cart' })).toBe(true)
+    expect(hasFilters({ ...DEFAULT_FILTERS, release: 'v2.8.1' })).toBe(true)
   })
 })

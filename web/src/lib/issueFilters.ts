@@ -13,9 +13,11 @@ export interface IssueFilters {
   q: string
   /** Only issues with an event on this route (linked from the Pages screen). */
   route: string
+  /** Only issues with an event in this release (linked from an issue's Release). */
+  release: string
 }
 
-export const DEFAULT_FILTERS: IssueFilters = { status: 'open', source: '', sort: 'last_seen', q: '', route: '' }
+export const DEFAULT_FILTERS: IssueFilters = { status: 'open', source: '', sort: 'last_seen', q: '', route: '', release: '' }
 
 const STATUSES: readonly IssueStatus[] = ['open', 'resolved', 'ignored']
 const SOURCES: readonly IssueSourceFilter[] = ['', 'laravel', 'browser']
@@ -33,6 +35,7 @@ export function parseIssueFilters(params: URLSearchParams): IssueFilters {
     sort: oneOf(params.get('sort'), SORTS, DEFAULT_FILTERS.sort),
     q: params.get('q') ?? '',
     route: params.get('route') ?? '',
+    release: params.get('release') ?? '',
   }
 }
 
@@ -49,7 +52,7 @@ export function filtersToParams(filters: IssueFilters, base = new URLSearchParam
   return params
 }
 
-/** hasFilters tells whether the list is narrowed by source, search or route (the tab and order do not narrow it). */
+/** hasFilters tells whether the list is narrowed by source, search, route or release (the tab and order do not narrow it). */
 export function hasFilters(filters: IssueFilters): boolean {
-  return filters.source !== '' || filters.q.trim() !== '' || filters.route !== ''
+  return filters.source !== '' || filters.q.trim() !== '' || filters.route !== '' || filters.release !== ''
 }

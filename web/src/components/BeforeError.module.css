@@ -1,0 +1,84 @@
+/* "Before this error" in Issue detail.png: numbered circles 24 px wide,
+   38 px apart and 14 px before the text, the route in mono and its time on
+   the right; the error as a red circle with a "!" and red text. The card
+   has 18 px under its last row. */
+.card {
+  padding: var(--card-padding-top) var(--space-4) 18px;
+}
+
+.lead {
+  margin: 4px 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-small);
+  line-height: normal;
+}
+
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 15px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.step {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: var(--step-size);
+}
+
+.number,
+.marker {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: var(--step-size);
+  height: var(--step-size);
+  border-radius: var(--radius-pill);
+}
+
+.number {
+  background: var(--color-step-bg);
+  color: var(--color-step-text);
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-bold);
+  line-height: normal;
+}
+
+.route {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-code);
+  line-height: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.duration {
+  flex: none;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-body);
+  line-height: normal;
+}
+
+.marker {
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+}
+
+.mark {
+  width: var(--step-size);
+  height: var(--step-size);
+}
+
+.errorText {
+  color: var(--color-highlight-text);
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-semibold);
+  line-height: normal;
+}

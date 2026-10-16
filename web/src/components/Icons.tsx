@@ -128,3 +128,22 @@ export function FileIcon(props: IconProps) {
     </Icon>
   )
 }
+
+/** ActivityIcon is a pulse line: Events. */
+export function ActivityIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <polyline points="3 12 7 12 10 4 14 20 17 12 21 12" />
+    </Icon>
+  )
+}
+
+/** ErrorMarkIcon is the small "!" on the round error marker of "Before this error", drawn 24 by 24 with a thin line. */
+export function ErrorMarkIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeLinecap="round" aria-hidden="true">
+      <line x1="12" y1="9" x2="12" y2="13" strokeWidth={1.5} />
+      <circle cx="12" cy="15.6" r="0.7" stroke="none" />
+    </svg>
+  )
+}

@@ -1,6 +1,7 @@
 import { type ReactNode, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { ApiError, type EventDetail, getIssue, type IssueStatus } from '../api/client'
+import { BeforeError } from '../components/BeforeError'
 import button from '../components/Button.module.css'
 import { HourBars } from '../components/HourBars'
 import { CheckIcon, LinkIcon } from '../components/Icons'
@@ -18,6 +19,7 @@ import {
   timeAgo,
   urlPath,
 } from '../lib/format'
+import { userActivityPath } from '../lib/activity'
 import { copyText } from '../lib/clipboard'
 import { usePolling } from '../lib/usePolling'
 import { useStatusChange } from '../lib/useStatusChange'
@@ -25,10 +27,11 @@ import styles from './IssueDetailPage.module.css'
 import { NotFoundPage } from './NotFoundPage'
 import page from './Page.module.css'
 
-// IssueDetailPage shows one issue: its numbers, events per hour, the stack
-// trace of its newest event, and who and where it happened, with buttons to
-// resolve, ignore or reopen it and to copy its link. Fields the event did
-// not carry are left out.
+// IssueDetailPage shows one issue: its numbers (with the release it was
+// first seen in, and the one it came back in), events per hour, the stack
+// trace of its newest event, the pages that event's user saw before it, and
+// who and where it happened, with buttons to resolve, ignore or reopen it
+// and to copy its link. Fields the event did not carry are left out.
 export function IssueDetailPage() {
   const params = useParams()
   const projectId = Number(params.id)
@@ -98,9 +101,14 @@ export function IssueDetailPage() {
               {timeAgo(new Date(issue.lastSeen), now)}
             </time>
           </Stat>
-          {event?.release && (
-            <Stat label="Release" title={event.release}>
-              {event.release}
+          {issue.release && (
+            <Stat label="Release" title={`First seen in ${issue.release}. See the issues of this release.`}>
+              <Link className={styles.statLink} to={`/projects/${projectId}/issues?release=${encodeURIComponent(issue.release)}`}>
+                {issue.release}
+              </Link>
+              {issue.regressedRelease && issue.regressedRelease !== issue.release && (
+                <span className={styles.statNote}>Came back in {issue.regressedRelease}</span>
+              )}
             </Stat>
           )}
         </dl>
@@ -125,7 +133,8 @@ export function IssueDetailPage() {
         </div>
         {event && (
           <div className={styles.side}>
-            <UserCard event={event} />
+            <BeforeError steps={data.beforeError} errorRoute={event.route} />
+            <UserCard event={event} projectId={projectId} />
             <DetailsCard event={event} />
           </div>
         )}
@@ -201,8 +210,9 @@ interface Field {
   title?: string
 }
 
-// FieldsCard is a card of label and value rows; without rows it is not shown.
-function FieldsCard({ title, fields }: { title: string; fields: (Field | false | '' | undefined)[] }) {
+// FieldsCard is a card of label and value rows (and what goes under them);
+// without rows it is not shown.
+function FieldsCard({ title, fields, children }: { title: string; fields: (Field | false | '' | undefined)[]; children?: ReactNode }) {
   const rows = fields.filter((f): f is Field => Boolean(f))
   if (rows.length === 0) return null
   return (
@@ -218,11 +228,12 @@ function FieldsCard({ title, fields }: { title: string; fields: (Field | false |
           </div>
         ))}
       </dl>
+      {children}
     </section>
   )
 }
 
-function UserCard({ event }: { event: EventDetail }) {
+function UserCard({ event, projectId }: { event: EventDetail; projectId: number }) {
   return (
     <FieldsCard
       title="User"
@@ -232,7 +243,13 @@ function UserCard({ event }: { event: EventDetail }) {
         event.os && { label: 'System', value: event.os },
         event.country && { label: 'Country', value: countryName(event.country) },
       ]}
-    />
+    >
+      {event.user && (
+        <Link className={styles.activityLink} to={userActivityPath(projectId, event.user.id)}>
+          See all activity of this user
+        </Link>
+      )}
+    </FieldsCard>
   )
 }
 

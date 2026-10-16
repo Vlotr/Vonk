@@ -1,19 +1,16 @@
 import { Link, useParams, useSearchParams } from 'react-router'
-import { ApiError, getPages, type PageRange, type PageRow, type PageStats } from '../api/client'
+import { ApiError, getPages, type PageRow, type PageStats } from '../api/client'
 import { BarChart } from '../components/BarChart'
 import { LoadError } from '../components/LoadError'
+import { PeriodTabs, parseRange } from '../components/PeriodTabs'
 import { TimeBar } from '../components/TimeBar'
 import { useMe } from '../layout/MeContext'
-import { barLabel, botsLine, formatPageTime, labelEvery, pagesHeadline, RANGES, seriesTitle } from '../lib/pages'
+import { barLabel, botsLine, formatPageTime, labelEvery, pagesHeadline, seriesTitle } from '../lib/pages'
 import { usePolling } from '../lib/usePolling'
 import { NotFoundPage } from './NotFoundPage'
 import page from './Page.module.css'
 import styles from './PagesPage.module.css'
-
-/** parseRange reads ?range=; 7 days, as the design shows, when it is missing or unknown. */
-function parseRange(value: string | null): PageRange {
-  return value === '24h' || value === '30d' ? value : '7d'
-}
+import screen from './StatsPage.module.css'
 
 // PagesPage is Pages.png: a headline drawn from the data (where visitors
 // stay longest, and whether that page also has the most errors), the
@@ -38,27 +35,15 @@ export function PagesPage() {
       <nav className={page.breadcrumb} aria-label="Breadcrumb">
         <Link to="/">All projects</Link>
       </nav>
-      <header className={styles.header}>
-        <div className={styles.heading}>
+      <header className={screen.header}>
+        <div className={screen.heading}>
           <h1 className={page.title}>{headline.title}</h1>
           <p className={page.lead}>{headline.lead}</p>
         </div>
-        <div className={styles.tabs} role="group" aria-label="Period">
-          {RANGES.map((r) => (
-            <button
-              key={r.range}
-              type="button"
-              className={styles.tab}
-              aria-pressed={r.range === range}
-              onClick={() => setParams(r.range === '7d' ? {} : { range: r.range }, { replace: true })}
-            >
-              {r.label}
-            </button>
-          ))}
-        </div>
+        <PeriodTabs range={range} onChange={(r) => setParams(r === '7d' ? {} : { range: r }, { replace: true })} />
       </header>
 
-      <div className={stale ? styles.stale : undefined}>
+      <div className={stale ? screen.stale : undefined}>
         {empty ? <EmptyCard stats={data} /> : <TotalsCard stats={data} />}
         {!empty && <PagesCard stats={data} />}
       </div>
@@ -73,9 +58,9 @@ function TotalsCard({ stats }: { stats: PageStats }) {
     return { label, value: point.views, title: `${label}: ${point.views.toLocaleString('en-US')} ${point.views === 1 ? 'page view' : 'page views'}` }
   })
   return (
-    <section className={`${page.card} ${styles.totals}`} aria-label="Totals">
-      <div className={styles.numbers}>
-        <dl className={styles.stats}>
+    <section className={`${page.card} ${screen.totals}`} aria-label="Totals">
+      <div className={screen.numbers}>
+        <dl className={screen.stats}>
           <div>
             <dt>Page views</dt>
             <dd>{stats.totals.views.toLocaleString('en-US')}</dd>
@@ -95,10 +80,10 @@ function TotalsCard({ stats }: { stats: PageStats }) {
             </dd>
           </div>
         </dl>
-        {bots && <p className={styles.bots}>{bots}</p>}
+        {bots && <p className={screen.bots}>{bots}</p>}
       </div>
-      <div className={styles.chart}>
-        <h2 className={styles.chartTitle}>{seriesTitle(stats.range)}</h2>
+      <div className={screen.chart}>
+        <h2 className={screen.chartTitle}>{seriesTitle(stats.range)}</h2>
         <BarChart bars={bars} label={seriesTitle(stats.range)} values={bars.length <= 12} labelEvery={labelEvery(bars.length)} />
       </div>
     </section>
@@ -108,15 +93,15 @@ function TotalsCard({ stats }: { stats: PageStats }) {
 function PagesCard({ stats }: { stats: PageStats }) {
   const longest = Math.max(0, ...stats.pages.map((p) => p.avgTimeMs ?? 0))
   return (
-    <section className={`${page.card} ${styles.pagesCard}`} aria-labelledby="pages-title">
-      <header className={styles.cardHeader}>
+    <section className={`${page.card} ${screen.listCard}`} aria-labelledby="pages-title">
+      <header className={screen.cardHeader}>
         <h2 id="pages-title" className={page.cardTitle}>
           Pages
         </h2>
-        <span className={styles.sorted}>Sorted by views</span>
+        <span className={screen.sorted}>Sorted by views</span>
       </header>
       <div className={page.scroll}>
-        <table className={`${page.table} ${styles.table}`}>
+        <table className={`${page.table} ${screen.table} ${styles.table}`}>
           <thead>
             <tr>
               <th scope="col">Page</th>
@@ -149,7 +134,7 @@ function PageTableRow({ row, projectId, longestMs }: { row: PageRow; projectId: 
   return (
     <tr>
       <td className={styles.route}>{row.route}</td>
-      <td className={styles.views}>{row.views.toLocaleString('en-US')}</td>
+      <td className={screen.count}>{row.views.toLocaleString('en-US')}</td>
       <td>{row.visitors.toLocaleString('en-US')}</td>
       <td className={styles.timeCell}>
         <TimeBar ms={row.avgTimeMs} maxMs={longestMs} />

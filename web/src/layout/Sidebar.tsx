@@ -1,7 +1,7 @@
 import { Link, NavLink } from 'react-router'
 import type { Project } from '../api/client'
 import { TOOL_NAME } from '../brand'
-import { AlertCircleIcon, BellIcon, FileIcon, GridIcon, SettingsIcon } from '../components/Icons'
+import { ActivityIcon, AlertCircleIcon, BellIcon, FileIcon, GridIcon, SettingsIcon } from '../components/Icons'
 import { Logo } from '../components/Logo'
 import styles from './Sidebar.module.css'
 
@@ -10,8 +10,8 @@ function navClass({ isActive }: { isActive: boolean }): string {
 }
 
 // Sidebar is the navigation on the left, with Settings at the bottom.
-// Pages shows for projects that track page views; Events joins it, before
-// Alerts, in the task that builds that screen.
+// Pages and Events (both from PostHog) show for projects that track page
+// views, between Issues and Alerts as the designs order them.
 export function Sidebar({ project }: { project?: Project }) {
   return (
     <aside className={styles.sidebar}>
@@ -42,10 +42,16 @@ export function Sidebar({ project }: { project?: Project }) {
                 )}
               </NavLink>
               {project.tracksPageviews && (
-                <NavLink to={`/projects/${project.id}/pages`} className={navClass}>
-                  <FileIcon className={styles.icon} />
-                  Pages
-                </NavLink>
+                <>
+                  <NavLink to={`/projects/${project.id}/pages`} className={navClass}>
+                    <FileIcon className={styles.icon} />
+                    Pages
+                  </NavLink>
+                  <NavLink to={`/projects/${project.id}/events`} className={navClass}>
+                    <ActivityIcon className={styles.icon} />
+                    Events
+                  </NavLink>
+                </>
               )}
               <NavLink to={`/projects/${project.id}/alerts`} className={navClass}>
                 <BellIcon className={styles.icon} />

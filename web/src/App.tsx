@@ -4,6 +4,7 @@ import { useMe } from './layout/MeContext'
 import { AccountPage } from './pages/AccountPage'
 import { AlertsPage } from './pages/AlertsPage'
 import { AllProjectsPage } from './pages/AllProjectsPage'
+import { EventsPage } from './pages/EventsPage'
 import { ForgotPasswordPage } from './pages/ForgotPasswordPage'
 import { InvitePage } from './pages/InvitePage'
 import { IssueDetailPage } from './pages/IssueDetailPage'
@@ -17,6 +18,7 @@ import { SettingsProjectsPage } from './pages/SettingsProjectsPage'
 import { SettingsStatusPage } from './pages/SettingsStatusPage'
 import { SettingsUsersPage } from './pages/SettingsUsersPage'
 import { SetupPage } from './pages/SetupPage'
+import { UserActivityPage } from './pages/UserActivityPage'
 
 // App maps URLs to pages. The sign-in pages stand alone; every other page
 // renders inside the AppShell frame and needs a session (the server sends
@@ -34,6 +36,8 @@ export function App() {
         <Route path="projects/:id/issues" element={<IssuesPage />} />
         <Route path="projects/:id/issues/:issueId" element={<IssueDetailPage />} />
         <Route path="projects/:id/pages" element={<PagesPage />} />
+        <Route path="projects/:id/events" element={<EventsPage />} />
+        <Route path="projects/:id/users/:userId" element={<UserActivityPage />} />
         <Route path="projects/:id/alerts" element={<AlertsPage />} />
         <Route path="settings" element={<SettingsHome />} />
         <Route path="settings/projects" element={<SettingsProjectsPage />} />

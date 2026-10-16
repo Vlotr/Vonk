@@ -137,6 +137,14 @@ export function IssuesPage() {
           </button>
         </p>
       )}
+      {filters.release && (
+        <p className={styles.route}>
+          Only errors in release <code>{filters.release}</code>.{' '}
+          <button type="button" className={styles.linkButton} onClick={() => setFilters({ release: '' })}>
+            Show all releases
+          </button>
+        </p>
+      )}
       {status.failed && (
         <p className={styles.failed} role="alert">
           {status.failed}

@@ -26,7 +26,14 @@ export async function loadIssues(
   signal: AbortSignal,
   get: typeof getIssues = getIssues,
 ): Promise<LoadedIssues> {
-  const query = { status: filters.status, source: filters.source, sort: filters.sort, q: filters.q.trim(), route: filters.route }
+  const query = {
+    status: filters.status,
+    source: filters.source,
+    sort: filters.sort,
+    q: filters.q.trim(),
+    route: filters.route,
+    release: filters.release,
+  }
   const first = await get(projectId, { ...query, limit: Math.min(count, API_MAX_LIMIT) }, signal)
   const rest = []
   for (let offset = API_MAX_LIMIT; offset < Math.min(count, first.total); offset += API_MAX_LIMIT) {
