@@ -91,3 +91,44 @@ Grouping (Step 6):
 - A log message event gets its first line as title; no exception and no message gives `<unlabeled event>`; an exception without type is titled `Error`. Titles are cut at 200 runes and messages at 1000, ending in `…`.
 - The culprit is the top in-app frame, or the top frame when none is in-app: file name (else `abs_path`, else module) without query, plus `:line` when there is one.
 - `Source`: the `sentry.php.laravel` SDK or a `composer:sentry/sentry-laravel` package → `laravel`; platform `javascript` → `browser` (Node, Bun and Deno SDKs report `node`); else the platform in lowercase; none → `other`. The PHP fixture (plain `sentry/sentry`) is therefore `php`.
+
+Envelope endpoint (Step 3):
+
+- One route, `/api/{projectID}/envelope/{$}`, answers POST and OPTIONS itself (other methods get a JSON 405). `/api/1/envelope` without the slash gets Go's 307 to the slash form, which keeps the method and body.
+- The key is taken from `X-Sentry-Auth` (`sentry_key=`, with or without the `Sentry ` prefix), then `?sentry_key=`, then the envelope header `dsn`. A header or query key is checked before the body is read. A missing or unknown key, the key of another project, or a project id that is not a number gives 401.
+- A failing project lookup (a database error, not bad traffic) gives 503 with `Retry-After: 60` and an error log line; it is the only 5xx the endpoint sends.
+- Accepted encodings: none, `identity`, `gzip`/`x-gzip`, and `deflate` (zlib as HTTP specifies, or raw deflate when there is no zlib header). Anything else (`br`, `zstd`, chained encodings) and corrupt or truncated data gives 400.
+- The 20 MiB limit applies to the body as sent and after decompression; going over gives 413 and stops reading, so a zip bomb costs at most 20 MiB of inflating.
+- A 400 repeats its reason in `X-Sentry-Error`, as Sentry does; every error body is `{"error":"..."}`.
+- CORS: `Access-Control-Allow-Origin: *` on every answer, errors included, plus `Access-Control-Expose-Headers: x-sentry-error, x-sentry-rate-limits, retry-after` so browser SDKs can read the back-off headers; the preflight allows `POST, OPTIONS` and the headers `content-type, content-encoding, x-sentry-auth, authorization, sentry-trace, baggage`, cached for a day.
+- An accepted envelope gets `200 {"id":"<event id>"}`, one without events (sessions, client reports) `200 {}`; events without an id get a random one.
+- Events are scrubbed in the handler, before they are queued; grouping, encoding and the timestamp clamp happen in the writer.
+- Envelopes without events are authenticated but neither rate-limited nor queued.
+- Accepted SDK requests are logged at debug, like `/health`; refused ones stay at info, so a busy site does not fill the log.
+- The project's tracking choices (Laravel, browser) are not enforced at ingest yet.
+
+Rate limit and queue (Step 4):
+
+- The rate limit is a fixed window per clock minute and per project, counting events (not envelopes), with the project's `rate_limit_per_minute` (default 1000). An envelope that does not fit is refused whole; `Retry-After` and `X-Sentry-Rate-Limits: <s>::project` give the seconds until the next minute (rounded up, at least 1). Counts live in memory and start over after a restart.
+- The queue is a buffered channel of 10 000 events. When it is full the handler answers 429 with `Retry-After: 5` (no `X-Sentry-Rate-Limits`); events of the same envelope that were already queued stay. The "queue is full" warning is logged at most once per 10 s.
+- The rate limit is checked before queueing, so an event refused for a full queue still counts toward the minute.
+
+Writer (Step 7):
+
+- One goroutine flushes when 500 events are waiting or on a 1 s ticker; on `Close` (or when its context ends) it first takes everything left in the queue.
+- `store.SaveErrorEvents` writes one batch in one transaction: per event a duplicate check on (project, event id), then the issue (read, then insert or update; safe because there is one writer), then the event row. Issues touched in a batch are kept in memory for the rest of it.
+- Out-of-order events keep the earliest `first_seen` and the latest `last_seen`; title, message, culprit and level follow the newest event.
+- Events of a project deleted while they were queued are skipped and counted (warning), instead of failing the batch on the foreign key.
+- A batch that fails is retried after 0.2 s, 1 s and 5 s (SQLite already waits up to 5 s for a lock in each attempt), then logged as an error and dropped.
+- Timestamps: missing, or more than 1 h after the receive time, become the receive time; older timestamps are kept (SDKs send late).
+- `route` stays empty until Task 7 fills it.
+- `OnIssueCreated` runs once per new issue after the commit, on the writer goroutine, with the issue as it is after the batch.
+- `Close` without `Run` writes the queue itself; `Run` and `Close` may each be called twice.
+- No new migration: the Task 1 unique keys on `issues (project_id, fingerprint)` and `error_events (project_id, event_id)` carry grouping and deduplication.
+- `store` gained `Issue`, `IssueByID`, `ListIssues` (all issues of a project, newest first), `ErrorEventByEventID` and `CountErrorEvents`, used by the tests; Task 3 builds the dashboard queries.
+
+Wiring (Step 8):
+
+- `serve` runs the writer with its own context, not the signal context, so it keeps writing while running requests finish; shutdown order is HTTP server, then `writer.Close`, then the database.
+- `issues.Hooks` lives in `internal/issues` with a no-op `NoHooks`, used by `serve` until Task 6.
+- Measured on this Mac (`TestIngest_ConcurrentLoad`, 50 goroutines × 200 envelopes over HTTP with 4 readers running): sent in about 0.2 s and all written within 0.8 s; with `-race` about 1 s and 10 s.

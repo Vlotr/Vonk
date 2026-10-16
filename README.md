@@ -2,7 +2,7 @@
 
 A light, self-hosted tool for errors and page statistics. Your apps keep their existing SDKs: the tool pretends to be Sentry (errors from Laravel and the browser) and PostHog (page views). It runs as one Go binary with the dashboard built in, in one small container with all data on one volume. The name is not decided yet; the dashboard shows `[Tool name]`.
 
-Status: early development. This build has the skeleton (settings, database, server, CLI, container); ingest and the dashboard screens come next.
+Status: early development. This build has the skeleton (settings, database, server, CLI, container) and Sentry error ingest: point a Sentry SDK at the DSN that `project create` prints and errors are stored and grouped. The dashboard screens come next.
 
 ## Development quick start
 

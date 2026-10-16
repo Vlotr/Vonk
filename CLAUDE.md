@@ -66,6 +66,8 @@ internal/project/       project helpers that are not queries (DSN)
 internal/sentry/        Sentry envelopes and events: ParseEnvelope, Event, Fingerprint, Summarize, Source
   testdata/             real SDK requests (fixtures) and the recipes that made them (capture/)
 internal/scrub/         removes sensitive values and IP addresses before storage
+internal/ingest/        SDK endpoints: Sentry envelope handler, auth, CORS, rate limit, queue, batch writer
+internal/issues/        Hooks the writer calls on new and regressed issues (NoHooks until Task 6)
 internal/server/        router, dashboard guard, request logging, panic recovery, /health
 internal/web/           serves the embedded SPA with index.html fallback
 web/                    Vite + React + TypeScript dashboard
@@ -76,7 +78,13 @@ tools/capture/          recorder for real SDK traffic (see "Capturing real SDK t
 docs/decisions.md       one line per judgment call
 ```
 
-Packages still to come (see the plan): `internal/posthog`, `internal/ingest`, `internal/issues`, `internal/api`, `internal/auth`, `internal/mail`, `internal/alerts`, `internal/jobs`, `internal/routes`, `internal/bots`; `examples/`, `e2e/`.
+Packages still to come (see the plan): `internal/posthog`, `internal/api`, `internal/auth`, `internal/mail`, `internal/alerts`, `internal/jobs`, `internal/routes`, `internal/bots`; `examples/`, `e2e/`.
+
+## How Sentry ingest works
+
+SDKs send envelopes to `POST /api/<project id>/envelope/` (DSN `http(s)://<key>@<host>/<project id>`). The handler in `internal/ingest` authenticates the key (`X-Sentry-Auth`, `?sentry_key=` or the envelope's `dsn`), decompresses (gzip, deflate; 20 MiB limit before and after), parses with `sentry.ParseEnvelope` (event items up to 1 MiB, other item types skipped), applies the project's events-per-minute limit, scrubs each event with `scrub.Event` and puts it on the bounded `ingest.Queue` (10 000). It never waits: a full queue answers 429 with `Retry-After: 5`. One `ingest.Writer` takes events off the queue and writes them in batches (500 or every second) through `store.SaveErrorEvents`, which groups them into issues by `sentry.Fingerprint` and skips repeated event ids. Bad traffic gets a 4xx, never a 5xx; only a failing database gives 503.
+
+Try it by hand: `bin/monitor project create --name Webshop`, then point an SDK at the printed DSN, or replay a fixture: `curl -X POST http://localhost:8000/api/1/envelope/ -H "X-Sentry-Auth: Sentry sentry_key=<key>" -H 'Content-Encoding: gzip' --data-binary @internal/sentry/testdata/php-exception.envelope.gz`. There is no dashboard for issues yet (Task 3); look in the database with `sqlite3 data/monitor.db 'SELECT title, times_seen FROM issues'` while the server is stopped.
 
 ## Conventions
 
@@ -87,7 +95,7 @@ Packages still to come (see the plan): `internal/posthog`, `internal/ingest`, `i
 - Migrations are append-only: never edit a committed file, add `NNNN_name.sql`. Every SQLite migration needs a Postgres twin from Task 11 on. Tracked in `schema_migrations`.
 - All writes go through `db.write` (one connection, `BEGIN IMMEDIATE`); queries use `db.read` (read-only pool).
 - Routing: public routes (SDK ingest, `/health`) go on the public mux in `internal/server`; everything else falls through the dashboard guard. Dashboard API under `/ui/api/`, camelCase JSON, errors as `{"error":"..."}`. Missing access and missing objects both return 404.
-- Never store or log IP addresses. Request logs leave out the query string and the client address.
+- Never store or log IP addresses. Request logs leave out the query string and the client address. Everything an SDK sends goes through `internal/scrub` before it is queued or stored.
 - Frontend: plain CSS, design tokens as CSS variables in `web/src/styles/tokens.css` (from Task 3), CSS modules per component, no UI kit, no chart library. Fonts bundled via `@fontsource`. Light theme only. Poll every 60 s. UI copy is English and matches the designs. The tool name shows as `[Tool name]`, defined only in `web/src/brand.ts`; Go never reads it.
 - Tests first (TDD), next to the code (`*_test.go`, `*.test.ts(x)`). Tests use temp directories, never `/data`, and keep output clean.
 - Small conventional commits on branch `build/v1`, each ending with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`. Never push; there is no remote.
@@ -98,3 +106,6 @@ Packages still to come (see the plan): `internal/posthog`, `internal/ingest`, `i
 - `go.mod` has `ignore ./web/node_modules` so `./...` never descends into npm packages.
 - Without `DEV_BASIC_AUTH` the dashboard guard lets in only requests made directly from this machine: the TCP peer must be loopback and the request must carry no `Forwarded`, `X-Forwarded-For` or `X-Real-IP` header. A reverse proxy on the same host (or a container with `--network host`) connects from 127.0.0.1 too; the forwarding headers it adds are what gives it away, so a proxy that strips them would still get in. Forwarding headers are never trusted to let a request in. Behind Docker port mapping or any proxy, set `DEV_BASIC_AUTH`.
 - The runtime image is distroless (no shell, no curl); the Docker `HEALTHCHECK` runs `/monitor healthcheck`.
+- Accepted SDK requests are logged at debug (`LOG_LEVEL=debug` to see them); refused ones (401, 413, 429, ...) at info.
+- Only the ingest writer should write ingested data, and code inside a `db.write` transaction must use the `*sql.Tx`, never `db.write` itself: the write pool has one connection, so that would wait forever.
+- `go test -race ./internal/ingest/` takes about 17 s: `TestIngest_ConcurrentLoad` sends 10 000 envelopes over HTTP. `go test ./internal/sentry/ -run '^$' -fuzz FuzzParseEnvelope -fuzztime 60s` fuzzes parse, scrub and grouping.
