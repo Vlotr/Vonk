@@ -198,6 +198,46 @@ func TestScrub_URLPathSecrets(t *testing.T) {
 	}
 }
 
+// The token of a reset link also comes along in the Referer header (Laravel
+// failing on POST /reset-password; @sentry/browser sends document.referrer)
+// and in breadcrumbs (a navigation's from and to, a request's url): masked
+// there too, in every shape SDKs send them.
+func TestScrub_URLPathSecretsInRefererAndBreadcrumbs(t *testing.T) {
+	token := "4f8c2a9e7b1d3f5a6c8e0b2d4f6a8c0e2b4d6f8a0c2e4b6d8f0a2c4e6b8d0f2a"
+	reset := "https://shop.example.com/reset-password/" + token
+	cases := map[string]string{
+		// sentry-php: header values are lists.
+		"php headers": `{"request":{"headers":{"Referer":["` + reset + `?email=jan%40example.com"],"Host":["shop.example.com"]}}}`,
+		// @sentry/browser: header values are strings.
+		"browser headers": `{"request":{"headers":{"referer":"` + reset + `","User-Agent":"Mozilla/5.0"}}}`,
+		"header pairs":    `{"request":{"headers":[["Referer","` + reset + `"],["Accept","*/*"]]}}`,
+		"breadcrumbs": `{"breadcrumbs":[{"category":"navigation","data":{"from":"/reset-password/` + token + `","to":"/login"}},
+			{"category":"fetch","data":{"method":"POST","url":"` + reset + `","status_code":422}}]}`,
+		"breadcrumb values": `{"breadcrumbs":{"values":[{"category":"navigation","data":{"from":"/orders/12345","to":"` + reset + `"}}]}}`,
+	}
+	for name, event := range cases {
+		_, data := scrubbed(t, event)
+		if strings.Contains(data, token) {
+			t.Errorf("%s: the token is stored: %s", name, data)
+		}
+		if !strings.Contains(data, "/reset-password/:hash") {
+			t.Errorf("%s: the page is gone instead of masked: %s", name, data)
+		}
+	}
+
+	ev, data := scrubbed(t, cases["php headers"])
+	if got := at(ev.Raw, "request", "headers", "Referer", 0); got != "https://shop.example.com/reset-password/:hash?email=jan%40example.com" {
+		t.Errorf("Referer = %v", got)
+	}
+	if !strings.Contains(data, `"Host":["shop.example.com"]`) {
+		t.Errorf("other headers change: %s", data)
+	}
+	_, data = scrubbed(t, cases["breadcrumb values"])
+	if !strings.Contains(data, `"from":"/orders/12345"`) || !strings.Contains(data, `"to":"https://shop.example.com/reset-password/:hash"`) {
+		t.Errorf("breadcrumb = %s", data)
+	}
+}
+
 func TestScrub_URLUserInfo(t *testing.T) {
 	ev, data := scrubbed(t, `{
 		"breadcrumbs":[{"category":"http","data":{"url":"https://user:secret-1@api.example.com/v1/orders?page=2"}}],

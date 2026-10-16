@@ -560,3 +560,48 @@ func TestPosthog_RefusedBatchSpendsNothing(t *testing.T) {
 		t.Errorf("the last 2 of the budget = %d", rec.Code)
 	}
 }
+
+// The reset token also comes in the Referer header of a Laravel error and
+// in a browser breadcrumb of the navigation away from the reset page:
+// neither is stored with the token (ruling 38).
+func TestIngest_MasksSecretsInRefererAndBreadcrumbs(t *testing.T) {
+	env := newTestEnv(t, 100)
+	p := env.project(t, "Webshop", 1000)
+	const token = "4f8c2a9e7b1d3f5a6c8e0b2d4f6a8c0e2b4d6f8a0c2e4b6d8f0a2c4e6b8d0f2a"
+	events := map[string]string{
+		// sentry-laravel failing on POST /reset-password, sent from the reset page.
+		eventIDN(1): `{"event_id":"` + eventIDN(1) + `","platform":"php","timestamp":1792152010,` +
+			`"exception":{"values":[{"type":"ValidationException","value":"The password is too short"}]},` +
+			`"request":{"url":"https://shop.example.com/reset-password","method":"POST",` +
+			`"headers":{"Referer":["https://shop.example.com/reset-password/` + token + `?email=jan%40example.com"],"Host":["shop.example.com"]}}}`,
+		// @sentry/browser after leaving the reset page.
+		eventIDN(2): `{"event_id":"` + eventIDN(2) + `","platform":"javascript","timestamp":1792152010,` +
+			`"exception":{"values":[{"type":"TypeError","value":"x is undefined"}]},` +
+			`"request":{"url":"https://shop.example.com/login","headers":{"Referer":"https://shop.example.com/reset-password/` + token + `"}},` +
+			`"breadcrumbs":{"values":[{"category":"navigation","data":{"from":"/reset-password/` + token + `","to":"/login"}},` +
+			`{"category":"fetch","data":{"method":"POST","url":"https://shop.example.com/reset-password/` + token + `","status_code":302}}]}}`,
+	}
+	for id, event := range events {
+		body := []byte(`{"event_id":"` + id + `"}` + "\n" + `{"type":"event"}` + "\n" + event + "\n")
+		if rec := env.post(envelopePath(p), body, authHeader(p.SentryKey)); rec.Code != http.StatusOK {
+			t.Fatalf("envelope %s = %d %s", id, rec.Code, rec.Body)
+		}
+	}
+	for _, it := range env.drain() {
+		env.queue.TryEnqueue(it)
+	}
+	NewWriter(env.db, env.queue, &recordingHooks{}, env.logger).Close()
+
+	for id := range events {
+		ev, err := env.db.ErrorEventByEventID(context.Background(), p.ID, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(ev.URL+ev.Data, token) {
+			t.Errorf("event %s keeps the reset token: %s", id, ev.Data)
+		}
+		if !strings.Contains(ev.Data, "/reset-password/:hash") {
+			t.Errorf("event %s lost the page instead of masking it: %s", id, ev.Data)
+		}
+	}
+}

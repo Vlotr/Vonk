@@ -25,6 +25,7 @@
 // Path and MaskURL keep a page's address without the secrets in it (ruling
 // 38): segments that look like a UUID, a hash or a token are masked before
 // anything is stored, so a password reset link never keeps its token.
+// Digits (however many) and words stay.
 package routes
 
 import (
@@ -179,9 +180,12 @@ func replace(s string) string {
 }
 
 // secret returns the placeholder for a segment that may be a secret (a
-// UUID, a hash, a token), or "".
+// UUID, a hash, a token), or "". Digits are never a secret, however many:
+// an order number of 16 or more digits is hex too, but stays.
 func secret(s string) string {
 	switch {
+	case isDigits(s):
+		return ""
 	case isUUID(s):
 		return ":uuid"
 	case len(s) >= 16 && isHex(s):

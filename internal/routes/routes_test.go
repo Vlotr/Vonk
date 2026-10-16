@@ -141,6 +141,8 @@ func TestPath_MasksSecrets(t *testing.T) {
 		{"/users/550e8400-e29b-41d4-a716-446655440000/edit", "/users/:uuid/edit"},
 		{"/invite/Xk9-aB3_qL0zP1mN2oQ4rS", "/invite/:token"},
 		{"/orders/12345", "/orders/12345"},
+		// Digits are kept however long: 16 or more of them are hex too, but no secret.
+		{"/orders/12345678901234567", "/orders/12345678901234567"},
 		{"/products/summer-sale-2026-shoes", "/products/summer-sale-2026-shoes"},
 		{"/zoeken/caf%C3%A9", "/zoeken/café"},
 		{"/files/a%2Fb", "/files/a%2Fb"},
@@ -153,7 +155,7 @@ func TestPath_MasksSecrets(t *testing.T) {
 		}
 	}
 	// The route of a stored path is the route of the page.
-	for _, p := range []string{"/orders/12345", "/reset-password/" + laravelResetToken, "/zoeken/caf%C3%A9", "/sale/100%25"} {
+	for _, p := range []string{"/orders/12345", "/orders/12345678901234567", "/reset-password/" + laravelResetToken, "/zoeken/caf%C3%A9", "/sale/100%25"} {
 		if a, b := Normalize(Path(p), nil), Normalize(p, nil); a != b {
 			t.Errorf("Normalize(Path(%q)) = %q, Normalize = %q", p, a, b)
 		}
@@ -170,6 +172,7 @@ func TestMaskURL(t *testing.T) {
 		{"//cdn.example.com/a/0123456789abcdef0123", "//cdn.example.com/a/:hash"},
 		// Digits, words and encoding stay as sent.
 		{"https://shop.example.com/orders/12345", "https://shop.example.com/orders/12345"},
+		{"https://shop.example.com/orders/12345678901234567", "https://shop.example.com/orders/12345678901234567"},
 		{"https://shop.example.com/zoeken/caf%C3%A9", "https://shop.example.com/zoeken/caf%C3%A9"},
 		{"https://shop.example.com", "https://shop.example.com"},
 		// The query is no path: its values are scrubbed by key elsewhere.

@@ -17,9 +17,10 @@
 // On top of that, request cookies are dropped, and so is every IP address the
 // SDKs send: user.ip_address, IP headers such as X-Forwarded-For, REMOTE_ADDR
 // and friends in request.env, and the "{{auto}}" placeholder that asks the
-// server to fill in the client's IP. The page's URL (request.url and the
-// "url" tag) loses the secrets in its path: segments that look like a UUID,
-// a hash or a token are masked (routes.MaskURL, ruling 38). PostHog event
+// server to fill in the client's IP. The URLs of pages (request.url, the
+// Referer header, the "url" tag and breadcrumb URLs) lose the secrets in
+// their path: segments that look like a UUID, a hash or a token are masked
+// (routes.MaskURL, ruling 38; see pageurls.go). PostHog event
 // properties (Properties) get the same key and URL rules, and lose "$ip"
 // and other IP fields.
 package scrub
@@ -30,7 +31,6 @@ import (
 	"net/url"
 	"strings"
 
-	"monitor/internal/routes"
 	"monitor/internal/sentry"
 )
 
@@ -71,14 +71,11 @@ func Event(ev *sentry.Event) {
 	}
 	if req, ok := raw["request"].(map[string]any); ok {
 		scrubRequest(req)
-		if u, ok := req["url"].(string); ok {
-			req["url"] = routes.MaskURL(u)
-		}
 	}
 	if tags, ok := raw["tags"]; ok {
 		raw["tags"] = scrubPairs(tags)
-		maskURLTag(raw["tags"])
 	}
+	maskPageURLs(raw)
 
 	// The fingerprint is set by the developer to group events; scrubbing it
 	// would merge issues ("auth-failure" contains "auth").
@@ -89,26 +86,6 @@ func Event(ev *sentry.Event) {
 		raw["fingerprint"] = fingerprint
 	}
 	ev.Refresh()
-}
-
-// maskURLTag masks the secrets in the path of the "url" tag (an object or
-// a list of pairs), which names the page when the request does not: page
-// URLs are stored without the tokens and ids in their path (ruling 38).
-func maskURLTag(tags any) {
-	switch tags := tags.(type) {
-	case map[string]any:
-		if u, ok := tags["url"].(string); ok {
-			tags["url"] = routes.MaskURL(u)
-		}
-	case []any:
-		for _, item := range tags {
-			if pair, ok := item.([]any); ok && len(pair) == 2 && pair[0] == "url" {
-				if u, ok := pair[1].(string); ok {
-					pair[1] = routes.MaskURL(u)
-				}
-			}
-		}
-	}
 }
 
 // Properties scrubs the properties of a PostHog event in place: IP
