@@ -17,7 +17,8 @@
 // On top of that, request cookies are dropped, and so is every IP address the
 // SDKs send: user.ip_address, IP headers such as X-Forwarded-For, REMOTE_ADDR
 // and friends in request.env, and the "{{auto}}" placeholder that asks the
-// server to fill in the client's IP.
+// server to fill in the client's IP. PostHog event properties (Properties)
+// get the same key and URL rules, and lose "$ip" and other IP fields.
 package scrub
 
 import (
@@ -80,6 +81,33 @@ func Event(ev *sentry.Event) {
 		raw["fingerprint"] = fingerprint
 	}
 	ev.Refresh()
+}
+
+// Properties scrubs the properties of a PostHog event in place: IP
+// addresses go ("$ip", "ip" and the names of IP headers, at any depth,
+// and "{{auto}}" values), then the key and URL rules apply as they do to
+// a Sentry event.
+func Properties(props map[string]any) {
+	dropPropertyIPs(props)
+	Value(props)
+}
+
+// dropPropertyIPs removes the IP fields of PostHog properties, at any depth.
+func dropPropertyIPs(v any) {
+	switch v := v.(type) {
+	case map[string]any:
+		for k, child := range v {
+			if key := strings.TrimLeft(normalizeKey(k), "$"); key == "ip" || key == "ipaddress" || isIPKey(key) {
+				delete(v, k)
+				continue
+			}
+			dropPropertyIPs(child)
+		}
+	case []any:
+		for _, child := range v {
+			dropPropertyIPs(child)
+		}
+	}
 }
 
 // IsSensitiveKey reports whether a value stored under key must be filtered.
