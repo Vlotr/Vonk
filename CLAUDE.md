@@ -27,7 +27,7 @@ Container: `docker run -p 8000:8000 -e SECRET_KEY=... -e BASE_URL=http://localho
 
 ## Capturing real SDK traffic
 
-`tools/capture` is a tiny recorder: point any SDK or CLI at it and it writes each request to `NNNN-METHOD-path.json` (method, path, query, host, headers) and `NNNN-METHOD-path.body` (the body exactly as sent, still compressed). It answers `200 {}` (`-response` changes the body) and allows CORS from any origin, so browser SDKs work too. Use it to make test fixtures from real clients instead of hand-written ones.
+`tools/capture` is a tiny recorder: point any SDK or CLI at it and it writes each request to `NNNN-METHOD-path.json` (method, path, query, host, headers) and `NNNN-METHOD-path.body` (the body exactly as sent, still compressed; sanitize it before committing, see below). It answers `200 {}` (`-response` changes the body) and allows CORS from any origin, so browser SDKs work too. Use it to make test fixtures from real clients instead of hand-written ones.
 
 ```sh
 go run ./tools/capture -addr 127.0.0.1:19999 -out /tmp/captured
@@ -36,10 +36,18 @@ go run ./tools/capture -addr 127.0.0.1:19999 -out /tmp/captured
 
 The Sentry fixtures in `internal/sentry/testdata/` were made with the recipes in `internal/sentry/testdata/capture/` (SDK versions in `docs/decisions.md`). To redo them after an SDK update, copy a recipe to a temp directory and:
 
-- PHP: `composer install`, then `SENTRY_DSN=<dsn> php -S 127.0.0.1:18091 public/index.php`, and `curl -X POST 'http://localhost:18091/checkout?coupon=SPRING&token=tok_abc123' -H 'Cookie: laravel_session=eyJpdiI6IjEyMyJ9; XSRF-TOKEN=abc123' -H 'Authorization: Bearer sk_live_abc123' -H 'X-Forwarded-For: 203.0.113.9' -H 'X-Real-IP: 203.0.113.9' --data 'email=jan@example.com&password=hunter2&card_number=4111111111111111'`. The body is `php-exception.envelope.gz`, the `.json` is `php-exception.headers.json`.
-- Browser: `npm install && npx playwright install chromium && npm run build && SENTRY_DSN=<dsn> npm run capture`. The request whose body holds `"exception"` is `browser-typeerror.envelope`; the first session envelope is `browser-session.envelope`.
+- PHP: `composer install`, then `SENTRY_DSN=<dsn> php -S 127.0.0.1:18091 public/index.php`, and `curl -X POST 'http://localhost:18091/checkout?coupon=SPRING&token=tok_abc123' -H 'Cookie: laravel_session=eyJpdiI6IjEyMyJ9; XSRF-TOKEN=abc123' -H 'Authorization: Bearer sk_live_abc123' -H 'X-Forwarded-For: 203.0.113.9' -H 'X-Real-IP: 203.0.113.9' --data 'email=jan@example.com&password=hunter2&card_number=4111111111111111'`. The recorded request becomes `php-exception.envelope.gz` and `php-exception.headers.json`.
+- Browser: `npm install && npx playwright install chromium && npm run build && SENTRY_DSN=<dsn> npm run capture`. The request whose body holds `"exception"` becomes `browser-typeerror.envelope`; the first session envelope is `browser-session.envelope`.
 
-Then update the ids and values the tests expect (they name them).
+Never commit a recording as it is: it contains this machine's paths (with your user name), host name and kernel build. Sanitize each one into `internal/sentry/testdata/`:
+
+```sh
+node internal/sentry/testdata/capture/sanitize.mjs \
+  /tmp/captured/0001-POST-api-1-envelope.body /tmp/captured/0001-POST-api-1-envelope.json \
+  internal/sentry/testdata/php-exception <php-app-dir>
+```
+
+`<php-app-dir>` is the real path of the recipe copy the PHP server ran from (`pwd -P` in it, which resolves `/tmp` to `/private/tmp` on macOS); leave it out for the browser. The script replaces it with `/var/www/webshop`, sets `contexts.os` to neutral Linux values, keeps gzip bodies gzip, fixes `Content-Length`/`bodySize`, and refuses to write while your user or host name is still in the body. Then update the ids and values the tests expect (they name them).
 
 ## Settings (environment variables)
 

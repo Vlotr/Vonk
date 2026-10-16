@@ -357,3 +357,25 @@ func FuzzParseEnvelope(f *testing.F) {
 		}
 	})
 }
+
+func TestFixtures_HaveNoMachineStrings(t *testing.T) {
+	// Recordings must be sanitized before they are committed (see
+	// testdata/capture/sanitize.mjs): no local paths, user or host names.
+	machine := []string{"/private/", "/Users/", "/home/", "claude-", "scratchpad", "Darwin Kernel", "xnu-", ".home "}
+	files, err := filepath.Glob(filepath.Join("testdata", "*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range files {
+		if info, err := os.Stat(path); err != nil || info.IsDir() {
+			continue
+		}
+		data := string(fixture(t, filepath.Base(path)))
+		unescaped := strings.ReplaceAll(data, `\/`, "/") // PHP writes "/" as "\/"
+		for _, s := range machine {
+			if strings.Contains(unescaped, s) {
+				t.Errorf("%s contains %q; sanitize the recording", path, s)
+			}
+		}
+	}
+}

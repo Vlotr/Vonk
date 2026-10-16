@@ -63,6 +63,7 @@ Fixtures (Step 1):
 - The browser page is served by a real server on `localhost:5173`: Chrome's local network access rules block a Playwright-routed page from reaching the recorder on 127.0.0.1. Its URLs carry `card`, `iban` and `cvv` because the SDK already filters `token`- and `key`-like parameters itself. The session envelope it sent is kept as `browser-session.envelope`.
 - What the fixtures show: sentry-php puts `event_id` only in the envelope header, sends no `level`, sends header values as lists, gzips, and writes items without `length`; the browser SDK authenticates with `?sentry_key=`, sends `text/plain` without compression, sends breadcrumbs as a bare list and `sdk.settings.infer_ip: "auto"` instead of an IP, and `{{auto}}` in session attributes.
 - `tools/capture` answers CORS preflights for any origin and does not record them; it replies `200 {}` (or `-response`) to everything else.
+- Committed fixtures are sanitized, not byte-identical to what the SDK sent (controller ruling 24): `capture/sanitize.mjs` replaces the local app directory with `/var/www/webshop` and `contexts.os` with neutral Linux values, recompresses gzip bodies and fixes `Content-Length`/`bodySize`, and refuses to write while the user or host name remains. The SDK's structure, fields and encoding stay as sent. The browser fixture needed no change.
 
 Parser (Step 2):
 
