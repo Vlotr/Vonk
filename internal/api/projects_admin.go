@@ -31,9 +31,9 @@ import (
 // maxBodySettings caps the JSON bodies of the settings routes.
 const maxBodySettings = 16 << 10
 
-// maxBodyProject caps the bodies that carry route patterns (up to 100 of
-// 300 characters).
-const maxBodyProject = 64 << 10
+// maxBodyProject caps the bodies that carry route patterns: up to 100 of
+// 300 characters, which take up to 4 bytes each.
+const maxBodyProject = 128 << 10
 
 // previewPaths is how many recent paths the route preview shows at most,
 // and previewPerSection how many of them start with the same segment, so
@@ -117,7 +117,8 @@ type projectBody struct {
 	TracksLaravel   *bool        `json:"tracksLaravel"`
 	TracksBrowser   *bool        `json:"tracksBrowser"`
 	TracksPageviews *bool        `json:"tracksPageviews"`
-	// RoutePatterns is for PATCH only; nil leaves them as they are.
+	// RoutePatterns is for PATCH only (create refuses it); nil leaves them
+	// as they are.
 	RoutePatterns *[]string `json:"routePatterns"`
 }
 
@@ -130,7 +131,7 @@ func cleanPatterns(patterns []string) ([]string, error) {
 		if p == "" {
 			continue
 		}
-		if len(p) > store.MaxRoutePatternBytes {
+		if utf8.RuneCountInString(p) > store.MaxRoutePatternChars {
 			return nil, errors.New("A route pattern can have at most 300 characters.")
 		}
 		clean = append(clean, p)
@@ -193,7 +194,11 @@ func (h *Handler) settingsProjects(w http.ResponseWriter, r *http.Request) {
 // 90 days unless retentionDays says otherwise.
 func (h *Handler) createProject(w http.ResponseWriter, r *http.Request) {
 	var body projectBody
-	if !httpjson.Read(w, r, maxBodyProject, &body) {
+	if !httpjson.Read(w, r, maxBodySettings, &body) {
+		return
+	}
+	if body.RoutePatterns != nil {
+		httpjson.Error(w, http.StatusBadRequest, "Route patterns are set on Edit project, once the project exists.")
 		return
 	}
 	days := store.DefaultRetentionDays
@@ -259,18 +264,16 @@ func (h *Handler) updateProject(w http.ResponseWriter, r *http.Request) {
 		httpjson.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	var patterns []string
 	if body.RoutePatterns != nil {
-		var err error
-		if patterns, err = cleanPatterns(*body.RoutePatterns); err != nil {
+		patterns, err := cleanPatterns(*body.RoutePatterns)
+		if err != nil {
 			httpjson.Error(w, http.StatusBadRequest, err.Error())
 			return
 		}
+		settings.RoutePatterns = &patterns
 	}
+	// One write: the settings and the patterns change together or not at all.
 	updated, err := h.db.UpdateProject(r.Context(), p.ID, settings)
-	if err == nil && body.RoutePatterns != nil {
-		updated, err = h.db.SetRoutePatterns(r.Context(), p.ID, patterns)
-	}
 	if errors.Is(err, store.ErrNotFound) {
 		notFound(w)
 		return

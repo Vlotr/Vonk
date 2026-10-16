@@ -550,3 +550,12 @@ Fix round 1 (review of Task 8):
 
 - Digit segments are never a secret, however long (`routes.secret` returns nothing for them): `/orders/12345678901234567` was stored as `/orders/:hash` because 16+ digits are hex too, and `Normalize(Path(p))` then differed from `Normalize(p)` (`:hash` against `:id`). Ruling 38 keeps digits.
 - `scrub.Event` masks the page addresses an event carries besides `request.url` and the `url` tag (`internal/scrub/pageurls.go`): the Referer header (headers as an object, with string or list values, or as pairs; the name in any case), where Laravel's error during `POST /reset-password` and `@sentry/browser`'s `document.referrer` carry the reset link, and breadcrumbs' `data.url`, `data.from` and `data.to` (breadcrumbs as a list or as `{values: [...]}`). Exception messages and other free text are not parsed for URLs.
+
+## Task 9: User journey, releases and custom events
+
+Follow-ups from the Task 8 review:
+
+- Edit project saves its settings and route patterns in one write: `store.ProjectSettings.RoutePatterns` (nil leaves them) goes through `UpdateProject`, which updates both in one transaction and changes nothing when the patterns are refused. `SetRoutePatterns` stays for callers that change only the patterns.
+- Route patterns count characters, as the message says ("at most 300 characters"): `store.MaxRoutePatternChars` (was `MaxRoutePatternBytes`), checked with `utf8.RuneCountInString` in the API and the store. The bodies that carry patterns (PATCH, route preview) may be 128 KiB (100 patterns of 300 characters of up to 4 bytes); create reads at most 16 KiB again and refuses `routePatterns` with 400 ("Route patterns are set on Edit project, once the project exists.") instead of dropping them.
+- The PostHog handler's 429 names the limit of the project that is over it: "This project accepts 1000 events a minute. Try again after the Retry-After time." `RateLimiter.AllowAll` returns the refused ask instead of a boolean. The Sentry handler's 429 text is unchanged.
+- README lists every screenshot `make e2e` saves, `phase3-pages.png` and this task's three included.

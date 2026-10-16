@@ -97,13 +97,13 @@ func TestRateLimiter_AllowAllCountsAllOrNothing(t *testing.T) {
 	clock := &fakeClock{t: time.Date(2026, 10, 16, 12, 0, 10, 0, time.UTC)}
 	l := NewRateLimiter()
 	l.now = clock.Now
-	_, ok, wait := l.AllowAll([]Ask{{ProjectID: 1, Limit: 10, Events: 4}, {ProjectID: 2, Limit: 3, Events: 4}})
-	if ok || wait != 50*time.Second {
-		t.Fatalf("over project 2's limit: ok %v, wait %s", ok, wait)
+	_, refused, wait := l.AllowAll([]Ask{{ProjectID: 1, Limit: 10, Events: 4}, {ProjectID: 2, Limit: 3, Events: 4}})
+	if refused == nil || refused.ProjectID != 2 || refused.Limit != 3 || wait != 50*time.Second {
+		t.Fatalf("over project 2's limit: refused %+v, wait %s; want project 2's ask", refused, wait)
 	}
 	// Project 1 kept its whole budget.
-	minute, ok, _ := l.AllowAll([]Ask{{ProjectID: 1, Limit: 10, Events: 10}})
-	if !ok {
+	minute, refused, _ := l.AllowAll([]Ask{{ProjectID: 1, Limit: 10, Events: 10}})
+	if refused != nil {
 		t.Fatal("project 1 lost budget to a refused request")
 	}
 	if ok, _ := l.Allow(1, 10, 1); ok {

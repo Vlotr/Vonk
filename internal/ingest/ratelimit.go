@@ -29,8 +29,8 @@ func NewRateLimiter() *RateLimiter {
 // minute, and counts them when they do. When they do not, retryAfter is the
 // time until the next minute starts. A limit of 0 or less means no limit.
 func (l *RateLimiter) Allow(projectID int64, limit, n int) (ok bool, retryAfter time.Duration) {
-	_, ok, retryAfter = l.AllowAll([]Ask{{ProjectID: projectID, Limit: limit, Events: n}})
-	return ok, retryAfter
+	_, refused, retryAfter := l.AllowAll([]Ask{{ProjectID: projectID, Limit: limit, Events: n}})
+	return refused == nil, retryAfter
 }
 
 // Ask is one project's events in a request: Events more against Limit.
@@ -42,17 +42,19 @@ type Ask struct {
 
 // AllowAll reports whether the events of every ask fit in their project's
 // limit for this minute, and counts them only when all do, so a refused
-// request spends no project's budget. minute is the minute they were
-// counted in, for Return. A project should be asked once per call.
-func (l *RateLimiter) AllowAll(asks []Ask) (minute time.Time, ok bool, retryAfter time.Duration) {
+// request spends no project's budget. refused is nil when they fit, else
+// the first ask that does not (its Limit is what the answer names).
+// minute is the minute they were counted in, for Return. A project should
+// be asked once per call.
+func (l *RateLimiter) AllowAll(asks []Ask) (minute time.Time, refused *Ask, retryAfter time.Duration) {
 	now := l.now()
 	minute = now.Truncate(time.Minute)
 
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	for _, a := range asks {
+	for i, a := range asks {
 		if a.Limit > 0 && l.window(a.ProjectID, minute).count+a.Events > a.Limit {
-			return minute, false, minute.Add(time.Minute).Sub(now)
+			return minute, &asks[i], minute.Add(time.Minute).Sub(now)
 		}
 	}
 	for _, a := range asks {
@@ -60,7 +62,7 @@ func (l *RateLimiter) AllowAll(asks []Ask) (minute time.Time, ok bool, retryAfte
 			l.window(a.ProjectID, minute).count += a.Events
 		}
 	}
-	return minute, true, 0
+	return minute, nil, 0
 }
 
 // Return takes back the events AllowAll counted in minute, for a request

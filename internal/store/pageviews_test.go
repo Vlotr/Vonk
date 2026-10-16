@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand/v2"
+	"strings"
 	"testing"
 	"time"
 )
@@ -284,5 +285,44 @@ func TestProjects_RoutePatterns(t *testing.T) {
 	}
 	if _, err := db.SetRoutePatterns(ctx, p.ID, []string{"/" + string(make([]byte, 400))}); err == nil {
 		t.Error("a 400-character pattern was accepted")
+	}
+}
+
+// Settings and route patterns change in one write: when the patterns are
+// refused, the other settings stay as they were too. Pattern lengths count
+// characters, not bytes.
+func TestUpdateProject_SettingsAndPatternsInOneWrite(t *testing.T) {
+	db := openTestDB(t)
+	ctx := context.Background()
+	p := addProject(t, db, "Webshop")
+	patterns := []string{" /products/:slug ", ""}
+	got, err := db.UpdateProject(ctx, p.ID, ProjectSettings{Name: "Web shop", RoutePatterns: &patterns})
+	if err != nil || got.Name != "Web shop" || fmt.Sprint(got.RoutePatterns) != "[/products/:slug]" {
+		t.Fatalf("update = %+v, %v", got, err)
+	}
+	// Without patterns they stay.
+	if got, err := db.UpdateProject(ctx, p.ID, ProjectSettings{Name: "Shop"}); err != nil || len(got.RoutePatterns) != 1 {
+		t.Errorf("update without patterns = %+v, %v", got, err)
+	}
+
+	tooMany := make([]string, MaxRoutePatterns+1)
+	for i := range tooMany {
+		tooMany[i] = fmt.Sprintf("/p%d/:id", i)
+	}
+	tooLong := []string{"/" + strings.Repeat("é", MaxRoutePatternChars)}
+	for _, refused := range [][]string{tooMany, tooLong} {
+		if _, err := db.UpdateProject(ctx, p.ID, ProjectSettings{Name: "Renamed", RoutePatterns: &refused}); err == nil {
+			t.Errorf("patterns %.40v were accepted", refused)
+		}
+	}
+	after, err := db.ProjectByID(ctx, p.ID)
+	if err != nil || after.Name != "Shop" || len(after.RoutePatterns) != 1 {
+		t.Errorf("after refused updates = %+v, %v; want the name Shop and one pattern", after, err)
+	}
+
+	// 300 characters of two bytes each are fine.
+	long := []string{"/" + strings.Repeat("é", MaxRoutePatternChars-1)}
+	if _, err := db.UpdateProject(ctx, p.ID, ProjectSettings{Name: "Shop", RoutePatterns: &long}); err != nil {
+		t.Errorf("a pattern of 300 characters (599 bytes): %v", err)
 	}
 }

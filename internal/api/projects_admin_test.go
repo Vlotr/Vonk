@@ -184,6 +184,34 @@ func TestSettingsProjects_RoutePatterns(t *testing.T) {
 	if got := decode[settingsProjectResponse](t, env.get(t, path).Body.Bytes()); got.Name != "Web shop" || len(got.RoutePatterns) != 2 {
 		t.Errorf("after refused changes = %+v", got)
 	}
+
+	// 300 characters, as the message says, also when they take more bytes.
+	rec = env.as(t, env.admin, "PATCH", path, `{"routePatterns":["/`+strings.Repeat("é", 299)+`"]}`)
+	if rec.Code != http.StatusOK {
+		t.Errorf("a pattern of 300 characters = %d %s, want 200", rec.Code, rec.Body)
+	}
+	rec = env.as(t, env.admin, "PATCH", path, `{"routePatterns":["/`+strings.Repeat("é", 300)+`"]}`)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "at most 300 characters") {
+		t.Errorf("a pattern of 301 characters = %d %s, want 400", rec.Code, rec.Body)
+	}
+}
+
+// Route patterns are set on Edit project; a new project refuses them
+// rather than dropping them without a word.
+func TestSettingsProjects_CreateRefusesRoutePatterns(t *testing.T) {
+	env := newTestEnv(t)
+	rec := env.as(t, env.admin, "POST", "/ui/api/settings/projects", `{"name":"Webshop","routePatterns":["/products/:slug"]}`)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "Edit project") {
+		t.Errorf("create with patterns = %d %s, want 400 naming Edit project", rec.Code, rec.Body)
+	}
+	if ids, _ := env.db.ProjectIDs(context.Background()); len(ids) != 0 {
+		t.Errorf("%d projects after a refused create", len(ids))
+	}
+	// The body limit of create is the settings' 16 KiB again.
+	big := `{"name":"Webshop","x":"` + strings.Repeat("a", 20<<10) + `"}`
+	if rec := env.as(t, env.admin, "POST", "/ui/api/settings/projects", big); rec.Code != http.StatusRequestEntityTooLarge {
+		t.Errorf("create with a 20 KiB body = %d, want 413", rec.Code)
+	}
 }
 
 type routePreviewResponse struct {

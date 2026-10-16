@@ -136,8 +136,8 @@ func (h *SentryHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	asks := []Ask{{ProjectID: project.ID, Limit: project.RateLimitPerMinute, Events: len(env.Events)}}
-	minute, ok, wait := h.limiter.AllowAll(asks)
-	if !ok {
+	minute, refused, wait := h.limiter.AllowAll(asks)
+	if refused != nil {
 		seconds := strconv.Itoa(max(1, int(math.Ceil(wait.Seconds()))))
 		w.Header().Set("Retry-After", seconds)
 		w.Header().Set("X-Sentry-Rate-Limits", seconds+"::project")

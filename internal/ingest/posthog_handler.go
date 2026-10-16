@@ -3,6 +3,7 @@ package ingest
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"math"
@@ -203,10 +204,11 @@ func (h *PosthogHandler) capture(w http.ResponseWriter, r *http.Request) {
 	for _, p := range projects { // one token per project, so each project once
 		asks = append(asks, Ask{ProjectID: p.ID, Limit: p.RateLimitPerMinute, Events: perProject[p.ID]})
 	}
-	minute, ok, wait := h.limiter.AllowAll(asks)
-	if !ok {
+	minute, refused, wait := h.limiter.AllowAll(asks)
+	if refused != nil {
 		w.Header().Set("Retry-After", strconv.Itoa(max(1, int(math.Ceil(wait.Seconds())))))
-		httpjson.Error(w, http.StatusTooManyRequests, "over the events a minute of a project in this request; try again after Retry-After")
+		httpjson.Error(w, http.StatusTooManyRequests,
+			fmt.Sprintf("This project accepts %d events a minute. Try again after the Retry-After time.", refused.Limit))
 		return
 	}
 

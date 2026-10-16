@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // Defaults for new projects.
@@ -142,36 +143,22 @@ func (db *DB) ProjectByPosthogToken(ctx context.Context, token string) (Project,
 }
 
 // MaxRoutePatterns is how many route patterns a project has at most, and
-// MaxRoutePatternBytes how long one may be.
+// MaxRoutePatternChars how many characters one may have.
 const (
 	MaxRoutePatterns     = 100
-	MaxRoutePatternBytes = 300
+	MaxRoutePatternChars = 300
 )
 
 // SetRoutePatterns replaces a project's route patterns (blank ones are
-// left out; at most MaxRoutePatterns of at most MaxRoutePatternBytes) and
+// left out; at most MaxRoutePatterns of at most MaxRoutePatternChars) and
 // returns the project, or ErrNotFound. They apply to data that comes in
 // from now on.
 func (db *DB) SetRoutePatterns(ctx context.Context, id int64, patterns []string) (Project, error) {
-	clean := []string{}
-	for _, p := range patterns {
-		p = strings.TrimSpace(p)
-		if p == "" {
-			continue
-		}
-		if len(p) > MaxRoutePatternBytes {
-			return Project{}, fmt.Errorf("a route pattern is longer than %d characters", MaxRoutePatternBytes)
-		}
-		clean = append(clean, p)
-	}
-	if len(clean) > MaxRoutePatterns {
-		return Project{}, fmt.Errorf("at most %d route patterns", MaxRoutePatterns)
-	}
-	data, err := json.Marshal(clean)
+	data, err := routePatternsJSON(patterns)
 	if err != nil {
 		return Project{}, err
 	}
-	res, err := db.write.ExecContext(ctx, "UPDATE projects SET route_patterns = ? WHERE id = ?", string(data), id)
+	res, err := db.write.ExecContext(ctx, "UPDATE projects SET route_patterns = ? WHERE id = ?", data, id)
 	if err != nil {
 		return Project{}, err
 	}
@@ -179,6 +166,28 @@ func (db *DB) SetRoutePatterns(ctx context.Context, id int64, patterns []string)
 		return Project{}, ErrNotFound
 	}
 	return db.projectByIDForWrite(ctx, id)
+}
+
+// routePatternsJSON returns the route_patterns column for patterns: blank
+// ones left out, the others trimmed, or an error when there are too many
+// or one is too long.
+func routePatternsJSON(patterns []string) (string, error) {
+	clean := []string{}
+	for _, p := range patterns {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		if utf8.RuneCountInString(p) > MaxRoutePatternChars {
+			return "", fmt.Errorf("a route pattern is longer than %d characters", MaxRoutePatternChars)
+		}
+		clean = append(clean, p)
+	}
+	if len(clean) > MaxRoutePatterns {
+		return "", fmt.Errorf("at most %d route patterns", MaxRoutePatterns)
+	}
+	data, err := json.Marshal(clean)
+	return string(data), err
 }
 
 // ProjectBySentryKey returns the project that owns this DSN key, or ErrNotFound.
@@ -311,10 +320,15 @@ type ProjectSettings struct {
 	TracksLaravel   bool
 	TracksBrowser   bool
 	TracksPageviews bool
+	// RoutePatterns replace the project's route patterns (see
+	// SetRoutePatterns); nil leaves them as they are.
+	RoutePatterns *[]string
 }
 
-// UpdateProject replaces a project's settings and returns the project as it
-// is afterwards, or ErrNotFound. The slug stays as it was created.
+// UpdateProject replaces a project's settings (and its route patterns,
+// when s has them) in one write, and returns the project as it is
+// afterwards, or ErrNotFound. When anything is refused nothing changes.
+// The slug stays as it was created.
 func (db *DB) UpdateProject(ctx context.Context, id int64, s ProjectSettings) (Project, error) {
 	name := strings.TrimSpace(s.Name)
 	if name == "" {
@@ -323,7 +337,20 @@ func (db *DB) UpdateProject(ctx context.Context, id int64, s ProjectSettings) (P
 	if s.RetentionDays != nil && *s.RetentionDays <= 0 {
 		return Project{}, errors.New("retention must be a positive number of days")
 	}
-	res, err := db.write.ExecContext(ctx, `
+	var patterns string
+	if s.RoutePatterns != nil {
+		var err error
+		if patterns, err = routePatternsJSON(*s.RoutePatterns); err != nil {
+			return Project{}, err
+		}
+	}
+
+	tx, err := db.write.BeginTx(ctx, nil)
+	if err != nil {
+		return Project{}, err
+	}
+	defer tx.Rollback() // no-op after Commit
+	res, err := tx.ExecContext(ctx, `
 		UPDATE projects SET name = ?, retention_days = ?, tracks_laravel = ?, tracks_browser = ?, tracks_pageviews = ?
 		WHERE id = ?`,
 		name, s.RetentionDays, s.TracksLaravel, s.TracksBrowser, s.TracksPageviews, id)
@@ -333,7 +360,16 @@ func (db *DB) UpdateProject(ctx context.Context, id int64, s ProjectSettings) (P
 	if n, _ := res.RowsAffected(); n == 0 {
 		return Project{}, ErrNotFound
 	}
-	return db.projectByIDForWrite(ctx, id)
+	if s.RoutePatterns != nil {
+		if _, err := tx.ExecContext(ctx, "UPDATE projects SET route_patterns = ? WHERE id = ?", patterns, id); err != nil {
+			return Project{}, err
+		}
+	}
+	p, err := scanProject(tx.QueryRowContext(ctx, "SELECT "+projectColumns+" FROM projects WHERE id = ?", id))
+	if err != nil {
+		return Project{}, err
+	}
+	return p, tx.Commit()
 }
 
 // RotateProjectKeys gives a project a new Sentry key and PostHog token. The

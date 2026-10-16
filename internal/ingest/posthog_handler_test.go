@@ -384,6 +384,9 @@ func TestPosthog_RateLimitAndFullQueue(t *testing.T) {
 	if rec.Code != http.StatusTooManyRequests || rec.Header().Get("Retry-After") != "50" {
 		t.Errorf("over the limit = %d, Retry-After %q; want 429 and 50 s to the next minute", rec.Code, rec.Header().Get("Retry-After"))
 	}
+	if want := `{"error":"This project accepts 4 events a minute. Try again after the Retry-After time."}` + "\n"; rec.Body.String() != want {
+		t.Errorf("over the limit: %s, want %s", rec.Body, want)
+	}
 	if rec := env.capture("/batch/", batch(1)); rec.Code != http.StatusOK {
 		t.Errorf("the last event of the budget = %d", rec.Code)
 	}
@@ -530,10 +533,19 @@ func TestPosthog_RefusedBatchSpendsNothing(t *testing.T) {
 		}
 		return strings.Join(events, ",")
 	}
-	// Webshop's events come first and fit; Portal's three do not fit in its 2.
-	rec := env.capture("/batch/", `{"batch":[`+views(shop.PosthogToken, 2)+`,`+views(portal.PosthogToken, 3)+`]}`)
+	// Webshop's event comes first and fits; Portal's three do not fit in
+	// its 2, and the answer names that limit.
+	rec := env.capture("/batch/", `{"batch":[`+views(shop.PosthogToken, 1)+`,`+views(portal.PosthogToken, 3)+`]}`)
+	if rec.Code != http.StatusTooManyRequests || !strings.Contains(rec.Body.String(), "This project accepts 2 events a minute.") {
+		t.Fatalf("over Portal's limit = %d %s, want 429 naming Portal's limit of 2", rec.Code, rec.Body)
+	}
+	if n := env.queue.Len(); n != 0 {
+		t.Errorf("%d events queued from a refused batch", n)
+	}
+	// Five events do not fit in the queue's 4.
+	rec = env.capture("/batch/", `{"batch":[`+views(shop.PosthogToken, 2)+`,`+views(portal.PosthogToken, 3)+`]}`)
 	if rec.Code != http.StatusTooManyRequests {
-		t.Fatalf("over Portal's limit = %d %s, want 429", rec.Code, rec.Body)
+		t.Fatalf("over the queue's room = %d %s, want 429", rec.Code, rec.Body)
 	}
 	if n := env.queue.Len(); n != 0 {
 		t.Errorf("%d events queued from a refused batch", n)

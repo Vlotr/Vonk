@@ -40,7 +40,7 @@ make test   # Go and web unit tests
 make e2e    # the real binary, the examples and the dashboard in Chromium (needs PHP and Composer)
 ```
 
-`make e2e` saves `e2e/screenshots/phase1-issues.png`, `phase1-issue-detail.png`, `phase2-all-projects.png`, `phase2-settings.png`, `phase2-alerts.png` and `phase2-status.png`, the dashboard as it looked during the run.
+`make e2e` saves `e2e/screenshots/phase1-issues.png`, `phase1-issue-detail.png`, `phase2-all-projects.png`, `phase2-settings.png`, `phase2-alerts.png`, `phase2-status.png` and `phase3-pages.png`, the dashboard as it looked during the run.
 
 ## Run the container
 
