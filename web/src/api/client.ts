@@ -15,11 +15,14 @@ export interface Project {
 
 export interface Issue {
   id: number
-  /** The exception type as sent, such as Illuminate\Database\QueryException; see shortType. */
+  /**
+   * The exception type as sent, such as Illuminate\Database\QueryException (see
+   * shortType), or "Unhandled rejection" for an unhandled promise rejection.
+   */
   type: string
   message: string
   source: Source
-  /** File and line of the top in-app frame, such as "CheckoutController.php:88". */
+  /** File and line of the top in-app frame: "CheckoutController.php:88", or for browsers the path "assets/cart.js:142". */
   culprit: string
   events: number
   users: number

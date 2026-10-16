@@ -25,7 +25,8 @@ const (
 type issueJSON struct {
 	ID int64 `json:"id"`
 	// Type is the exception type as sent, such as the full PHP class
-	// Illuminate\Database\QueryException; the dashboard shortens it.
+	// Illuminate\Database\QueryException (the dashboard shortens it), or
+	// "Unhandled rejection" for an unhandled promise rejection.
 	Type      string    `json:"type"`
 	Message   string    `json:"message"`
 	Source    string    `json:"source"`

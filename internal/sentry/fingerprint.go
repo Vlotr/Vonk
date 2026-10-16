@@ -84,15 +84,59 @@ func Summarize(e *Event) Summary {
 	if s.Title == "" {
 		s.Title = "Error"
 	}
+	if isUnhandledRejection(exc.Mechanism.Type) {
+		// Named for what happened, as the designs do; the exception type
+		// still shows in the stack trace and decides the fingerprint.
+		s.Title = "Unhandled rejection"
+	}
 	s.Title = shorten(s.Title, maxTitleRunes)
 	if frames := groupingFrames(exc.Frames); len(frames) > 0 {
 		top := frames[len(frames)-1]
-		s.Culprit = fileName(top)
+		s.Culprit = culpritFile(e, top)
 		if top.Lineno > 0 && s.Culprit != "" {
 			s.Culprit += ":" + strconv.Itoa(top.Lineno)
 		}
 	}
 	return s
+}
+
+// isUnhandledRejection reports whether the SDK caught the exception as an
+// unhandled promise rejection: mechanism "onunhandledrejection" (Node and
+// older browser SDKs) or "auto.browser.global_handlers.onunhandledrejection"
+// (@sentry/browser 8 and later).
+func isUnhandledRejection(mechanism string) bool {
+	return mechanism == "onunhandledrejection" || strings.HasSuffix(mechanism, ".onunhandledrejection")
+}
+
+// culpritFile names a frame's file for the culprit. Browser frames name a
+// URL, and its path on the site says more than the file name alone
+// ("assets/main.js"); other platforms use the file name ("CheckoutController.php").
+func culpritFile(e *Event, f Frame) string {
+	if strings.EqualFold(e.Platform, "javascript") {
+		return sitePath(f)
+	}
+	return fileName(f)
+}
+
+// sitePath is a browser frame's file without origin, query, fragment and
+// leading slash: "assets/main.js" for https://shop.example.com/assets/main.js?v=2.
+func sitePath(f Frame) string {
+	p := f.Filename
+	if p == "" {
+		p = f.AbsPath
+	}
+	if p == "" {
+		return f.Module
+	}
+	if i := strings.IndexAny(p, "?#"); i >= 0 {
+		p = p[:i]
+	}
+	if strings.Contains(p, "://") {
+		if u, err := url.Parse(p); err == nil {
+			p = u.Path
+		}
+	}
+	return strings.TrimLeft(p, "/")
 }
 
 // MainException is the exception an issue is named and grouped by: the last
@@ -242,7 +286,8 @@ func normalizeMessage(s string) string {
 	return strings.TrimSpace(s)
 }
 
-// fileName is the base name of a frame's file without query, for the culprit.
+// fileName is the base name of a frame's file without query, for the culprit
+// of server platforms.
 func fileName(f Frame) string {
 	p := f.Filename
 	if p == "" {

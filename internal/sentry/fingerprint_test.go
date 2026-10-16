@@ -186,6 +186,74 @@ func TestFingerprint_MainExceptionIsTheLast(t *testing.T) {
 	}
 }
 
+func TestSummarize_UnhandledRejection(t *testing.T) {
+	// @sentry/browser 11 reports an unhandled promise rejection as an Error
+	// with mechanism "auto.browser.global_handlers.onunhandledrejection".
+	ev := parse(t, fixture(t, "browser-rejection.envelope")).Events[0]
+	want := sentry.Summary{Title: "Unhandled rejection", Message: "Failed to fetch /api/stock", Culprit: "src/main.js:30"}
+	if got := sentry.Summarize(ev); got != want {
+		t.Errorf("Summarize = %+v, want %+v", got, want)
+	}
+
+	// Older SDKs and Node name the mechanism without a prefix.
+	plain := decode(t, `{"platform":"node","exception":{"values":[{"type":"Error","value":"boom","mechanism":{"type":"onunhandledrejection","handled":false}}]}}`)
+	if got := sentry.Summarize(plain).Title; got != "Unhandled rejection" {
+		t.Errorf("mechanism onunhandledrejection: title = %q", got)
+	}
+	// Other mechanisms keep the exception type.
+	handled := decode(t, `{"platform":"javascript","exception":{"values":[{"type":"TypeError","value":"x","mechanism":{"type":"auto.browser.browserapierrors.addEventListener"}}]}}`)
+	if got := sentry.Summarize(handled).Title; got != "TypeError" {
+		t.Errorf("addEventListener mechanism: title = %q, want TypeError", got)
+	}
+
+	// The label is only for people: grouping still uses the exception type.
+	withoutMechanism := parse(t, fixture(t, "browser-rejection.envelope")).Events[0]
+	delete(withoutMechanism.Raw["exception"].(map[string]any)["values"].([]any)[0].(map[string]any), "mechanism")
+	withoutMechanism.Refresh()
+	if sentry.Fingerprint(ev) != sentry.Fingerprint(withoutMechanism) {
+		t.Error("the unhandled-rejection label changed the fingerprint")
+	}
+}
+
+func TestSummarize_CulpritPerPlatform(t *testing.T) {
+	culprit := func(platform, frameJSON string) string {
+		ev := decode(t, `{"platform":"`+platform+`","exception":{"values":[{"type":"E","stacktrace":{"frames":[`+frameJSON+`]}}]}}`)
+		return sentry.Summarize(ev).Culprit
+	}
+	tests := []struct {
+		name, platform, frame, want string
+	}{
+		{"browser: the URL's path without origin and query", "javascript",
+			`{"filename":"https://shop.example.com/assets/index-D8xk2Lp1.js?v=2#x","lineno":1,"in_app":true}`, "assets/index-D8xk2Lp1.js:1"},
+		{"browser: abs_path when there is no filename", "javascript",
+			`{"abs_path":"http://127.0.0.1:5173/src/main.js","lineno":21,"in_app":true}`, "src/main.js:21"},
+		{"browser: other URL schemes", "javascript", `{"filename":"app:///main.js","lineno":4,"in_app":true}`, "main.js:4"},
+		{"browser: a path, not a URL", "javascript", `{"filename":"/resources/js/cart.js","lineno":142,"in_app":true}`, "resources/js/cart.js:142"},
+		{"browser: no file, the module", "javascript", `{"module":"cart","lineno":3,"in_app":true}`, "cart:3"},
+		{"PHP keeps the file name", "php",
+			`{"filename":"/app/Http/Controllers/CheckoutController.php","lineno":14,"in_app":true}`, "CheckoutController.php:14"},
+		{"Node keeps the file name", "node", `{"filename":"/srv/app/src/jobs/sync.js","lineno":9,"in_app":true}`, "sync.js:9"},
+	}
+	for _, tt := range tests {
+		if got := culprit(tt.platform, tt.frame); got != tt.want {
+			t.Errorf("%s: culprit = %q, want %q", tt.name, got, tt.want)
+		}
+	}
+}
+
+func TestFingerprint_CulpritChangeKeepsGrouping(t *testing.T) {
+	// The browser culprit became a path; grouping still uses the normalized
+	// file without host or build hash, so the same error from another
+	// deploy or host is the same issue.
+	a := decode(t, `{"platform":"javascript","exception":{"values":[{"type":"TypeError","stacktrace":{"frames":[
+		{"filename":"https://shop.example.com/assets/index-D8xk2Lp1.js","function":"addToCart","lineno":1,"in_app":true}]}}]}}`)
+	b := decode(t, `{"platform":"javascript","exception":{"values":[{"type":"TypeError","stacktrace":{"frames":[
+		{"filename":"https://staging.example.com/assets/index-Q9wz7Rt3.js?v=3","function":"addToCart","lineno":1,"in_app":true}]}}]}}`)
+	if sentry.Fingerprint(a) != sentry.Fingerprint(b) {
+		t.Error("the same browser error from another host and build was not grouped")
+	}
+}
+
 func TestSummarize_LaravelQueryExceptionChain(t *testing.T) {
 	// Laravel wraps a PDOException in a QueryException; the issue is named after the QueryException.
 	ev := decode(t, `{"platform":"php","exception":{"values":[
@@ -280,8 +348,9 @@ func TestSummarize(t *testing.T) {
 		t.Errorf("PHP fixture summary = %+v", php)
 	}
 
+	// Browser culprits are the file's path on the site, not only its name.
 	browser := sentry.Summarize(parse(t, fixture(t, "browser-typeerror.envelope")).Events[0])
-	want := sentry.Summary{Title: "TypeError", Message: "Cannot read properties of undefined (reading 'toFixed')", Culprit: "index-D8xk2Lp1.js:8301"}
+	want := sentry.Summary{Title: "TypeError", Message: "Cannot read properties of undefined (reading 'toFixed')", Culprit: "assets/index-D8xk2Lp1.js:8301"}
 	if browser != want {
 		t.Errorf("browser fixture summary = %+v, want %+v", browser, want)
 	}
