@@ -194,7 +194,7 @@ func TestPerf(t *testing.T) {
 
 	sketchBytes := sketchSizes(t, path)
 	t.Logf("database: %d MB; %d hourly rows, median sketch %d bytes, largest %d bytes",
-		db.SizeBytes()>>20, len(sketchBytes), sketchBytes[len(sketchBytes)/2], sketchBytes[len(sketchBytes)-1])
+		db.SizeBytes(ctx)>>20, len(sketchBytes), sketchBytes[len(sketchBytes)/2], sketchBytes[len(sketchBytes)-1])
 
 	if rate < 5000 {
 		t.Errorf("writer: %.0f events/s, target at least 5 000", rate)
