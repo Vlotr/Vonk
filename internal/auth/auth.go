@@ -73,8 +73,11 @@ type Service struct {
 	log        *slog.Logger
 	now        func() time.Time
 
-	logins *throttle // failed sign-ins
+	logins *throttle // sign-in tries (and current-password checks)
 	resets *throttle // reset-link requests
+
+	// verify checks a password against a hash: VerifyPassword; tests count the calls.
+	verify func(ctx context.Context, hash, password string) (bool, error)
 
 	mailWG sync.WaitGroup // mail sent in the background
 }
@@ -99,6 +102,7 @@ func New(o Options) *Service {
 		now:      now,
 		logins:   newThrottle(failuresPerEmail, failuresPerClient, throttleWindow),
 		resets:   newThrottle(failuresPerEmail, failuresPerClient, throttleWindow),
+		verify:   VerifyPassword,
 	}
 	if u, err := url.Parse(o.BaseURL); err == nil {
 		s.host = u.Host

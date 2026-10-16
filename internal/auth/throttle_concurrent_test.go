@@ -1,82 +1,106 @@
 package auth
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
 
+// countChecks makes the service count the password checks against a real
+// hash (not the dummy one that unknown and locked addresses get).
+func countChecks(env *authEnv) *atomic.Int64 {
+	var real atomic.Int64
+	env.svc.verify = func(ctx context.Context, hash, password string) (bool, error) {
+		if hash != dummyHash() {
+			real.Add(1)
+		}
+		return VerifyPassword(ctx, hash, password)
+	}
+	return &real
+}
+
+// fireLogins sends parallel logins at the same moment; who gives the client
+// address and email of request i. It returns the status codes.
+func fireLogins(t *testing.T, env *authEnv, parallel int, who func(i int) (remote, email string)) []int {
+	t.Helper()
+	start := make(chan struct{})
+	codes := make([]int, parallel)
+	var wg sync.WaitGroup
+	for i := range parallel {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			remote, email := who(i)
+			b := newBrowser()
+			b.remote = remote
+			body := jsonBody(map[string]string{"email": email, "password": "wrong password"})
+			<-start
+			codes[i] = env.do(b, "POST", "/ui/api/login", body).Code
+		}()
+	}
+	close(start)
+	wg.Wait()
+	return codes
+}
+
+func countCodes(codes []int) map[int]int {
+	n := map[int]int{}
+	for _, c := range codes {
+		n[c]++
+	}
+	return n
+}
+
 // TestLogin_ThrottleHoldsUnderConcurrency fires many wrong logins at the
-// same moment. Each one must reserve its try before the slow password check,
-// or every request that arrives before the first failure is recorded gets
-// checked: the limit would only count once the hashes are done.
+// same moment. Each try is reserved before the slow password check, or
+// every request that arrives before the first failure is counted gets its
+// password checked.
 func TestLogin_ThrottleHoldsUnderConcurrency(t *testing.T) {
 	const parallel = 60
 
-	// fire sends parallel logins at once; who returns the remote address
-	// and email of request i. It returns how many were checked (401) and
-	// how many refused (429).
-	fire := func(t *testing.T, env *authEnv, who func(i int) (remote, email string)) (checked, refused int) {
-		t.Helper()
-		start := make(chan struct{})
-		codes := make([]int, parallel)
-		var wg sync.WaitGroup
-		for i := range parallel {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				remote, email := who(i)
-				b := newBrowser()
-				b.remote = remote
-				body := jsonBody(map[string]string{"email": email, "password": "wrong password"})
-				<-start
-				codes[i] = env.do(b, "POST", "/ui/api/login", body).Code
-			}()
-		}
-		close(start)
-		wg.Wait()
-		for _, code := range codes {
-			switch code {
-			case http.StatusUnauthorized:
-				checked++
-			case http.StatusTooManyRequests:
-				refused++
-			default:
-				t.Errorf("unexpected status %d", code)
-			}
-		}
-		return checked, refused
-	}
-
-	t.Run("one address from many clients", func(t *testing.T) {
+	t.Run("one account from many clients", func(t *testing.T) {
 		env := newAuthEnv(t)
 		env.setup(t, "jan@example.com", adminPassword)
-		checked, refused := fire(t, env, func(i int) (string, string) {
+		checks := countChecks(env)
+		codes := countCodes(fireLogins(t, env, parallel, func(i int) (string, string) {
 			return fmt.Sprintf("203.0.113.%d:5000", i+1), "jan@example.com"
-		})
-		if checked != failuresPerEmail || refused != parallel-failuresPerEmail {
-			t.Errorf("%d checked, %d refused; want %d checked and the other %d refused", checked, refused, failuresPerEmail, parallel-failuresPerEmail)
+		}))
+		// All get the wrong-password answer; only 5 had the password checked.
+		if codes[http.StatusUnauthorized] != parallel {
+			t.Errorf("answers %v, want %d × 401", codes, parallel)
+		}
+		if n := checks.Load(); n != failuresPerEmail {
+			t.Errorf("%d password checks, want %d", n, failuresPerEmail)
 		}
 	})
 
 	t.Run("one client for many addresses", func(t *testing.T) {
 		env := newAuthEnv(t)
 		env.setup(t, "jan@example.com", adminPassword)
-		checked, refused := fire(t, env, func(i int) (string, string) {
+		var checks atomic.Int64
+		env.svc.verify = func(ctx context.Context, hash, password string) (bool, error) {
+			checks.Add(1)
+			return VerifyPassword(ctx, hash, password)
+		}
+		codes := countCodes(fireLogins(t, env, parallel, func(i int) (string, string) {
 			return "198.51.100.7:5000", fmt.Sprintf("user%d@example.com", i)
-		})
-		if checked != failuresPerClient || refused != parallel-failuresPerClient {
-			t.Errorf("%d checked, %d refused; want %d checked and the other %d refused", checked, refused, failuresPerClient, parallel-failuresPerClient)
+		}))
+		if codes[http.StatusUnauthorized] != failuresPerClient || codes[http.StatusTooManyRequests] != parallel-failuresPerClient {
+			t.Errorf("answers %v, want %d × 401 and %d × 429", codes, failuresPerClient, parallel-failuresPerClient)
+		}
+		if n := checks.Load(); n != failuresPerClient {
+			t.Errorf("%d password checks, want %d", n, failuresPerClient)
 		}
 	})
 }
 
 // TestLogin_InvalidAddressNotCounted: what cannot be an address is refused
-// with 400 before the throttle sees it, so floods of junk (or of 1 MB
-// "addresses") never grow its memory.
+// with 400 before the throttle sees it.
 func TestLogin_InvalidAddressNotCounted(t *testing.T) {
 	env := newAuthEnv(t)
 	env.setup(t, "jan@example.com", adminPassword)
@@ -86,44 +110,101 @@ func TestLogin_InvalidAddressNotCounted(t *testing.T) {
 			t.Errorf("login as %.20q… = %d, want 400", email, rec.Code)
 		}
 	}
-	env.svc.logins.mu.Lock()
-	defer env.svc.logins.mu.Unlock()
 	l := env.svc.logins
-	if n, m := len(l.byAccount.events)+len(l.byAddress.events), len(l.byClient.events); n != 0 || m != 0 {
-		t.Errorf("the throttle tracks %d addresses and %d clients, want none", n, m)
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if n, m := len(l.byAccount.events), len(l.byClient.events); n != 0 || m != 0 {
+		t.Errorf("the throttle tracks %d accounts and %d clients, want none", n, m)
 	}
 }
 
-// TestThrottle_FloodDoesNotFreeALockedAccount: a locked-out address of an
-// existing account adds no events (refused tries reserve nothing), so if it
-// shared the capped store with throwaway addresses it would be the first to
-// be evicted. Accounts have a store of their own that never evicts.
+// TestLogin_UnknownAddressesKeepNoState: addresses without an account are
+// counted per client only; they leave no key of their own.
+func TestLogin_UnknownAddressesKeepNoState(t *testing.T) {
+	env := newAuthEnv(t)
+	env.setup(t, "jan@example.com", adminPassword)
+	for i := range 100 {
+		b := newBrowser()
+		b.remote = fmt.Sprintf("11.0.0.%d:5000", i)
+		env.do(b, "POST", "/ui/api/login", jsonBody(map[string]string{"email": fmt.Sprintf("throwaway%d@example.com", i), "password": "wrong password"}))
+		env.do(b, "POST", "/ui/api/password/forgot", jsonBody(map[string]string{"email": fmt.Sprintf("throwaway%d@example.com", i)}))
+	}
+	for name, th := range map[string]*throttle{"logins": env.svc.logins, "resets": env.svc.resets} {
+		th.mu.Lock()
+		if n := len(th.byAccount.events); n != 0 {
+			t.Errorf("%s: %d address keys after 100 unknown addresses, want 0", name, n)
+		}
+		th.mu.Unlock()
+	}
+}
+
+// TestThrottle_FloodDoesNotFreeALockedAccount: a flood of throwaway
+// addresses has nothing to push out; the lock stays.
 func TestThrottle_FloodDoesNotFreeALockedAccount(t *testing.T) {
 	th := newThrottle(failuresPerEmail, failuresPerClient, throttleWindow)
 	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
 	for i := range failuresPerEmail {
-		if _, _, ok := th.begin("jan@example.com", true, fmt.Sprint("client", i), now); !ok {
-			t.Fatalf("try %d refused", i+1)
+		if a, _, ok := th.begin("jan@example.com", true, fmt.Sprint("client", i), now); !ok || a.locked {
+			t.Fatalf("try %d: allowed %v, locked %v", i+1, ok, a.locked)
 		}
 	}
-	// 20 000 throwaway addresses from as many clients, a minute later.
 	for i := range 20_000 {
 		th.begin(fmt.Sprintf("throwaway%d@example.com", i), false, fmt.Sprint("flood", i), now.Add(time.Minute))
 	}
-	if n := len(th.byAddress.events); n > maxLimiterKeys {
-		t.Errorf("the store of unknown addresses holds %d keys, cap %d", n, maxLimiterKeys)
+	if n := len(th.byClient.events); n > maxLimiterKeys {
+		t.Errorf("the client store holds %d keys, cap %d", n, maxLimiterKeys)
 	}
-	if _, wait, ok := th.begin("jan@example.com", true, "fresh-client", now.Add(2*time.Minute)); ok || wait != 13*time.Minute {
-		t.Errorf("after the flood: allowed %v, wait %v; want still locked for 13m", ok, wait)
+	if n := len(th.byAccount.events); n != 1 {
+		t.Errorf("the account store holds %d keys, want only jan's", n)
+	}
+	a, _, ok := th.begin("jan@example.com", true, "fresh-client", now.Add(2*time.Minute))
+	if !ok || !a.locked || a.lockedFor != 13*time.Minute {
+		t.Errorf("after the flood: allowed %v, locked %v for %v; want locked for 13m", ok, a.locked, a.lockedFor)
 	}
 }
 
-// TestLogin_FloodDoesNotFreeALockedAccount is the same through the login
-// endpoint, with a small cap so the flood stays short.
+// TestLogin_SameAnswersForAccountsAndOtherAddresses: ten tries for an
+// address with an account and ten for one without get the same answers,
+// also after 20 000 throwaway addresses flooded the throttle.
+func TestLogin_SameAnswersForAccountsAndOtherAddresses(t *testing.T) {
+	env := newAuthEnv(t)
+	env.setup(t, "jan@example.com", adminPassword)
+	answers := func(email string, firstClient int) []string {
+		var got []string
+		for i := range 10 {
+			b := newBrowser()
+			b.remote = fmt.Sprintf("203.0.%d.%d:5000", firstClient/256, firstClient%256+i)
+			rec := env.do(b, "POST", "/ui/api/login", jsonBody(map[string]string{"email": email, "password": "wrong password"}))
+			got = append(got, fmt.Sprint(rec.Code, " ", rec.Header(), " ", strings.TrimSpace(rec.Body.String())))
+		}
+		return got
+	}
+	compare := func(when string, known, unknown []string) {
+		t.Helper()
+		if strings.Join(known, "|") != strings.Join(unknown, "|") {
+			t.Errorf("%s: answers differ:\nknown   %q\nunknown %q", when, known, unknown)
+		}
+		for i, a := range known {
+			if !strings.HasPrefix(a, "401 ") {
+				t.Errorf("%s: try %d = %q, want 401", when, i+1, a)
+			}
+		}
+	}
+	compare("before a flood", answers("jan@example.com", 1), answers("nobody@example.com", 20))
+
+	env.advance(throttleWindow)
+	for i := range 20_000 {
+		env.svc.logins.begin(fmt.Sprintf("throwaway%d@example.com", i), false, fmt.Sprint("flood", i), env.clock())
+	}
+	compare("after a flood", answers("jan@example.com", 300), answers("someone@example.com", 320))
+}
+
+// TestLogin_FloodDoesNotFreeALockedAccount is the flood through the login
+// endpoint, with a small client store so it stays short.
 func TestLogin_FloodDoesNotFreeALockedAccount(t *testing.T) {
 	env := newAuthEnv(t)
 	env.setup(t, "jan@example.com", adminPassword)
-	env.svc.logins.byAddress.maxKeys = 50
+	env.svc.logins.byClient.maxKeys = 50
 	try := func(remote, email, password string) int {
 		b := newBrowser()
 		b.remote = remote
@@ -135,38 +216,7 @@ func TestLogin_FloodDoesNotFreeALockedAccount(t *testing.T) {
 	for i := range 200 {
 		try(fmt.Sprintf("11.0.%d.%d:5000", i/256, i%256), fmt.Sprintf("throwaway%d@example.com", i), "wrong password")
 	}
-	if code := try("198.51.100.1:5000", "jan@example.com", adminPassword); code != http.StatusTooManyRequests {
-		t.Errorf("the locked account after a flood of 200 addresses = %d, want 429", code)
-	}
-}
-
-// TestLogin_SameThrottleForKnownAndUnknownAddresses: whether an address
-// has an account, its tries run out the same way, so the answers do not
-// tell.
-func TestLogin_SameThrottleForKnownAndUnknownAddresses(t *testing.T) {
-	env := newAuthEnv(t)
-	env.setup(t, "jan@example.com", adminPassword)
-	pattern := func(email string, firstClient int) []string {
-		var got []string
-		for i := range failuresPerEmail + 2 {
-			b := newBrowser()
-			b.remote = fmt.Sprintf("203.0.113.%d:5000", firstClient+i)
-			rec := env.do(b, "POST", "/ui/api/login", jsonBody(map[string]string{"email": email, "password": "wrong password"}))
-			got = append(got, fmt.Sprint(rec.Code, " ", rec.Header().Get("Retry-After"), " ", strings.TrimSpace(rec.Body.String())))
-		}
-		return got
-	}
-	known, unknown := pattern("jan@example.com", 1), pattern("nobody@example.com", 101)
-	if strings.Join(known, "|") != strings.Join(unknown, "|") {
-		t.Errorf("answers differ:\nknown   %q\nunknown %q", known, unknown)
-	}
-	for i, answer := range known {
-		want := "401"
-		if i >= failuresPerEmail {
-			want = "429"
-		}
-		if !strings.HasPrefix(answer, want) {
-			t.Errorf("try %d = %q, want %s", i+1, answer, want)
-		}
+	if code := try("198.51.100.1:5000", "jan@example.com", adminPassword); code != http.StatusUnauthorized {
+		t.Errorf("the locked account after a flood of 200 addresses = %d, want 401", code)
 	}
 }

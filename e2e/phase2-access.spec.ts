@@ -82,7 +82,7 @@ test('an invited member sees only the project they were given', async ({ browser
   await member.getByLabel('Email').fill('member@example.com')
   await member.getByLabel('Password').fill('wrong password')
   await member.getByRole('button', { name: 'Sign in' }).click()
-  await expect(member.getByRole('alert')).toHaveText('The email or password is wrong.')
+  await expect(member.getByRole('alert')).toContainText('The email or password is wrong.')
   await member.getByLabel('Password').fill('member password 1')
   await member.getByRole('button', { name: 'Sign in' }).click()
 

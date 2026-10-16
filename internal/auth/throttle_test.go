@@ -145,7 +145,7 @@ func TestThrottle_KeysAreNotAddresses(t *testing.T) {
 
 	// Addresses are kept as hashes too, whatever their length.
 	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
-	if _, _, ok := th.begin("jan@example.com", true, key, now); !ok {
+	if a, _, ok := th.begin("jan@example.com", true, key, now); !ok || a.locked {
 		t.Fatal("first try refused")
 	}
 	for k := range th.byAccount.events {
@@ -159,23 +159,49 @@ func TestThrottle_BeginReservesAndSucceededGivesBack(t *testing.T) {
 	th := newThrottle(2, 3, 15*time.Minute)
 	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
 
-	// Two tries for the address are reserved at once; the third waits.
+	// Two tries for the account are reserved; the third is let through
+	// locked (it is answered like a wrong password) and adds no try.
 	a, _, ok1 := th.begin("jan@example.com", true, "c1", now)
-	_, _, ok2 := th.begin("jan@example.com", true, "c2", now)
-	_, wait, ok3 := th.begin("jan@example.com", true, "c3", now)
-	if !ok1 || !ok2 || ok3 || wait != 15*time.Minute {
-		t.Fatalf("begin = %v %v %v (wait %v), want two tries and then 15m", ok1, ok2, ok3, wait)
+	b, _, ok2 := th.begin("jan@example.com", true, "c2", now)
+	c, _, ok3 := th.begin("jan@example.com", true, "c3", now.Add(time.Minute))
+	if !ok1 || !ok2 || !ok3 || a.locked || b.locked || !c.locked || c.lockedFor != 14*time.Minute {
+		t.Fatalf("begin = %v/%v %v/%v %v/%v (locked for %v), want two tries and then a lock of 14m",
+			ok1, a.locked, ok2, b.locked, ok3, c.locked, c.lockedFor)
 	}
-	// A try that worked clears the address and gives the client its try back.
+	if n := len(th.byAccount.events[a.emailKey]); n != 2 {
+		t.Errorf("the account has %d tries counted, want 2 (a locked try adds none)", n)
+	}
+	// A locked try that is followed by succeeded (it never is) would still not unlock.
+	th.succeeded(c)
+	if again, _, _ := th.begin("jan@example.com", true, "c4", now.Add(time.Minute)); !again.locked {
+		t.Error("succeeded on a locked try ended the lock")
+	}
+	// A try that worked clears the account and gives the client its try back.
 	th.succeeded(a)
-	if _, _, ok := th.begin("jan@example.com", true, "c1", now); !ok {
-		t.Error("after a sign-in that worked the address is still blocked")
+	if d, _, ok := th.begin("jan@example.com", true, "c1", now); !ok || d.locked {
+		t.Error("after a sign-in that worked the account is still locked")
 	}
+	// Addresses without an account are counted per client only.
 	for range 2 {
 		th.begin("other@example.com", false, "c1", now)
 	}
 	// c1 has used its three tries now: jan once more and other twice.
-	if _, _, ok := th.begin("third@example.com", false, "c1", now); ok {
-		t.Error("the client got more than 3 tries")
+	if _, wait, ok := th.begin("third@example.com", false, "c1", now); ok || wait != 15*time.Minute {
+		t.Errorf("the client's fourth try: allowed %v, wait %v; want refused for 15m", ok, wait)
+	}
+	if n := len(th.byAccount.events); n != 1 {
+		t.Errorf("%d account keys, want 1: other addresses keep none", n)
+	}
+}
+
+func TestThrottle_AccountKeysAreSwept(t *testing.T) {
+	th := newThrottle(5, 1000, 15*time.Minute)
+	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+	for i := range 100 {
+		th.begin(fmt.Sprintf("gone%d@example.com", i), true, "c", now) // accounts deleted since
+	}
+	th.begin("jan@example.com", true, "c", now.Add(16*time.Minute))
+	if n := len(th.byAccount.events); n != 1 {
+		t.Errorf("%d account keys after their window, want only jan's", n)
 	}
 }

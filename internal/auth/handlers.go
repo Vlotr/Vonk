@@ -123,9 +123,14 @@ func (s *Service) setup(w http.ResponseWriter, r *http.Request) {
 	s.signIn(w, r, u)
 }
 
+// wrongCredentials answers every sign-in that does not work: a wrong
+// password, an address without an account, and a locked account alike.
+const wrongCredentials = "The email or password is wrong. After 5 wrong tries, signing in to an account pauses for 15 minutes; resetting its password ends the pause."
+
 // login checks an address and password. Every try is reserved in the
-// throttle first and stays counted when it fails; an unknown address is
-// checked against a dummy hash, so it answers the same, as slowly.
+// throttle first and stays counted when it fails. An address without an
+// account and a locked account are checked against a dummy hash: the same
+// answer, as slowly, as a wrong password.
 func (s *Service) login(w http.ResponseWriter, r *http.Request) {
 	var req credentials
 	if !httpjson.Read(w, r, maxAuthBody, &req) {
@@ -139,8 +144,7 @@ func (s *Service) login(w http.ResponseWriter, r *http.Request) {
 		httpjson.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	// Whether the address has an account decides which throttle store
-	// counts it (accounts are never evicted); both answer alike.
+	// Only accounts are counted per address; look it up first.
 	u, err := s.db.UserByEmail(ctx, email)
 	found := err == nil
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
@@ -148,26 +152,27 @@ func (s *Service) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// The try is reserved before the slow password check, so requests
-	// arriving at the same moment cannot all get through.
+	// arriving at the same moment cannot all get through. Only the
+	// per-client limit answers 429: it counts every try alike.
 	reserved, wait, allowed := s.logins.begin(email, found, s.logins.clientKey(r), s.now())
 	if !allowed {
 		tooManyAttempts(w, wait)
 		return
 	}
 	hash := dummyHash()
-	if found {
+	if found && !reserved.locked {
 		hash = u.PasswordHash
 	}
-	ok, err := VerifyPassword(ctx, hash, req.Password)
+	ok, err := s.verify(ctx, hash, req.Password)
 	if err != nil {
 		if ctx.Err() != nil {
 			return // the client went away while waiting for a hash slot
 		}
 		s.log.Error("auth: stored password hash cannot be read", "user", u.ID, "err", err)
 	}
-	if !found || !ok {
-		// The reserved try stays: it was a failure.
-		httpjson.Error(w, http.StatusUnauthorized, "The email or password is wrong.")
+	if !found || reserved.locked || !ok {
+		// A reserved try stays: it was a failure. A locked try adds none.
+		httpjson.Error(w, http.StatusUnauthorized, wrongCredentials)
 		return
 	}
 	s.logins.succeeded(reserved)
@@ -221,12 +226,17 @@ func (s *Service) changePassword(w http.ResponseWriter, r *http.Request) {
 		tooManyAttempts(w, wait)
 		return
 	}
+	if reserved.locked {
+		// Signed in to this very account: saying it is locked tells nothing new.
+		tooManyAttempts(w, reserved.lockedFor)
+		return
+	}
 	stored, err := s.db.UserByID(ctx, user.ID)
 	if err != nil {
 		s.internalError(w, r, err)
 		return
 	}
-	if ok, _ := VerifyPassword(ctx, stored.PasswordHash, req.CurrentPassword); !ok {
+	if ok, _ := s.verify(ctx, stored.PasswordHash, req.CurrentPassword); !ok {
 		httpjson.Error(w, http.StatusBadRequest, "The current password is wrong.") // the try counts
 		return
 	}
@@ -334,8 +344,9 @@ func (s *Service) acceptInvite(w http.ResponseWriter, r *http.Request) {
 
 // forgotPassword mails a reset link when the address has an account and
 // mail is on. It answers the same in every case, at once; the mail goes
-// out in the background. Requests are throttled per address and client,
-// so nobody can flood someone's inbox.
+// out in the background. At most 5 links per account go out in 15
+// minutes, so nobody can flood someone's inbox; more requests are answered
+// the same and send nothing.
 func (s *Service) forgotPassword(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Email string `json:"email"`
@@ -348,18 +359,20 @@ func (s *Service) forgotPassword(w http.ResponseWriter, r *http.Request) {
 		httpjson.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	// As for logins, an account's address is counted where a flood of
-	// other addresses cannot push it out. Every request counts.
+	// Every request counts per client (429 after 20) and, for an account,
+	// per account: after 5 in 15 minutes no more mail goes out, silently.
 	_, err := s.db.UserByEmail(r.Context(), email)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		s.internalError(w, r, err)
 		return
 	}
-	if _, wait, ok := s.resets.begin(email, err == nil, s.resets.clientKey(r), s.now()); !ok {
+	exists := err == nil
+	reserved, wait, allowed := s.resets.begin(email, exists, s.resets.clientKey(r), s.now())
+	if !allowed {
 		tooManyAttempts(w, wait)
 		return
 	}
-	if s.mailer != nil {
+	if s.mailer != nil && exists && !reserved.locked {
 		s.mailForgotten(email)
 	}
 	httpjson.Write(w, http.StatusOK, struct{}{})

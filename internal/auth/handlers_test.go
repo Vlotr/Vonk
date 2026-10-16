@@ -120,7 +120,65 @@ func TestLogin_WrongPassword401(t *testing.T) {
 	}
 }
 
-func TestLogin_Throttle429(t *testing.T) {
+// TestLogin_LockedAccountAnswersLikeAWrongPassword: after 5 wrong tries an
+// account is locked for 15 minutes, silently: even the right password gets
+// the same 401 as a wrong one, so the answers never tell an account from an
+// address without one.
+func TestLogin_LockedAccountAnswersLikeAWrongPassword(t *testing.T) {
+	env := newAuthEnv(t)
+	env.setup(t, "jan@example.com", adminPassword)
+	attempt := func(remote, password string) *httptest.ResponseRecorder {
+		b := newBrowser()
+		b.remote = remote
+		return env.do(b, "POST", "/ui/api/login", jsonBody(map[string]string{"email": "jan@example.com", "password": password}))
+	}
+
+	var wrong *httptest.ResponseRecorder
+	for i := range failuresPerEmail {
+		if wrong = attempt("203.0.113."+strconv.Itoa(i+1)+":5000", "wrong password"); wrong.Code != http.StatusUnauthorized {
+			t.Fatalf("failure %d = %d, want 401", i+1, wrong.Code)
+		}
+	}
+	for minute := range 15 {
+		rec := attempt("198.51.100."+strconv.Itoa(minute+1)+":5000", adminPassword)
+		if rec.Code != http.StatusUnauthorized || rec.Body.String() != wrong.Body.String() || rec.Header().Get("Retry-After") != "" || len(rec.Result().Cookies()) != 0 {
+			t.Fatalf("right password at minute %d of the lock = %d %s %v, want the 401 of a wrong one", minute, rec.Code, rec.Body, rec.Header())
+		}
+		env.advance(time.Minute - time.Second)
+	}
+	// Fifteen minutes after the first failure the account signs in again.
+	env.advance(15 * time.Second)
+	if rec := attempt("198.51.100.99:5000", adminPassword); rec.Code != http.StatusOK {
+		t.Errorf("after 15 minutes = %d %s, want 200", rec.Code, rec.Body)
+	}
+	if msg := errorOf(wrong); !strings.Contains(msg, "15 minutes") || !strings.Contains(msg, "reset") {
+		t.Errorf("401 message %q does not say that sign-in pauses and that a reset helps", msg)
+	}
+}
+
+// TestLogin_ResetEndsTheLock: a password reset proves the address, so it
+// clears the lock at once.
+func TestLogin_ResetEndsTheLock(t *testing.T) {
+	env := newAuthEnv(t)
+	ctx := context.Background()
+	env.setup(t, "jan@example.com", adminPassword)
+	for range failuresPerEmail {
+		env.do(newBrowser(), "POST", "/ui/api/login", jsonBody(map[string]string{"email": "jan@example.com", "password": "wrong password"}))
+	}
+	u, _ := env.db.UserByEmail(ctx, "jan@example.com")
+	link, err := env.svc.ResetLink(ctx, u.ID, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := newBrowser()
+	signedIn(t, b, env.do(b, "POST", "/ui/api/password/reset", jsonBody(map[string]string{"token": tokenFrom(t, link.URL, "/reset-password"), "password": "a new password"})))
+	env.login(t, "jan@example.com", "a new password")
+}
+
+// TestLogin_Throttle429PerClient: one client gets 20 tries in 15 minutes,
+// whatever the addresses, and then 429. That limit counts every try alike,
+// so it tells nothing about accounts.
+func TestLogin_Throttle429PerClient(t *testing.T) {
 	env := newAuthEnv(t)
 	env.setup(t, "jan@example.com", adminPassword)
 	attempt := func(remote, email, password string) *httptest.ResponseRecorder {
@@ -128,39 +186,24 @@ func TestLogin_Throttle429(t *testing.T) {
 		b.remote = remote
 		return env.do(b, "POST", "/ui/api/login", jsonBody(map[string]string{"email": email, "password": password}))
 	}
-
-	// Five failures for one address, from several clients...
-	for i := range 5 {
-		if rec := attempt("203.0.113."+strconv.Itoa(i+1)+":5000", "jan@example.com", "wrong password"); rec.Code != http.StatusUnauthorized {
-			t.Fatalf("failure %d = %d, want 401", i+1, rec.Code)
-		}
-	}
-	// ...block it, even with the right password, and say for how long.
-	rec := attempt("198.51.100.1:5000", "jan@example.com", adminPassword)
-	if rec.Code != http.StatusTooManyRequests {
-		t.Fatalf("sixth attempt = %d %s, want 429", rec.Code, rec.Body)
-	}
-	if retry, err := strconv.Atoi(rec.Header().Get("Retry-After")); err != nil || retry < 1 || retry > 15*60 {
-		t.Errorf("Retry-After = %q, want 1 to 900 seconds", rec.Header().Get("Retry-After"))
-	}
-	// Fifteen minutes after the first failure the address may try again.
-	env.advance(15 * time.Minute)
-	if rec := attempt("198.51.100.1:5000", "jan@example.com", adminPassword); rec.Code != http.StatusOK {
-		t.Errorf("after 15 minutes = %d %s, want 200", rec.Code, rec.Body)
-	}
-
-	// Twenty failures from one client, each for another address, block that client...
-	for i := range 20 {
+	for i := range failuresPerClient {
 		if rec := attempt("203.0.113.99:5000", "user"+strconv.Itoa(i)+"@example.com", "wrong password"); rec.Code != http.StatusUnauthorized {
 			t.Fatalf("client failure %d = %d, want 401", i+1, rec.Code)
 		}
 	}
-	if rec := attempt("203.0.113.99:6000", "jan@example.com", adminPassword); rec.Code != http.StatusTooManyRequests {
-		t.Errorf("21st attempt from the client = %d, want 429", rec.Code)
+	rec := attempt("203.0.113.99:6000", "jan@example.com", adminPassword)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("21st attempt from the client = %d, want 429", rec.Code)
 	}
-	// ...but not others.
+	if retry, err := strconv.Atoi(rec.Header().Get("Retry-After")); err != nil || retry < 1 || retry > 15*60 {
+		t.Errorf("Retry-After = %q, want 1 to 900 seconds", rec.Header().Get("Retry-After"))
+	}
 	if rec := attempt("203.0.113.100:5000", "jan@example.com", adminPassword); rec.Code != http.StatusOK {
 		t.Errorf("another client = %d, want 200", rec.Code)
+	}
+	env.advance(throttleWindow)
+	if rec := attempt("203.0.113.99:5000", "jan@example.com", adminPassword); rec.Code != http.StatusOK {
+		t.Errorf("the client after 15 minutes = %d, want 200", rec.Code)
 	}
 }
 
@@ -484,13 +527,40 @@ func TestReset_ByMail(t *testing.T) {
 		t.Errorf("made-up token = %d, want 404", rec.Code)
 	}
 
-	// Asking again and again for one address is throttled like sign-ins.
-	var last int
-	for range 6 {
-		last = forgot("jan@example.com").Code
+}
+
+// TestForgot_StopsMailingSilently: after 5 requests for one account in 15
+// minutes no more links are mailed; the answer stays the same, and the
+// same as for an address without an account.
+func TestForgot_StopsMailingSilently(t *testing.T) {
+	env := newAuthEnv(t)
+	env.setup(t, "jan@example.com", adminPassword)
+	forgot := func(i int, email string) string {
+		b := newBrowser()
+		b.remote = "203.0.113." + strconv.Itoa(i+1) + ":5000"
+		rec := env.do(b, "POST", "/ui/api/password/forgot", jsonBody(map[string]string{"email": email}))
+		return strconv.Itoa(rec.Code) + " " + rec.Header().Get("Retry-After") + " " + rec.Body.String()
 	}
-	if last != http.StatusTooManyRequests {
-		t.Errorf("sixth request within 15 minutes = %d, want 429", last)
+	var known, unknown []string
+	for i := range 8 {
+		known = append(known, forgot(i, "jan@example.com"))
+		unknown = append(unknown, forgot(100+i, "nobody@example.com"))
+	}
+	env.svc.waitForMail()
+	for i := range known {
+		if known[i] != known[0] || unknown[i] != known[0] || !strings.HasPrefix(known[0], "200") {
+			t.Fatalf("answers differ or are not 200:\nknown   %q\nunknown %q", known, unknown)
+		}
+	}
+	if n := len(env.mailer.messages()); n != failuresPerEmail {
+		t.Errorf("%d mails sent, want %d", n, failuresPerEmail)
+	}
+	// Fifteen minutes later links are mailed again.
+	env.advance(throttleWindow)
+	forgot(50, "jan@example.com")
+	env.svc.waitForMail()
+	if n := len(env.mailer.messages()); n != failuresPerEmail+1 {
+		t.Errorf("%d mails after 15 minutes, want %d", n, failuresPerEmail+1)
 	}
 }
 
