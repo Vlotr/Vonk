@@ -44,9 +44,8 @@ test('a resolved issue comes back with the same error, and All projects shows th
   await page.getByRole('button', { name: 'Throw a TypeError' }).click()
   await sent
 
-  const dashboard = await browser.newContext({
-    httpCredentials: { username: env('MONITOR_USER'), password: env('MONITOR_PASSWORD') },
-  })
+  // Signed in as the admin that global-setup.ts made on the setup page.
+  const dashboard = await browser.newContext({ storageState: env('ADMIN_STATE') })
   const ui = await dashboard.newPage()
   const issuesURL = `${env('MONITOR_URL')}/projects/${env('PROJECT_ID')}/issues`
   await ui.goto(issuesURL)

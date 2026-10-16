@@ -40,10 +40,9 @@ test('Laravel and browser errors appear in the issue list and on the issue page'
   await page.getByRole('button', { name: 'Reject a promise' }).click()
   await rejectionSent
 
-  // The dashboard, behind DEV_BASIC_AUTH.
-  const dashboard = await browser.newContext({
-    httpCredentials: { username: env('MONITOR_USER'), password: env('MONITOR_PASSWORD') },
-  })
+  // The dashboard.
+  // Signed in as the admin that global-setup.ts made on the setup page.
+  const dashboard = await browser.newContext({ storageState: env('ADMIN_STATE') })
   const ui = await dashboard.newPage()
   // A controllable clock, so the test can jump to the page's next minute poll.
   await ui.clock.install()

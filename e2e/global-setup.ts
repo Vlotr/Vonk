@@ -1,15 +1,18 @@
 // Starts everything the end-to-end tests need and returns the teardown:
 //
 //   1. builds bin/monitor with the dashboard (make build);
-//   2. runs it on a free port with a temp DATA_DIR and DEV_BASIC_AUTH;
-//   3. creates the projects "Webshop" and "Customer portal" with the CLI and
+//   2. runs it on a free port with a temp DATA_DIR;
+//   3. creates the first admin on the setup page, in Chromium, and keeps
+//      that browser's session for the tests (ADMIN_STATE);
+//   4. creates the projects "Webshop" and "Customer portal" with the CLI and
 //      reads their DSNs;
-//   4. serves the Laravel example (php artisan serve) with that DSN;
-//   5. serves the browser example (Vite) on another free port.
+//   5. serves the Laravel example (php artisan serve) with that DSN;
+//   6. serves the browser example (Vite) on another free port.
 //
-// The tests read the addresses and credentials from the environment.
+// The tests read the addresses and the admin's session from the environment.
 // Process output goes to e2e/.logs/ for when something fails.
 
+import { chromium } from '@playwright/test'
 import { type ChildProcess, spawn, spawnSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { createWriteStream, existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs'
@@ -119,18 +122,35 @@ export default async function globalSetup() {
     // The monitor, as an operator would run it.
     const port = await freePort()
     const monitorURL = `http://127.0.0.1:${port}`
-    const password = randomBytes(12).toString('hex')
     const monitorEnv = {
       PATH: process.env.PATH,
       SECRET_KEY: randomBytes(32).toString('hex'),
       BASE_URL: monitorURL,
       ADDR: `127.0.0.1:${port}`,
       DATA_DIR: join(tmp, 'data'),
-      DEV_BASIC_AUTH: `e2e:${password}`,
     }
     const monitor = start('monitor', join(root, 'bin/monitor'), ['serve'], root, monitorEnv)
     children.push(monitor)
     await waitFor(`${monitorURL}/health`, 'monitor', monitor)
+
+    // The first admin, made on the setup page as an operator would: every
+    // page leads there until an account exists.
+    const adminEmail = 'admin@example.com'
+    const adminPassword = randomBytes(12).toString('hex')
+    const adminState = join(tmp, 'admin-state.json')
+    const browser = await chromium.launch()
+    try {
+      const setupPage = await browser.newPage()
+      await setupPage.goto(monitorURL)
+      await setupPage.waitForURL(`${monitorURL}/setup`)
+      await setupPage.getByLabel('Email').fill(adminEmail)
+      await setupPage.getByLabel('Password').fill(adminPassword)
+      await setupPage.getByRole('button', { name: 'Create account' }).click()
+      await setupPage.waitForURL(`${monitorURL}/`)
+      await setupPage.context().storageState({ path: adminState })
+    } finally {
+      await browser.close()
+    }
 
     const createProject = (name: string) => {
       const created = spawnSync(join(root, 'bin/monitor'), ['project', 'create', '--name', name], {
@@ -189,8 +209,9 @@ export default async function globalSetup() {
 
     Object.assign(process.env, {
       MONITOR_URL: monitorURL,
-      MONITOR_USER: 'e2e',
-      MONITOR_PASSWORD: password,
+      ADMIN_STATE: adminState,
+      ADMIN_EMAIL: adminEmail,
+      ADMIN_PASSWORD: adminPassword,
       PROJECT_ID: projectId,
       SENTRY_DSN: dsn,
       PORTAL_PROJECT_ID: portal.id,
