@@ -239,3 +239,83 @@ func newPosthogToken() (string, error) {
 	}
 	return "phc_" + base64.RawURLEncoding.EncodeToString(b), nil
 }
+
+// ProjectIDs returns the ids of all projects, sorted.
+func (db *DB) ProjectIDs(ctx context.Context) ([]int64, error) {
+	return queryIDs(ctx, db.read, "SELECT id FROM projects ORDER BY id")
+}
+
+// ProjectSettings are the choices an admin can change on a project.
+type ProjectSettings struct {
+	Name string
+	// RetentionDays is how long data is kept; nil keeps it forever.
+	RetentionDays   *int
+	TracksLaravel   bool
+	TracksBrowser   bool
+	TracksPageviews bool
+}
+
+// UpdateProject replaces a project's settings and returns the project as it
+// is afterwards, or ErrNotFound. The slug stays as it was created.
+func (db *DB) UpdateProject(ctx context.Context, id int64, s ProjectSettings) (Project, error) {
+	name := strings.TrimSpace(s.Name)
+	if name == "" {
+		return Project{}, errors.New("project name is required")
+	}
+	if s.RetentionDays != nil && *s.RetentionDays <= 0 {
+		return Project{}, errors.New("retention must be a positive number of days")
+	}
+	res, err := db.write.ExecContext(ctx, `
+		UPDATE projects SET name = ?, retention_days = ?, tracks_laravel = ?, tracks_browser = ?, tracks_pageviews = ?
+		WHERE id = ?`,
+		name, s.RetentionDays, s.TracksLaravel, s.TracksBrowser, s.TracksPageviews, id)
+	if err != nil {
+		return Project{}, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return Project{}, ErrNotFound
+	}
+	return db.projectByIDForWrite(ctx, id)
+}
+
+// RotateProjectKeys gives a project a new Sentry key and PostHog token. The
+// old ones stop working at once. It returns the project with its new keys,
+// or ErrNotFound.
+func (db *DB) RotateProjectKeys(ctx context.Context, id int64) (Project, error) {
+	sentryKey, err := newSentryKey()
+	if err != nil {
+		return Project{}, err
+	}
+	posthogToken, err := newPosthogToken()
+	if err != nil {
+		return Project{}, err
+	}
+	res, err := db.write.ExecContext(ctx, "UPDATE projects SET sentry_key = ?, posthog_token = ? WHERE id = ?",
+		sentryKey, posthogToken, id)
+	if err != nil {
+		return Project{}, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return Project{}, ErrNotFound
+	}
+	return db.projectByIDForWrite(ctx, id)
+}
+
+// projectByIDForWrite reads a project through the write connection, so it
+// sees a change that was just committed there.
+func (db *DB) projectByIDForWrite(ctx context.Context, id int64) (Project, error) {
+	return scanProject(db.write.QueryRowContext(ctx, "SELECT "+projectColumns+" FROM projects WHERE id = ?", id))
+}
+
+// DeleteProject removes a project with all its issues, events and access
+// rows, or returns ErrNotFound.
+func (db *DB) DeleteProject(ctx context.Context, id int64) error {
+	res, err := db.write.ExecContext(ctx, "DELETE FROM projects WHERE id = ?", id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
