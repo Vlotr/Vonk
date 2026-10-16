@@ -269,6 +269,7 @@ type eventSpec struct {
 	file     string    // file of the top frame, default /app/Services/PaymentGateway.php
 	userID   string    // empty: no user
 	url      string    // the request URL; empty: none
+	release  string    // empty: none
 	browser  bool      // sent by @sentry/browser instead of sentry-laravel
 	at       time.Time // default testNow
 }
@@ -314,6 +315,9 @@ func phpEvent(t *testing.T, spec eventSpec) *sentry.Event {
 	}
 	if spec.url != "" {
 		raw["request"] = map[string]any{"url": spec.url}
+	}
+	if spec.release != "" {
+		raw["release"] = spec.release
 	}
 	data, err := json.Marshal(raw)
 	if err != nil {

@@ -644,3 +644,66 @@ func TestListIssues_Pagination(t *testing.T) {
 		t.Errorf("q=E1: total %d, %d issues; want 11 (E1, E10..E19) and 5", got.Total, len(got.Issues))
 	}
 }
+
+type releaseResponse struct {
+	Issue struct {
+		ID               int64  `json:"id"`
+		Release          string `json:"release"`
+		RegressedRelease string `json:"regressedRelease"`
+	} `json:"issue"`
+}
+
+// An issue's release is the one it was first seen in, whatever later
+// events say; when it comes back after a resolve, the detail also names
+// the release it came back in.
+func TestRelease_FirstReleaseKept(t *testing.T) {
+	env := newTestEnv(t)
+	p := env.project(t, "Webshop")
+	env.save(t, p.ID, phpEvent(t, eventSpec{id: hexID(1), release: "v2.8.1", at: testNow.Add(-3 * time.Hour)}))
+	env.save(t, p.ID, phpEvent(t, eventSpec{id: hexID(2), release: "v2.9.0", at: testNow.Add(-2 * time.Hour)}))
+	// An event that arrives late, from an older release, does not change it either.
+	env.save(t, p.ID, phpEvent(t, eventSpec{id: hexID(3), release: "v2.7.0", at: testNow.Add(-4 * time.Hour)}))
+	issueID := firstIssue(t, env, p.ID)
+	path := fmt.Sprintf("/ui/api/issues/%d", issueID)
+
+	got := getJSON[releaseResponse](t, env, path)
+	if got.Issue.Release != "v2.8.1" || got.Issue.RegressedRelease != "" {
+		t.Errorf("release %q, came back in %q; want v2.8.1 and nothing", got.Issue.Release, got.Issue.RegressedRelease)
+	}
+
+	// Resolved, then an event of v2.9.1 opens it again.
+	env.setStatus(t, issueID, store.IssueResolved)
+	env.save(t, p.ID, phpEvent(t, eventSpec{id: hexID(4), release: "v2.9.1", at: testNow.Add(-time.Minute)}))
+	got = getJSON[releaseResponse](t, env, path)
+	if got.Issue.Release != "v2.8.1" || got.Issue.RegressedRelease != "v2.9.1" {
+		t.Errorf("after coming back: release %q, came back in %q; want v2.8.1 and v2.9.1", got.Issue.Release, got.Issue.RegressedRelease)
+	}
+	// Later events of the open issue change neither.
+	env.save(t, p.ID, phpEvent(t, eventSpec{id: hexID(5), release: "v3.0.0"}))
+	got = getJSON[releaseResponse](t, env, path)
+	if got.Issue.Release != "v2.8.1" || got.Issue.RegressedRelease != "v2.9.1" {
+		t.Errorf("after another event: release %q, came back in %q", got.Issue.Release, got.Issue.RegressedRelease)
+	}
+}
+
+// release keeps the issues with an event in that release.
+func TestListIssues_ReleaseFilter(t *testing.T) {
+	env := newTestEnv(t)
+	p := env.project(t, "Webshop")
+	env.save(t, p.ID,
+		phpEvent(t, eventSpec{id: hexID(1), function: "old", release: "v1.0.0", at: testNow.Add(-2 * time.Hour)}),
+		phpEvent(t, eventSpec{id: hexID(2), function: "both", release: "v1.0.0", at: testNow.Add(-2 * time.Hour)}),
+		phpEvent(t, eventSpec{id: hexID(3), function: "both", release: "v2.0.0", at: testNow.Add(-time.Hour)}),
+		phpEvent(t, eventSpec{id: hexID(4), function: "none"}),
+	)
+	got := getJSON[issuesResponse](t, env, issuesPath(p.ID, "release=v2.0.0"))
+	if len(got.Issues) != 1 || got.Total != 1 || got.Counts.Open != 1 || got.OpenIssues != 3 {
+		t.Errorf("release=v2.0.0: %d issues, total %d, open %d of %d; want 1, 1, 1 of 3", len(got.Issues), got.Total, got.Counts.Open, got.OpenIssues)
+	}
+	if got := getJSON[issuesResponse](t, env, issuesPath(p.ID, "release=v1.0.0")); got.Total != 2 {
+		t.Errorf("release=v1.0.0: total %d, want 2", got.Total)
+	}
+	if rec := env.get(t, issuesPath(p.ID, "release="+strings.Repeat("x", 201))); rec.Code != http.StatusBadRequest {
+		t.Errorf("a release of 201 characters = %d, want 400", rec.Code)
+	}
+}

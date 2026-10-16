@@ -29,7 +29,9 @@ type eventJSON struct {
 	Server      string       `json:"server,omitempty"`
 	Runtime     *runtimeJSON `json:"runtime,omitempty"`
 	URL         string       `json:"url,omitempty"`
-	Release     string       `json:"release,omitempty"`
+	// Route is the page the error happened on, such as /checkout.
+	Route   string `json:"route,omitempty"`
+	Release string `json:"release,omitempty"`
 	// Country is an ISO 3166 code, only when the SDK sent one (IP addresses are never stored).
 	Country string `json:"country,omitempty"`
 }
@@ -61,7 +63,7 @@ type runtimeJSON struct {
 // eventDetail reads a stored event for the issue page. When the stored JSON
 // cannot be read it still returns the id and time, with the error.
 func eventDetail(stored store.ErrorEvent) (*eventJSON, error) {
-	out := &eventJSON{EventID: stored.EventID, Timestamp: stored.Timestamp, Frames: []frameJSON{}}
+	out := &eventJSON{EventID: stored.EventID, Timestamp: stored.Timestamp, Route: stored.Route, Frames: []frameJSON{}}
 	ev, err := sentry.DecodeEvent([]byte(stored.Data))
 	if err != nil {
 		return out, err

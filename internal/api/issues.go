@@ -20,6 +20,9 @@ const (
 	maxLimit     = 100
 	// maxSearch is the longest search the issue list takes, in characters.
 	maxSearch = 200
+	// maxRelease is the longest release the issue list filters on, in
+	// characters (Sentry allows 200).
+	maxRelease = 200
 	// hoursShown is the length of the "Last 24 hours" bars.
 	hoursShown = 24
 	// newWithin is how recently an issue was first seen to count as new.
@@ -50,6 +53,13 @@ type issueDetailJSON struct {
 	issueJSON
 	Status    string `json:"status"`
 	ProjectID int64  `json:"projectId"`
+	// Release is the release the issue was first seen in (first_release);
+	// left out when that event had none.
+	Release string `json:"release,omitempty"`
+	// RegressedRelease is the release of the event that last opened the
+	// issue again after a resolve; left out when it never came back (or
+	// that event had no release).
+	RegressedRelease string `json:"regressedRelease,omitempty"`
 }
 
 type statusCountsJSON struct {
@@ -84,6 +94,10 @@ type issueDetailResponse struct {
 	Hourly []int           `json:"hourly"`
 	// LatestEvent is null when the issue has no stored event left.
 	LatestEvent *eventJSON `json:"latestEvent"`
+	// BeforeError are the pages the latest event's user saw in the 30
+	// minutes before it, oldest first ("Before this error"); empty when the
+	// event has no user id or the user no page views.
+	BeforeError []journeyStepJSON `json:"beforeError"`
 }
 
 // listIssues answers GET /ui/api/projects/{id}/issues with the query
@@ -125,7 +139,7 @@ func (h *Handler) listIssues(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	projectCounts := counts
-	if filter.Source != "" || filter.Search != "" || filter.Route != "" {
+	if filter.Source != "" || filter.Search != "" || filter.Route != "" || filter.Release != "" {
 		if projectCounts, err = h.db.CountIssueStatuses(ctx, store.IssueFilter{ProjectID: projectID}); err != nil {
 			h.internalError(w, r, err)
 			return
@@ -175,6 +189,7 @@ var issueSources = map[string]bool{"laravel": true, "browser": true}
 //	sort    last_seen (default), first_seen, events or users
 //	q       part of the title, message, culprit or an event's URL; at most 200 characters
 //	route   issues with an event on this route
+//	release issues with an event in this release; at most 200 characters
 //	limit   1 to 100, default 25
 //	offset  0 or more
 func parseIssueFilter(q url.Values) (store.IssueFilter, error) {
@@ -202,6 +217,10 @@ func parseIssueFilter(q url.Values) (store.IssueFilter, error) {
 		return f, fmt.Errorf("q must be at most %d characters", maxSearch)
 	}
 	f.Route = q.Get("route")
+	f.Release = q.Get("release")
+	if utf8.RuneCountInString(f.Release) > maxRelease {
+		return f, fmt.Errorf("release must be at most %d characters", maxRelease)
+	}
 	if s := q.Get("limit"); s != "" {
 		n, err := strconv.Atoi(s)
 		if err != nil || n < 1 || n > maxLimit {
@@ -219,8 +238,9 @@ func parseIssueFilter(q url.Values) (store.IssueFilter, error) {
 	return f, nil
 }
 
-// issueDetail answers GET /ui/api/issues/{id}: the issue, its last 24 hours
-// and its newest event with the stack trace.
+// issueDetail answers GET /ui/api/issues/{id}: the issue, its last 24 hours,
+// its newest event with the stack trace, and the pages that event's user
+// saw before it.
 func (h *Handler) issueDetail(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(r, "id")
 	if !ok {
@@ -246,8 +266,10 @@ func (h *Handler) issueDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	issue := toIssueJSON(row, hourly[id], now)
 	resp := issueDetailResponse{
-		Issue:  issueDetailJSON{issueJSON: issue, Status: row.Status, ProjectID: row.ProjectID},
-		Hourly: issue.Hourly,
+		Issue: issueDetailJSON{issueJSON: issue, Status: row.Status, ProjectID: row.ProjectID,
+			Release: row.FirstRelease, RegressedRelease: row.RegressedRelease},
+		Hourly:      issue.Hourly,
+		BeforeError: []journeyStepJSON{},
 	}
 
 	stored, err := h.db.LatestErrorEvent(ctx, id)
@@ -264,6 +286,10 @@ func (h *Handler) issueDetail(w http.ResponseWriter, r *http.Request) {
 			h.log.Warn("dashboard api: stored event cannot be read", "issue", id, "event", stored.EventID, "err", err)
 		}
 		resp.LatestEvent = ev
+		if resp.BeforeError, err = h.beforeError(ctx, stored); err != nil {
+			h.internalError(w, r, err)
+			return
+		}
 	}
 	httpjson.Write(w, http.StatusOK, resp)
 }

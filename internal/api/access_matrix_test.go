@@ -25,7 +25,8 @@ func TestAccessMatrix(t *testing.T) {
 
 	// The project under test, with text found nowhere else.
 	shop := env.project(t, "Secret Webshop")
-	env.save(t, shop.ID, phpEvent(t, eventSpec{id: hexID(1), message: "secret-shop-message", url: "https://shop.example.com/secret-shop-path"}))
+	env.save(t, shop.ID, phpEvent(t, eventSpec{id: hexID(1), message: "secret-shop-message", url: "https://shop.example.com/secret-shop-path",
+		userID: "secret-shop-user", release: "secret-shop-release"}))
 	// Another project the member without access does see.
 	portal := env.project(t, "Portal")
 	env.save(t, portal.ID, phpEvent(t, eventSpec{id: hexID(2), message: "portal message", function: "portal"}))
@@ -36,8 +37,14 @@ func TestAccessMatrix(t *testing.T) {
 		TracksLaravel: true, TracksBrowser: true, TracksPageviews: true}); err != nil {
 		t.Fatal(err)
 	}
-	env.visits(t, shop.ID, visit{user: "u1", route: "/secret-shop-page", at: testNow.Add(-time.Hour), stay: time.Minute})
+	env.visits(t, shop.ID, visit{user: "u1", route: "/secret-shop-page", at: testNow.Add(-time.Hour), stay: time.Minute},
+		// The journey before the shop's error, and its user's activity.
+		visit{user: "secret-shop-user", route: "/secret-shop-journey", at: testNow.Add(-time.Minute), stay: 30 * time.Second})
 	env.visits(t, portal.ID, visit{user: "u2", route: "/portal-page", at: testNow.Add(-time.Hour), stay: time.Minute})
+	// Custom events, on the Events screen and in the user's activity.
+	env.saveCustomEvents(t, customEvent(shop.ID, 1, "secret-shop-event", "secret-shop-user", "/secret-shop-page", testNow.Add(-time.Hour)),
+		customEvent(portal.ID, 2, "portal-event", "u2", "/portal-page", testNow.Add(-time.Hour)))
+	env.aggregate(t)
 
 	shopIssue := firstIssue(t, env, shop.ID)
 	shopAlerts := store.DefaultAlertSettings()
@@ -135,6 +142,8 @@ func TestAccessMatrix(t *testing.T) {
 	shopIssues := fmt.Sprintf("/ui/api/projects/%d/issues", shop.ID)
 	shopPages := fmt.Sprintf("/ui/api/projects/%d/pages", shop.ID)
 	shopAlertsPath := fmt.Sprintf("/ui/api/projects/%d/alerts", shop.ID)
+	shopActivity := fmt.Sprintf("/ui/api/projects/%d/users/secret-shop-user/activity", shop.ID)
+	shopEvents := fmt.Sprintf("/ui/api/projects/%d/events", shop.ID)
 	routes := []route{
 		// Project data: everyone with access.
 		{name: "projects", method: "GET", path: "/ui/api/projects", list: true, seesShop: func(b []byte) bool {
@@ -158,9 +167,15 @@ func TestAccessMatrix(t *testing.T) {
 		{name: "issues list, filtered", method: "GET", path: shopIssues + "?status=open&source=laravel&sort=events&limit=5"},
 		{name: "search", method: "GET", path: shopIssues + "?q=secret-shop-path"},
 		{name: "issues list, by page", method: "GET", path: shopIssues + "?route=/secret-shop-path"},
+		{name: "issues list, by release", method: "GET", path: shopIssues + "?release=secret-shop-release"},
 		{name: "pages", method: "GET", path: shopPages},
 		{name: "pages, 30 days", method: "GET", path: shopPages + "?range=30d&tz=Europe/Amsterdam"},
-		{name: "issue detail", method: "GET", path: fmt.Sprintf("/ui/api/issues/%d", shopIssue)},
+		{name: "issue detail, with the journey before it", method: "GET", path: fmt.Sprintf("/ui/api/issues/%d", shopIssue)},
+		{name: "user activity", method: "GET", path: shopActivity},
+		{name: "user activity, older", method: "GET", path: shopActivity + "?limit=5&before=" + testNow.Format(time.RFC3339)},
+		{name: "events", method: "GET", path: shopEvents},
+		{name: "events, 30 days", method: "GET", path: shopEvents + "?range=30d&tz=Europe/Amsterdam"},
+		{name: "event series", method: "GET", path: shopEvents + "/secret-shop-event?range=24h"},
 		{name: "issue status", method: "POST", path: fmt.Sprintf("/ui/api/issues/%d/status", shopIssue),
 			body: `{"status":"ignored"}`, unchanged: issueStatusIs(store.IssueOpen)},
 		// Everyone who sees the project reads its alerts; only admins change them (ruling 33).
@@ -303,7 +318,8 @@ func TestAccessMatrix_SignedOut(t *testing.T) {
 	env := newTestEnv(t)
 	shop := env.project(t, "Webshop")
 	for _, path := range []string{"/ui/api/projects", "/ui/api/overview", fmt.Sprintf("/ui/api/projects/%d/issues", shop.ID),
-		fmt.Sprintf("/ui/api/projects/%d/pages", shop.ID),
+		fmt.Sprintf("/ui/api/projects/%d/pages", shop.ID), fmt.Sprintf("/ui/api/projects/%d/events", shop.ID),
+		fmt.Sprintf("/ui/api/projects/%d/events/checkout", shop.ID), fmt.Sprintf("/ui/api/projects/%d/users/42/activity", shop.ID),
 		"/ui/api/settings/projects", "/ui/api/settings/users", "/ui/api/me"} {
 		if rec := env.as(t, nil, "GET", path, ""); rec.Code != http.StatusUnauthorized {
 			t.Errorf("GET %s signed out = %d, want 401", path, rec.Code)
