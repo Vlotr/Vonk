@@ -25,6 +25,22 @@ ADDR=:8000 bin/monitor healthcheck   # exit 0 when /health answers 200
 
 Container: `docker run -p 8000:8000 -e SECRET_KEY=... -e BASE_URL=http://localhost:8000 -e DEV_BASIC_AUTH=dev:some-password -v monitor-data:/data monitor:dev`. The image has no shell; run CLI commands with `docker exec <container> /monitor project create --name Webshop`.
 
+## Capturing real SDK traffic
+
+`tools/capture` is a tiny recorder: point any SDK or CLI at it and it writes each request to `NNNN-METHOD-path.json` (method, path, query, host, headers) and `NNNN-METHOD-path.body` (the body exactly as sent, still compressed). It answers `200 {}` (`-response` changes the body) and allows CORS from any origin, so browser SDKs work too. Use it to make test fixtures from real clients instead of hand-written ones.
+
+```sh
+go run ./tools/capture -addr 127.0.0.1:19999 -out /tmp/captured
+# then use a DSN like http://5f2b6a0c7d3e4f1a8b9c0d1e2f3a4b5c@127.0.0.1:19999/1 (any 32-hex key works)
+```
+
+The Sentry fixtures in `internal/sentry/testdata/` were made with the recipes in `internal/sentry/testdata/capture/` (SDK versions in `docs/decisions.md`). To redo them after an SDK update, copy a recipe to a temp directory and:
+
+- PHP: `composer install`, then `SENTRY_DSN=<dsn> php -S 127.0.0.1:18091 public/index.php`, and `curl -X POST 'http://localhost:18091/checkout?coupon=SPRING&token=tok_abc123' -H 'Cookie: laravel_session=eyJpdiI6IjEyMyJ9; XSRF-TOKEN=abc123' -H 'Authorization: Bearer sk_live_abc123' -H 'X-Forwarded-For: 203.0.113.9' -H 'X-Real-IP: 203.0.113.9' --data 'email=jan@example.com&password=hunter2&card_number=4111111111111111'`. The body is `php-exception.envelope.gz`, the `.json` is `php-exception.headers.json`.
+- Browser: `npm install && npx playwright install chromium && npm run build && SENTRY_DSN=<dsn> npm run capture`. The request whose body holds `"exception"` is `browser-typeerror.envelope`; the first session envelope is `browser-session.envelope`.
+
+Then update the ids and values the tests expect (they name them).
+
 ## Settings (environment variables)
 
 | Variable | Default | Notes |
@@ -47,16 +63,20 @@ internal/config/        Load(getenv): reads and validates the settings
 internal/store/         DB (one write connection + read pool), migrations, queries
   migrations/sqlite/    NNNN_name.sql, embedded, applied in order at startup
 internal/project/       project helpers that are not queries (DSN)
+internal/sentry/        Sentry envelopes and events: ParseEnvelope, Event, Fingerprint, Summarize, Source
+  testdata/             real SDK requests (fixtures) and the recipes that made them (capture/)
+internal/scrub/         removes sensitive values and IP addresses before storage
 internal/server/        router, dashboard guard, request logging, panic recovery, /health
 internal/web/           serves the embedded SPA with index.html fallback
 web/                    Vite + React + TypeScript dashboard
   embed.go              Go package monitor/web: embeds web/dist into the binary
   dist/.keep            committed placeholder so `go build` works before a web build
   src/brand.ts          the tool name, the only place it lives
+tools/capture/          recorder for real SDK traffic (see "Capturing real SDK traffic")
 docs/decisions.md       one line per judgment call
 ```
 
-Packages still to come (see the plan): `internal/sentry`, `internal/posthog`, `internal/scrub`, `internal/ingest`, `internal/issues`, `internal/api`, `internal/auth`, `internal/mail`, `internal/alerts`, `internal/jobs`, `internal/routes`, `internal/bots`; `examples/`, `e2e/`.
+Packages still to come (see the plan): `internal/posthog`, `internal/ingest`, `internal/issues`, `internal/api`, `internal/auth`, `internal/mail`, `internal/alerts`, `internal/jobs`, `internal/routes`, `internal/bots`; `examples/`, `e2e/`.
 
 ## Conventions
 
