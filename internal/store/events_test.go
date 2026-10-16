@@ -3,8 +3,11 @@ package store
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"testing"
 	"time"
+
+	"monitor/internal/config"
 )
 
 // at returns a fixed time plus d, truncated to milliseconds like the database.
@@ -173,5 +176,59 @@ func TestSaveErrorEvents_SkipsDeletedProject(t *testing.T) {
 	}
 	if res.Stored != 1 || res.Orphaned != 1 {
 		t.Errorf("result = %+v, want 1 stored and 1 orphaned", res)
+	}
+}
+
+// Issues from before migration 0006 get the release of their oldest stored
+// event, and a returning issue the release of the event that reopened it
+// (received at regressed_at).
+func TestMigrate_BackfillsReleases(t *testing.T) {
+	dir := t.TempDir()
+	db, err := Open(context.Background(), config.Config{DataDir: dir, SQLitePath: filepath.Join(dir, "monitor.db")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	ctx := context.Background()
+	files, err := migrationFiles()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var before []migration
+	for _, f := range files {
+		if f.version < 6 {
+			before = append(before, f)
+		}
+	}
+	if err := db.migrate(ctx, before); err != nil {
+		t.Fatal(err)
+	}
+	p, err := db.CreateProject(ctx, NewProject{Name: "Webshop"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	exec := func(query string, args ...any) {
+		t.Helper()
+		if _, err := db.write.ExecContext(ctx, query, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Issue 1 came back at received time 5000; issue 2 never did and has no release.
+	exec(`INSERT INTO issues (id, project_id, fingerprint, title, first_seen, last_seen, regressed_at) VALUES
+		(1, ?, 'a', 'A', 1000, 5000, 5000), (2, ?, 'b', 'B', 1000, 1000, NULL)`, p.ID, p.ID)
+	exec(`INSERT INTO error_events (issue_id, project_id, event_id, timestamp, received_at, release, data) VALUES
+		(1, ?, 'e2', 2000, 2001, 'v2.8.1', '{}'), (1, ?, 'e1', 1000, 6000, 'v2.7.0', '{}'), (1, ?, 'e3', 4900, 5000, 'v2.9.0', '{}'),
+		(2, ?, 'e4', 1000, 1001, '', '{}')`, p.ID, p.ID, p.ID, p.ID)
+
+	if err := db.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	one, err := db.IssueByID(ctx, 1)
+	if err != nil || one.FirstRelease != "v2.7.0" || one.RegressedRelease != "v2.9.0" {
+		t.Errorf("issue 1 = first %q, came back in %q (%v); want v2.7.0 (its oldest event) and v2.9.0", one.FirstRelease, one.RegressedRelease, err)
+	}
+	two, err := db.IssueByID(ctx, 2)
+	if err != nil || two.FirstRelease != "" || two.RegressedRelease != "" {
+		t.Errorf("issue 2 = first %q, came back in %q (%v); want none", two.FirstRelease, two.RegressedRelease, err)
 	}
 }

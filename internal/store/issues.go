@@ -38,11 +38,18 @@ type Issue struct {
 	// was resolved and opened it again. Nil when that never happened.
 	RegressedAt *time.Time
 	TimesSeen   int64
+	// FirstRelease is the release of the event that created the issue; ""
+	// when it had none. Later events never change it.
+	FirstRelease string
+	// RegressedRelease is the release of the event that last opened the
+	// issue again (at RegressedAt); "" when it never came back or that event
+	// had no release.
+	RegressedRelease string
 }
 
 // issueColumns lists the columns scanIssue expects, in order.
 const issueColumns = `id, project_id, fingerprint, title, message, culprit, source, level, status,
-	first_seen, last_seen, resolved_at, regressed_at, times_seen`
+	first_seen, last_seen, resolved_at, regressed_at, times_seen, first_release, regressed_release`
 
 // IssueByID returns the issue with this id, or ErrNotFound.
 func (db *DB) IssueByID(ctx context.Context, id int64) (Issue, error) {
@@ -105,7 +112,7 @@ func upsertIssue(ctx context.Context, tx *sql.Tx, issues map[issueKey]*Issue, ev
 
 	if issue.Status == IssueResolved && (issue.ResolvedAt == nil || ev.ReceivedAt.UnixMilli() >= issue.ResolvedAt.UnixMilli()) {
 		received := msTime(ev.ReceivedAt)
-		issue.Status, issue.ResolvedAt, issue.RegressedAt = IssueOpen, nil, &received
+		issue.Status, issue.ResolvedAt, issue.RegressedAt, issue.RegressedRelease = IssueOpen, nil, &received, ev.Release
 		regressed = true
 	}
 
@@ -123,11 +130,11 @@ func upsertIssue(ctx context.Context, tx *sql.Tx, issues map[issueKey]*Issue, ev
 
 	_, err = tx.ExecContext(ctx, `
 		UPDATE issues SET title = ?, message = ?, culprit = ?, level = ?, status = ?, first_seen = ?, last_seen = ?,
-			resolved_at = ?, regressed_at = ?, times_seen = ?
+			resolved_at = ?, regressed_at = ?, times_seen = ?, regressed_release = ?
 		WHERE id = ?`,
 		issue.Title, issue.Message, issue.Culprit, issue.Level, issue.Status,
 		issue.FirstSeen.UnixMilli(), issue.LastSeen.UnixMilli(),
-		nullMillis(issue.ResolvedAt), nullMillis(issue.RegressedAt), issue.TimesSeen, issue.ID)
+		nullMillis(issue.ResolvedAt), nullMillis(issue.RegressedAt), issue.TimesSeen, issue.RegressedRelease, issue.ID)
 	if err != nil {
 		return nil, false, false, err
 	}
@@ -171,25 +178,26 @@ func (db *DB) SetIssueStatus(ctx context.Context, id int64, status string, now t
 func insertIssue(ctx context.Context, tx *sql.Tx, ev NewErrorEvent) (*Issue, error) {
 	ts := msTime(ev.Timestamp)
 	issue := &Issue{
-		ProjectID:   ev.ProjectID,
-		Fingerprint: ev.Fingerprint,
-		Title:       ev.Title,
-		Message:     ev.Message,
-		Culprit:     ev.Culprit,
-		Source:      ev.Source,
-		Level:       ev.Level,
-		Status:      IssueOpen,
-		FirstSeen:   ts,
-		LastSeen:    ts,
-		TimesSeen:   1,
+		ProjectID:    ev.ProjectID,
+		Fingerprint:  ev.Fingerprint,
+		Title:        ev.Title,
+		Message:      ev.Message,
+		Culprit:      ev.Culprit,
+		Source:       ev.Source,
+		Level:        ev.Level,
+		Status:       IssueOpen,
+		FirstSeen:    ts,
+		LastSeen:     ts,
+		TimesSeen:    1,
+		FirstRelease: ev.Release,
 	}
 	err := tx.QueryRowContext(ctx, `
 		INSERT INTO issues (project_id, fingerprint, title, message, culprit, source, level, status,
-			first_seen, last_seen, times_seen)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			first_seen, last_seen, times_seen, first_release)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		RETURNING id`,
 		issue.ProjectID, issue.Fingerprint, issue.Title, issue.Message, issue.Culprit, issue.Source, issue.Level,
-		issue.Status, issue.FirstSeen.UnixMilli(), issue.LastSeen.UnixMilli(), issue.TimesSeen,
+		issue.Status, issue.FirstSeen.UnixMilli(), issue.LastSeen.UnixMilli(), issue.TimesSeen, issue.FirstRelease,
 	).Scan(&issue.ID)
 	if err != nil {
 		return nil, err
@@ -205,7 +213,8 @@ func scanIssue(s scanner, extra ...any) (Issue, error) {
 		resolvedAt, regressedAt sql.NullInt64
 	)
 	dest := []any{&issue.ID, &issue.ProjectID, &issue.Fingerprint, &issue.Title, &issue.Message, &issue.Culprit,
-		&issue.Source, &issue.Level, &issue.Status, &firstSeen, &lastSeen, &resolvedAt, &regressedAt, &issue.TimesSeen}
+		&issue.Source, &issue.Level, &issue.Status, &firstSeen, &lastSeen, &resolvedAt, &regressedAt, &issue.TimesSeen,
+		&issue.FirstRelease, &issue.RegressedRelease}
 	err := s.Scan(append(dest, extra...)...)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Issue{}, ErrNotFound

@@ -141,7 +141,7 @@ func TestMigrate_Idempotent(t *testing.T) {
 	}
 
 	for _, table := range []string{"projects", "issues", "error_events", "users", "project_access", "sessions", "invites", "invite_projects", "password_resets",
-		"alerts", "alert_state", "settings", "pageviews", "pageleaves", "hourly_stats", "stats_dirty_hours"} {
+		"alerts", "alert_state", "settings", "pageviews", "pageleaves", "hourly_stats", "stats_dirty_hours", "custom_events", "event_hourly"} {
 		var name string
 		err := db.read.QueryRowContext(ctx,
 			"SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?", table).Scan(&name)

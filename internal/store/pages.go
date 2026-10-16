@@ -12,8 +12,9 @@ import (
 )
 
 // Page statistics: the aggregation job rebuilds hourly_stats from the raw
-// page views and error events (RecomputeHour), and the dashboard reads
-// only hourly_stats (PageStats, PageviewTotals).
+// page views and error events (RecomputeHour, which also rebuilds the
+// hour's custom events in event_hourly), and the dashboard reads only
+// hourly_stats (PageStats, PageviewTotals).
 
 // ProjectHour is one clock hour (UTC) of one project.
 type ProjectHour struct {
@@ -50,11 +51,12 @@ type hourAgg struct {
 }
 
 // RecomputeHour rebuilds the summaries of one project's clock hour (the
-// hour that contains hour) from its page views and error events, and
-// clears the hour's dirty mark, in one write transaction: running it
-// again gives the same rows. Per route: page views by people, their
-// visitors (a sketch of their user ids), the page views with a duration
-// and their sum, page views by bots, and error events.
+// hour that contains hour) from its page views, error events and custom
+// events, and clears the hour's dirty mark, in one write transaction:
+// running it again gives the same rows. Per route (hourly_stats): page
+// views by people, their visitors (a sketch of their user ids), the page
+// views with a duration and their sum, page views by bots, and error
+// events. Per custom event name (event_hourly): see recomputeEventHour.
 func (db *DB) RecomputeHour(ctx context.Context, projectID int64, hour time.Time) error {
 	from := hour.UTC().Truncate(time.Hour)
 	start, end := from.UnixMilli(), from.Add(time.Hour).UnixMilli()
@@ -143,6 +145,9 @@ func (db *DB) RecomputeHour(ctx context.Context, projectID int64, hour time.Time
 		if _, err := insert.ExecContext(ctx, projectID, route, start, a.views, a.visitors.Encode(), a.totalMs, a.timed, a.bots, a.errors); err != nil {
 			return fmt.Errorf("hourly stats for %s: %w", route, err)
 		}
+	}
+	if err := recomputeEventHour(ctx, tx, projectID, start, end); err != nil {
+		return err
 	}
 	if _, err := tx.ExecContext(ctx, "DELETE FROM stats_dirty_hours WHERE project_id = ? AND hour = ?", projectID, start); err != nil {
 		return err

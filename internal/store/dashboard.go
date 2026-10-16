@@ -41,10 +41,12 @@ type IssueFilter struct {
 	// or of the URL of any of the issue's events.
 	Search string
 	// Route keeps issues with at least one event on this route (exactly).
-	Route  string
-	Sort   string // SortLastSeen when empty
-	Limit  int
-	Offset int
+	Route string
+	// Release keeps issues with at least one event in this release (exactly).
+	Release string
+	Sort    string // SortLastSeen when empty
+	Limit   int
+	Offset  int
 }
 
 // conditions returns the WHERE clause of f and its arguments, with or
@@ -69,6 +71,10 @@ func (f IssueFilter) conditions(withStatus bool) (string, []any) {
 	if f.Route != "" {
 		where = append(where, "EXISTS (SELECT 1 FROM error_events e WHERE e.issue_id = issues.id AND e.route = ?)")
 		args = append(args, f.Route)
+	}
+	if f.Release != "" {
+		where = append(where, "EXISTS (SELECT 1 FROM error_events e WHERE e.issue_id = issues.id AND e.release = ?)")
+		args = append(args, f.Release)
 	}
 	return strings.Join(where, " AND "), args
 }

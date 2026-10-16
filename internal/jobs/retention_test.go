@@ -169,3 +169,51 @@ func TestRetention_PagesAndHourlyStats(t *testing.T) {
 		t.Errorf("Short keeps %d page view and leave rows (%v), want 2", n, err)
 	}
 }
+
+// Custom events and their hourly summaries follow the project's retention.
+func TestRetention_CustomEvents(t *testing.T) {
+	db := openDB(t)
+	short := projectKeeping(t, db, "Short", 30)
+	forever := projectKeeping(t, db, "Forever", 0)
+	ctx := context.Background()
+	for _, p := range []store.Project{short, forever} {
+		var events []store.CustomEvent
+		for i, age := range []time.Duration{40 * day, 40 * day, 2 * day} {
+			events = append(events, store.CustomEvent{ProjectID: p.ID, EventID: fmt.Sprintf("%d-%d", p.ID, i), Name: "checkout_completed",
+				UserID: "u", Path: "/checkout", Route: "/checkout", At: testNow.Add(-age), Properties: "{}"})
+		}
+		if _, err := db.SaveCustomEvents(ctx, events); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := aggregator(db, testNow).run(ctx); err != nil {
+		t.Fatal(err)
+	}
+	r := &Retention{DB: db, Log: quietLogger(), Now: func() time.Time { return testNow }, BatchSize: 1}
+	r.Run(ctx, testNow)
+
+	count := func(p store.Project) int64 {
+		stats, err := db.EventStats(ctx, p.ID, testNow.Add(-365*day), testNow.Add(time.Hour))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var n int64
+		for _, e := range stats.Events {
+			n += e.Events
+		}
+		return n
+	}
+	if got := count(short); got != 1 {
+		t.Errorf("Short keeps the summaries of %d events, want the 1 of the last 30 days", got)
+	}
+	if got := count(forever); got != 3 {
+		t.Errorf("Forever keeps the summaries of %d events, want all 3", got)
+	}
+	// The raw rows went too: rebuilding the old hour finds nothing.
+	if err := db.RecomputeHour(ctx, short.ID, testNow.Add(-40*day)); err != nil {
+		t.Fatal(err)
+	}
+	if got := count(short); got != 1 {
+		t.Errorf("after rebuilding the old hour Short has %d events, want 1 (its raw rows are gone)", got)
+	}
+}
