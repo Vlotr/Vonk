@@ -127,3 +127,45 @@ func TestRetention_UnlimitedKeepsAll(t *testing.T) {
 		t.Errorf("issues = %v, want both", got)
 	}
 }
+
+func TestRetention_PagesAndHourlyStats(t *testing.T) {
+	db := openDB(t)
+	short := projectKeeping(t, db, "Short", 30)
+	forever := projectKeeping(t, db, "Forever", 0)
+	ctx := context.Background()
+	for _, p := range []store.Project{short, forever} {
+		for i, age := range []time.Duration{40 * day, 40 * day, 2 * day} {
+			id := fmt.Sprintf("%d-%d", p.ID, i)
+			at := testNow.Add(-age)
+			savePageEvents(t, db,
+				store.PageEvent{ProjectID: p.ID, PageviewID: id, SessionID: id, WindowID: "w", UserID: "u", Route: "/", Path: "/", At: at},
+				store.PageEvent{ProjectID: p.ID, Leave: true, EventID: "l" + id, PageviewID: id, SessionID: id, WindowID: "w", At: at.Add(time.Second)})
+		}
+	}
+	agg := aggregator(db, testNow)
+	if _, err := agg.run(ctx); err != nil {
+		t.Fatal(err)
+	}
+	r := &Retention{DB: db, Log: quietLogger(), Now: func() time.Time { return testNow }, BatchSize: 1}
+	r.Run(ctx, testNow)
+
+	views := func(p store.Project) int64 {
+		return pageStats(t, db, p.ID, testNow.Add(-365*day), testNow.Add(time.Hour)).Totals.Views
+	}
+	if got := views(short); got != 1 {
+		t.Errorf("Short keeps the summaries of %d page views, want the 1 of the last 30 days", got)
+	}
+	if got := views(forever); got != 3 {
+		t.Errorf("Forever keeps the summaries of %d page views, want all 3", got)
+	}
+	// The raw rows went too: rebuilding the old hour finds nothing.
+	if err := db.RecomputeHour(ctx, short.ID, testNow.Add(-40*day)); err != nil {
+		t.Fatal(err)
+	}
+	if got := views(short); got != 1 {
+		t.Errorf("after rebuilding the old hour Short has %d page views, want 1 (its raw rows are gone)", got)
+	}
+	if n, err := db.CountPageRows(ctx, short.ID); err != nil || n != 2 {
+		t.Errorf("Short keeps %d page view and leave rows (%v), want 2", n, err)
+	}
+}
