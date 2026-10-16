@@ -2,13 +2,13 @@ package api
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -26,9 +26,8 @@ var testNow = time.Date(2026, 10, 16, 12, 30, 0, 0, time.UTC)
 
 // testEnv is a migrated database and the API on a mux, with a fixed clock.
 type testEnv struct {
-	db     *store.DB
-	dbPath string
-	mux    *http.ServeMux
+	db  *store.DB
+	mux *http.ServeMux
 }
 
 func newTestEnv(t *testing.T) *testEnv {
@@ -48,7 +47,7 @@ func newTestEnv(t *testing.T) *testEnv {
 	h.now = func() time.Time { return testNow }
 	mux := http.NewServeMux()
 	h.Register(mux)
-	return &testEnv{db: db, dbPath: cfg.SQLitePath, mux: mux}
+	return &testEnv{db: db, mux: mux}
 }
 
 func (e *testEnv) project(t *testing.T, name string) store.Project {
@@ -75,18 +74,24 @@ func (e *testEnv) save(t *testing.T, projectID int64, events ...*sentry.Event) {
 	ingest.NewWriter(e.db, queue, issues.NoHooks{}, slog.New(slog.NewTextHandler(io.Discard, nil))).Close()
 }
 
-// setStatus changes an issue's status directly in the database; the status
-// API arrives in Task 4.
+// setStatus changes an issue's status in the database, as the status API does.
 func (e *testEnv) setStatus(t *testing.T, issueID int64, status string) {
 	t.Helper()
-	conn, err := sql.Open("sqlite", e.dbPath)
-	if err != nil {
+	if _, err := e.db.SetIssueStatus(context.Background(), issueID, status, testNow); err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
-	if _, err := conn.Exec("UPDATE issues SET status = ? WHERE id = ?", status, issueID); err != nil {
-		t.Fatal(err)
+}
+
+// post calls the API with a JSON body and returns the response.
+func (e *testEnv) post(t *testing.T, path, contentType, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
 	}
+	rec := httptest.NewRecorder()
+	e.mux.ServeHTTP(rec, req)
+	return rec
 }
 
 // get calls the API and returns the response.
@@ -118,19 +123,30 @@ func getJSON[T any](t *testing.T, e *testEnv, path string) T {
 type eventSpec struct {
 	id       string    // 32 hex characters
 	typ      string    // exception type, default RuntimeException
+	message  string    // exception value, default "Checkout failed"
 	function string    // function of the top frame, default charge
+	file     string    // file of the top frame, default /app/Services/PaymentGateway.php
 	userID   string    // empty: no user
+	url      string    // the request URL; empty: none
+	browser  bool      // sent by @sentry/browser instead of sentry-laravel
 	at       time.Time // default testNow
 }
 
-// phpEvent builds a sentry-laravel style event from spec.
+// phpEvent builds a sentry-laravel style event from spec, or a
+// @sentry/browser one when spec.browser is set.
 func phpEvent(t *testing.T, spec eventSpec) *sentry.Event {
 	t.Helper()
 	if spec.typ == "" {
 		spec.typ = "RuntimeException"
 	}
+	if spec.message == "" {
+		spec.message = "Checkout failed"
+	}
 	if spec.function == "" {
 		spec.function = "App\\Services\\PaymentGateway::charge"
+	}
+	if spec.file == "" {
+		spec.file = "/app/Services/PaymentGateway.php"
 	}
 	if spec.at.IsZero() {
 		spec.at = testNow
@@ -141,15 +157,22 @@ func phpEvent(t *testing.T, spec eventSpec) *sentry.Event {
 		"platform":  "php",
 		"sdk":       map[string]any{"name": "sentry.php.laravel", "version": "4.20.0"},
 		"exception": map[string]any{"values": []any{map[string]any{
-			"type": spec.typ, "value": "Checkout failed",
+			"type": spec.typ, "value": spec.message,
 			"stacktrace": map[string]any{"frames": []any{
 				map[string]any{"filename": "/app/Http/Controllers/CheckoutController.php", "function": "App\\Http\\Controllers\\CheckoutController::store", "lineno": 16, "in_app": true},
-				map[string]any{"filename": "/app/Services/PaymentGateway.php", "function": spec.function, "lineno": 12, "in_app": true},
+				map[string]any{"filename": spec.file, "function": spec.function, "lineno": 12, "in_app": true},
 			}},
 		}}},
 	}
+	if spec.browser {
+		raw["platform"] = "javascript"
+		raw["sdk"] = map[string]any{"name": "sentry.javascript.browser", "version": "11.8.0"}
+	}
 	if spec.userID != "" {
 		raw["user"] = map[string]any{"id": spec.userID}
+	}
+	if spec.url != "" {
+		raw["request"] = map[string]any{"url": spec.url}
 	}
 	data, err := json.Marshal(raw)
 	if err != nil {

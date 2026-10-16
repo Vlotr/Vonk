@@ -53,11 +53,14 @@ type SaveResult struct {
 	Duplicates int     // events whose id the project already had
 	Orphaned   int     // events of projects that no longer exist
 	NewIssues  []Issue // issues this batch created, as they are after the batch
+	// Regressed are the resolved issues this batch opened again, as they are after the batch.
+	Regressed []Issue
 }
 
 // SaveErrorEvents stores a batch of events in one transaction: each event is
-// added to the issue with its fingerprint (created when new), and events
-// whose id is already stored are skipped. An error means nothing was stored.
+// added to the issue with its fingerprint (created when new, opened again
+// when it was resolved; see upsertIssue), and events whose id is already
+// stored are skipped. An error means nothing was stored.
 func (db *DB) SaveErrorEvents(ctx context.Context, events []NewErrorEvent) (SaveResult, error) {
 	var result SaveResult
 	if len(events) == 0 {
@@ -72,7 +75,7 @@ func (db *DB) SaveErrorEvents(ctx context.Context, events []NewErrorEvent) (Save
 
 	projects := map[int64]bool{}
 	issues := map[issueKey]*Issue{}
-	var created []*Issue
+	var created, regressed []*Issue
 
 	for _, ev := range events {
 		exists, known := projects[ev.ProjectID]
@@ -98,12 +101,15 @@ func (db *DB) SaveErrorEvents(ctx context.Context, events []NewErrorEvent) (Save
 			continue
 		}
 
-		issue, isNew, err := upsertIssue(ctx, tx, issues, ev)
+		issue, isNew, isRegressed, err := upsertIssue(ctx, tx, issues, ev)
 		if err != nil {
 			return SaveResult{}, fmt.Errorf("issue for event %s: %w", ev.EventID, err)
 		}
 		if isNew {
 			created = append(created, issue)
+		}
+		if isRegressed {
+			regressed = append(regressed, issue)
 		}
 
 		_, err = tx.ExecContext(ctx, `
@@ -123,6 +129,9 @@ func (db *DB) SaveErrorEvents(ctx context.Context, events []NewErrorEvent) (Save
 	}
 	for _, issue := range created {
 		result.NewIssues = append(result.NewIssues, *issue)
+	}
+	for _, issue := range regressed {
+		result.Regressed = append(result.Regressed, *issue)
 	}
 	return result, nil
 }

@@ -12,19 +12,24 @@ import (
 	"time"
 
 	"monitor/internal/httpjson"
+	"monitor/internal/issues"
 	"monitor/internal/store"
 )
 
 // Handler serves the dashboard API.
 type Handler struct {
-	db  *store.DB
-	log *slog.Logger
-	now func() time.Time // the clock; tests set it
+	db     *store.DB
+	issues *issues.Service
+	log    *slog.Logger
+	now    func() time.Time // the clock; tests set it
 }
 
 // New returns the API handler.
 func New(db *store.DB, logger *slog.Logger) *Handler {
-	return &Handler{db: db, log: logger, now: time.Now}
+	h := &Handler{db: db, log: logger, now: time.Now}
+	// The service reads the handler's clock, so a test that sets h.now sets both.
+	h.issues = issues.NewService(db, func() time.Time { return h.now() })
+	return h
 }
 
 // Register adds the API routes to mux. Unknown paths under /ui/api/ are
@@ -33,6 +38,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /ui/api/projects", h.listProjects)
 	mux.HandleFunc("GET /ui/api/projects/{id}/issues", h.listIssues)
 	mux.HandleFunc("GET /ui/api/issues/{id}", h.issueDetail)
+	mux.HandleFunc("POST /ui/api/issues/{id}/status", h.setIssueStatus)
 }
 
 // pathID reads a positive id from the URL path; ok is false for anything else.

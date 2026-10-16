@@ -48,7 +48,7 @@ type Writer struct {
 	runOnce   sync.Once
 }
 
-// NewWriter returns a writer for queue. hooks hears about new issues.
+// NewWriter returns a writer for queue. hooks hears about new and regressed issues.
 func NewWriter(db *store.DB, queue *Queue, hooks issues.Hooks, logger *slog.Logger) *Writer {
 	return &Writer{
 		db:            db,
@@ -127,8 +127,9 @@ func (w *Writer) drain(ctx context.Context, batch []Item) {
 }
 
 // flush writes one batch in one transaction, retrying when the database
-// fails, and then tells the hooks about new issues. A batch that still fails
-// after the retries is logged and dropped, so one bad moment never stops ingest.
+// fails, and then tells the hooks about new and regressed issues. A batch
+// that still fails after the retries is logged and dropped, so one bad
+// moment never stops ingest.
 func (w *Writer) flush(ctx context.Context, batch []Item) {
 	events := make([]store.NewErrorEvent, 0, len(batch))
 	for _, item := range batch {
@@ -160,9 +161,13 @@ func (w *Writer) flush(ctx context.Context, batch []Item) {
 	if result.Orphaned > 0 {
 		w.log.Warn("ingest: events of deleted projects skipped", "events", result.Orphaned)
 	}
-	w.log.Debug("ingest: batch written", "stored", result.Stored, "duplicates", result.Duplicates, "new_issues", len(result.NewIssues))
+	w.log.Debug("ingest: batch written", "stored", result.Stored, "duplicates", result.Duplicates,
+		"new_issues", len(result.NewIssues), "regressed_issues", len(result.Regressed))
 	for _, issue := range result.NewIssues {
 		w.hooks.OnIssueCreated(ctx, issue)
+	}
+	for _, issue := range result.Regressed {
+		w.hooks.OnIssueRegressed(ctx, issue)
 	}
 }
 

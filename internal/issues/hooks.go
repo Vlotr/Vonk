@@ -1,6 +1,8 @@
-// Package issues holds what happens around issues outside the database. For
-// now that is the Hooks the ingest writer calls; Task 4 adds status changes
-// and regressions, Task 6 the notifier that implements Hooks.
+// Package issues holds what happens around issues outside the database:
+// the Service that changes an issue's status for the dashboard, and the
+// Hooks the ingest writer calls when an issue is new or comes back (the
+// writer detects regressions itself, in the same transaction as the event).
+// Task 6 adds the notifier that implements Hooks.
 package issues
 
 import (
