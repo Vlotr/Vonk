@@ -1,7 +1,7 @@
 // Package config reads the settings from environment variables.
 //
 // Required: SECRET_KEY and BASE_URL. Optional: DATABASE_URL, MAIL_URL, ADDR,
-// DATA_DIR, LOG_LEVEL and TZ; for development and tests only,
+// DATA_DIR, LOG_LEVEL, TZ and SOURCEMAP_CACHE_MB; for development and tests only,
 // DEV_ALLOW_HTTP_WEBHOOKS. Load reports every problem at once, so an
 // operator can fix the whole environment in one go.
 package config
@@ -23,6 +23,10 @@ import (
 const (
 	DefaultAddr    = ":8000"
 	DefaultDataDir = "/data"
+	// DefaultSourceMapCacheMB is SOURCEMAP_CACHE_MB when it is not set.
+	DefaultSourceMapCacheMB = 64
+	// maxSourceMapCacheMB keeps SOURCEMAP_CACHE_MB to a size a machine can have (64 GiB).
+	maxSourceMapCacheMB = 64 << 10
 )
 
 // minSecretKeyLength is the shortest SECRET_KEY we accept.
@@ -56,6 +60,10 @@ type Config struct {
 	// Location is TZ, the clock of schedules such as the 08:00 summary
 	// mail; UTC when TZ is not set.
 	Location *time.Location
+	// SourceMapCacheBytes is how much memory parsed source maps and
+	// minified files may take (SOURCEMAP_CACHE_MB, in MiB). One source map
+	// is used up to a quarter of it: 16 MiB with the default 64.
+	SourceMapCacheBytes int64
 	// AllowHTTPWebhooks lets Slack webhooks use plain http, for local fakes
 	// in development and tests (DEV_ALLOW_HTTP_WEBHOOKS=true). Never in production.
 	AllowHTTPWebhooks bool
@@ -104,6 +112,16 @@ func Load(getenv func(string) string) (Config, error) {
 			problems = append(problems, fmt.Errorf("TZ %q is not a time zone; use a name such as Europe/Amsterdam", tz))
 		} else {
 			cfg.Location = loc
+		}
+	}
+
+	cfg.SourceMapCacheBytes = DefaultSourceMapCacheMB << 20
+	if v := strings.TrimSpace(getenv("SOURCEMAP_CACHE_MB")); v != "" {
+		mb, err := strconv.Atoi(v)
+		if err != nil || mb < 1 || mb > maxSourceMapCacheMB {
+			problems = append(problems, fmt.Errorf("SOURCEMAP_CACHE_MB must be a whole number of MiB from 1 to %d, got %q", maxSourceMapCacheMB, v))
+		} else {
+			cfg.SourceMapCacheBytes = int64(mb) << 20
 		}
 	}
 

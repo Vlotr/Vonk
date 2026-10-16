@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -51,6 +52,8 @@ type DB struct {
 	d       dialect
 	path    string // the SQLite file; "" for Postgres
 	dataDir string // DATA_DIR, where backups/ lives
+
+	sourceMapsVersion atomic.Int64 // see SourceMapsVersion
 }
 
 // Open opens the database described by cfg: Postgres when DatabaseURL is

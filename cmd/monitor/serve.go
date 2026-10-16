@@ -129,7 +129,7 @@ func runServer(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 	})
 	// Source maps: uploads through the API, symbolication at ingest and on the issue page.
 	maps := sourcemaps.New(sourcemaps.Options{DB: db, Dir: filepath.Join(cfg.DataDir, "sourcemaps"), BaseURL: cfg.BaseURL,
-		HashToken: auth.TokenHasher(cfg.SecretKey), Logger: logger})
+		HashToken: auth.TokenHasher(cfg.SecretKey), Logger: logger, CacheBytes: cfg.SourceMapCacheBytes})
 	scheduler := jobs.New(nil, logger)
 	scheduler.Add((&jobs.Retention{DB: db, Log: logger, SourceMaps: maps}).Job())
 	scheduler.Add(jobs.Job{Name: "sourcemaps-cleanup", Schedule: jobs.Every(time.Hour), FirstRun: 10 * time.Minute, Run: maps.CleanUp})

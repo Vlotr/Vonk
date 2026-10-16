@@ -1,6 +1,7 @@
 package sourcemaps
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -302,5 +303,45 @@ func TestFingerprint_StableAcrossBuildsWithMaps(t *testing.T) {
 	}
 	if a, b := sentry.Summarize(evA).Culprit, sentry.Summarize(evB).Culprit; a != "src/checkout.ts:9" || b != a {
 		t.Errorf("culprits = %q, %q, want src/checkout.ts:9", a, b)
+	}
+}
+
+// A project that never uploaded a map costs no lookups: once that is
+// known, Symbolicate does not even ask the database (closed here, so any
+// lookup would fail and be logged) until a map is stored.
+func TestSymbolicate_ProjectWithoutMapsSkipsLookups(t *testing.T) {
+	env := newTestEnv(t)
+	ctx := context.Background()
+	var logs bytes.Buffer
+	env.svc.log = slog.New(slog.NewTextHandler(&logs, nil))
+	if env.svc.Symbolicate(ctx, env.project.ID, browserEvent(t, buildA, "shop@1.0.0", true)) {
+		t.Fatal("symbolicated without a map")
+	}
+	env.db.Close()
+	for _, ev := range []*sentry.Event{browserEvent(t, buildA, "shop@1.0.0", true), browserEvent(t, buildB, "shop@1.1.0", false)} {
+		if env.svc.Symbolicate(ctx, env.project.ID, ev) {
+			t.Error("symbolicated without a map")
+		}
+	}
+	if logs.Len() != 0 {
+		t.Errorf("Symbolicate looked something up for a project without maps:\n%s", logs.String())
+	}
+}
+
+// The cache's size (SOURCEMAP_CACHE_MB) sets the largest map that is used:
+// a quarter of it.
+func TestSymbolicate_CacheSizeSetsTheLargestMap(t *testing.T) {
+	info, err := os.Stat(filepath.Join("testdata", buildA.dir, buildA.file+".map"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for cacheBytes, want := range map[int64]bool{4 * info.Size(): true, 4*info.Size() - 4: false} {
+		env := newTestEnv(t)
+		env.svc = New(Options{DB: env.db, Dir: env.svc.dir, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+			CacheBytes: cacheBytes, Now: func() time.Time { return testNow }})
+		env.storeBuild(t, env.project.ID, buildA, "", true)
+		if got := env.svc.Symbolicate(context.Background(), env.project.ID, browserEvent(t, buildA, "", true)); got != want {
+			t.Errorf("cache of %d bytes for a map of %d: symbolicated = %v, want %v", cacheBytes, info.Size(), got, want)
+		}
 	}
 }

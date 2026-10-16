@@ -116,10 +116,10 @@ func TestSourceMapFiles_SaveFindAndExpire(t *testing.T) {
 
 	// Uploading the bundle again moves its upload time, which retention counts from.
 	later := day.Add(48 * time.Hour)
-	if has, err := db.HasSourceMapBundle(ctx, shop.ID, "b1", later); err != nil || !has {
+	if has, err := db.TouchSourceMapBundle(ctx, shop.ID, "b1", "shop@1.0.0", "", later); err != nil || !has {
 		t.Errorf("has bundle = %v, %v", has, err)
 	}
-	if has, _ := db.HasSourceMapBundle(ctx, shop.ID, "b2", later); has {
+	if has, _ := db.TouchSourceMapBundle(ctx, shop.ID, "b2", "shop@1.0.0", "", later); has {
 		t.Error("unknown bundle reported as stored")
 	}
 	old, err := db.SourceMapsUploadedBefore(ctx, shop.ID, day.Add(24*time.Hour), 10)
@@ -140,6 +140,54 @@ func TestSourceMapFiles_SaveFindAndExpire(t *testing.T) {
 
 	if _, err := db.SaveSourceMapFiles(ctx, []SourceMapFile{{ProjectID: 999, File: "x", Kind: SourceMapKind, Bundle: "b3", Path: "p"}}); !errors.Is(err, ErrUnknownProject) {
 		t.Errorf("unknown project: %v, want ErrUnknownProject", err)
+	}
+}
+
+// The same bundle uploaded for another release (or dist) is another
+// upload: its files get rows for that release, so lookups by release find
+// them; uploading it for the first release again stores nothing.
+func TestSourceMapFiles_SameBundleOtherRelease(t *testing.T) {
+	db := openTestDB(t)
+	ctx := context.Background()
+	shop := addProject(t, db, "Webshop")
+	if has, _ := db.HasSourceMaps(ctx, shop.ID); has {
+		t.Error("HasSourceMaps = true before any upload")
+	}
+	version := db.SourceMapsVersion()
+	upload := func(release, dist string) []SourceMapFile {
+		t.Helper()
+		if has, err := db.TouchSourceMapBundle(ctx, shop.ID, "b1", release, dist, userTestNow); err != nil || has {
+			t.Fatalf("%s %s: already stored = %v, %v; want false", release, dist, has, err)
+		}
+		stored, err := db.SaveSourceMapFiles(ctx, []SourceMapFile{{ProjectID: shop.ID, Release: release, Dist: dist, File: "~/a.js.map",
+			Kind: SourceMapKind, Bundle: "b1", Path: "1/" + release + dist, Size: 1, UploadedAt: userTestNow}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return stored
+	}
+	if stored := upload("shop@1.0.0", ""); len(stored) != 1 {
+		t.Fatalf("first upload stored %d files", len(stored))
+	}
+	if stored := upload("shop@1.1.0", ""); len(stored) != 1 {
+		t.Errorf("the same bundle for shop@1.1.0 stored %d files, want 1", len(stored))
+	}
+	if stored := upload("shop@1.1.0", "web"); len(stored) != 1 {
+		t.Errorf("the same bundle for dist web stored %d files, want 1", len(stored))
+	}
+	for _, release := range []string{"shop@1.0.0", "shop@1.1.0"} {
+		if _, err := db.SourceMapByFile(ctx, shop.ID, release, SourceMapKind, "~/a.js.map"); err != nil {
+			t.Errorf("map of %s: %v", release, err)
+		}
+	}
+	if has, err := db.TouchSourceMapBundle(ctx, shop.ID, "b1", "shop@1.1.0", "", userTestNow); err != nil || !has {
+		t.Errorf("shop@1.1.0 again: already stored = %v, %v; want true", has, err)
+	}
+	if has, _ := db.HasSourceMaps(ctx, shop.ID); !has {
+		t.Error("HasSourceMaps = false after uploads")
+	}
+	if db.SourceMapsVersion() == version {
+		t.Error("SourceMapsVersion did not move with the uploads")
 	}
 }
 

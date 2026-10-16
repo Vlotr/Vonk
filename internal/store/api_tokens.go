@@ -186,3 +186,17 @@ func (db *DB) TouchAPIToken(ctx context.Context, id int64, now time.Time) error 
 		now.UnixMilli(), id, now.Add(-apiTokenUseEvery).UnixMilli())
 	return err
 }
+
+// APITokenIDs returns the ids of every API token, for the sweep that
+// removes the chunks of tokens that no longer exist.
+func (db *DB) APITokenIDs(ctx context.Context) (map[int64]bool, error) {
+	ids, err := queryIDs(ctx, db.read, "SELECT id FROM api_tokens")
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[int64]bool, len(ids))
+	for _, id := range ids {
+		out[id] = true
+	}
+	return out, nil
+}

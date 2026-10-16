@@ -54,12 +54,15 @@ func scanSourceMap(s scanner) (SourceMapFile, error) {
 	return f, nil
 }
 
-// HasSourceMapBundle reports whether a project already stored the bundle
-// with this checksum. When it did, the bundle's upload time becomes now:
-// uploading it again counts as an upload for retention.
-func (db *DB) HasSourceMapBundle(ctx context.Context, projectID int64, bundle string, now time.Time) (bool, error) {
-	res, err := db.write.ExecContext(ctx, "UPDATE source_maps SET uploaded_at = ? WHERE project_id = ? AND bundle = ?",
-		now.UnixMilli(), projectID, bundle)
+// TouchSourceMapBundle marks a bundle as uploaded again, now, when the
+// project already stored it (the bundle with this checksum, for this
+// release and dist), and reports whether it did: uploading a bundle again
+// counts as an upload for retention. The same files for another release
+// are another upload: they get rows of their own (SaveSourceMapFiles), or
+// lookups by that release would not find them.
+func (db *DB) TouchSourceMapBundle(ctx context.Context, projectID int64, bundle, release, dist string, now time.Time) (bool, error) {
+	res, err := db.write.ExecContext(ctx, "UPDATE source_maps SET uploaded_at = ? WHERE project_id = ? AND bundle = ? AND release = ? AND dist = ?",
+		now.UnixMilli(), projectID, bundle, release, dist)
 	if err != nil {
 		return false, err
 	}
@@ -68,9 +71,10 @@ func (db *DB) HasSourceMapBundle(ctx context.Context, projectID int64, bundle st
 }
 
 // SaveSourceMapFiles stores the rows of one uploaded bundle in one
-// transaction. Files of a project that already has the bundle are skipped
-// (an upload sent twice at once); the result says which files were stored.
-// Files of projects that no longer exist give ErrUnknownProject.
+// transaction. Files of a project that already has the bundle for the
+// file's release and dist are skipped (an upload sent twice at once); the
+// result says which files were stored. Files of projects that no longer
+// exist give ErrUnknownProject.
 func (db *DB) SaveSourceMapFiles(ctx context.Context, files []SourceMapFile) ([]SourceMapFile, error) {
 	tx, err := db.write.BeginTx(ctx)
 	if err != nil {
@@ -82,22 +86,25 @@ func (db *DB) SaveSourceMapFiles(ctx context.Context, files []SourceMapFile) ([]
 	if err := tx.lock(ctx, lockSourceMapBundles); err != nil {
 		return nil, err
 	}
-	known := map[int64]bool{} // per project: the bundle was there before this call
+	type upload struct {
+		projectID             int64
+		bundle, release, dist string
+	}
+	known := map[upload]bool{} // the bundle was there before this call
 	var stored []SourceMapFile
 	for _, f := range files {
-		had, checked := known[f.ProjectID]
+		key := upload{f.ProjectID, f.Bundle, f.Release, f.Dist}
+		had, checked := known[key]
 		if !checked {
 			if _, err := existingProjects(ctx, tx, []int64{f.ProjectID}); err != nil {
 				return nil, err
 			}
-			var n int
-			err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM source_maps WHERE project_id = ? AND bundle = ?",
-				f.ProjectID, f.Bundle).Scan(&n)
+			err := tx.QueryRowContext(ctx, "SELECT EXISTS (SELECT 1 FROM source_maps WHERE project_id = ? AND bundle = ? AND release = ? AND dist = ?)",
+				f.ProjectID, f.Bundle, f.Release, f.Dist).Scan(&had)
 			if err != nil {
 				return nil, err
 			}
-			had = n > 0
-			known[f.ProjectID] = had
+			known[key] = had
 		}
 		if had {
 			continue
@@ -114,7 +121,29 @@ func (db *DB) SaveSourceMapFiles(ctx context.Context, files []SourceMapFile) ([]
 		}
 		stored = append(stored, f)
 	}
-	return stored, tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	if len(stored) > 0 {
+		db.sourceMapsVersion.Add(1)
+	}
+	return stored, nil
+}
+
+// HasSourceMaps reports whether a project has any uploaded file.
+func (db *DB) HasSourceMaps(ctx context.Context, projectID int64) (bool, error) {
+	var has bool
+	err := db.read.QueryRowContext(ctx, "SELECT EXISTS (SELECT 1 FROM source_maps WHERE project_id = ?)", projectID).Scan(&has)
+	return has, err
+}
+
+// SourceMapsVersion changes after every change to the stored source map
+// files this process made (SaveSourceMapFiles, DeleteSourceMapFiles): a
+// cache of what HasSourceMaps said knows when to ask again. It moves after
+// the commit, so whoever reads it before asking never keeps an answer from
+// before a change it already saw.
+func (db *DB) SourceMapsVersion() int64 {
+	return db.sourceMapsVersion.Load()
 }
 
 // SourceMapByDebugID returns the newest file of a kind with this debug id
@@ -179,7 +208,11 @@ func (db *DB) DeleteSourceMapFiles(ctx context.Context, ids []int64) (int64, err
 		n, _ := res.RowsAffected()
 		total += n
 	}
-	return total, tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	db.sourceMapsVersion.Add(1)
+	return total, nil
 }
 
 // SourceMapPaths returns the path of every stored file, for the sweep that

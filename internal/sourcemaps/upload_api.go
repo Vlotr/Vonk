@@ -113,7 +113,7 @@ func (s *Service) organization(w http.ResponseWriter, r *http.Request, _ store.A
 func (s *Service) chunkOptions(w http.ResponseWriter, r *http.Request, _ store.APIToken) {
 	write(w, http.StatusOK, map[string]any{
 		"url":              s.baseURL + "/api/0/organizations/" + url.PathEscape(r.PathValue("org")) + "/chunk-upload/",
-		"chunkSize":        ChunkBytes,
+		"chunkSize":        s.maxChunk,
 		"chunksPerRequest": 64,
 		"maxFileSize":      s.maxBundle,
 		"maxRequestSize":   maxRequestBytes,
@@ -135,7 +135,6 @@ func (s *Service) uploadChunks(w http.ResponseWriter, r *http.Request, tok store
 		detail(w, http.StatusBadRequest, "Send chunks as multipart/form-data.")
 		return
 	}
-	staged := s.stagedBytes(tok.ID)
 	stored := 0
 	for {
 		part, err := mr.NextPart()
@@ -143,10 +142,10 @@ func (s *Service) uploadChunks(w http.ResponseWriter, r *http.Request, tok store
 			break
 		}
 		if err != nil {
-			s.uploadError(w, r, err)
+			s.uploadError(w, r, requestError{err})
 			return
 		}
-		if err := s.storePart(tok.ID, part, &staged); err != nil {
+		if err := s.storePart(tok.ID, part); err != nil {
 			s.uploadError(w, r, err)
 			return
 		}
@@ -160,7 +159,7 @@ func (s *Service) uploadChunks(w http.ResponseWriter, r *http.Request, tok store
 }
 
 // storePart stores one part of a chunk upload.
-func (s *Service) storePart(tokenID int64, part *multipart.Part, staged *int64) error {
+func (s *Service) storePart(tokenID int64, part *multipart.Part) error {
 	defer part.Close()
 	field := part.FormName()
 	if field != "file" && field != "file_gzip" {
@@ -170,24 +169,44 @@ func (s *Service) storePart(tokenID int64, part *multipart.Part, staged *int64) 
 	if !checksumPattern.MatchString(checksum) {
 		return errBadUpload("Each chunk must be named by its SHA-1 checksum.")
 	}
-	if *staged >= maxStagedBytes {
+	release, ok := s.reserveChunk(tokenID)
+	if !ok {
 		return errBadUpload("Too many chunks wait to be put together. Try again in an hour.")
 	}
-	var r io.Reader = part
+	defer release()
+	var r io.Reader = requestReader{part}
 	if field == "file_gzip" {
-		zr, err := gzip.NewReader(part)
+		zr, err := gzip.NewReader(r)
+		if errors.As(err, new(requestError)) {
+			return err
+		}
 		if err != nil {
 			return errBadUpload("A file_gzip chunk is not gzip.")
 		}
 		defer zr.Close()
-		r = zr
+		r = requestReader{zr} // a broken gzip stream is the client's too
 	}
-	n, err := s.saveChunk(tokenID, checksum, r)
-	if errors.Is(err, gzip.ErrChecksum) || errors.Is(err, gzip.ErrHeader) || errors.Is(err, io.ErrUnexpectedEOF) {
-		return errBadUpload("A chunk is damaged or cut short.")
-	}
-	*staged += n
+	_, err := s.saveChunk(tokenID, checksum, r)
 	return err
+}
+
+// requestError is a failure to read what the client sent (a body cut
+// short, a broken multipart frame or gzip stream), as opposed to one of
+// the disk: the client gets a 400 for it (uploadError).
+type requestError struct{ err error }
+
+func (e requestError) Error() string { return "reading the upload: " + e.err.Error() }
+func (e requestError) Unwrap() error { return e.err }
+
+// requestReader reads what the client sent and marks its errors as requestErrors.
+type requestReader struct{ r io.Reader }
+
+func (r requestReader) Read(p []byte) (int, error) {
+	n, err := r.r.Read(p)
+	if err != nil && err != io.EOF {
+		err = requestError{err}
+	}
+	return n, err
 }
 
 // assembleRequest is the body of an assemble call.
@@ -210,7 +229,7 @@ func (s *Service) assemble(w http.ResponseWriter, r *http.Request, tok store.API
 		return
 	}
 	req.Checksum = strings.ToLower(req.Checksum)
-	if !checksumPattern.MatchString(req.Checksum) || len(req.Chunks) == 0 || len(req.Chunks) > int(MaxBundleBytes/ChunkBytes)+1 {
+	if !checksumPattern.MatchString(req.Checksum) || len(req.Chunks) == 0 || int64(len(req.Chunks)) > s.maxBundle/s.maxChunk+1 {
 		detail(w, http.StatusBadRequest, "The body needs the bundle's SHA-1 checksum and its chunks.")
 		return
 	}
@@ -226,11 +245,13 @@ func (s *Service) assemble(w http.ResponseWriter, r *http.Request, tok store.API
 		return
 	}
 
-	// A bundle every project has already is done: clients upload the same
-	// build again, and ask again after an "ok" when they wait for it.
+	// A bundle every project has already, for this release and dist, is
+	// done: clients upload the same build again, and ask again after an
+	// "ok" when they wait for it. The same files for another release are
+	// stored again, for that release.
 	done := true
 	for _, p := range projects {
-		has, err := s.db.HasSourceMapBundle(r.Context(), p.ID, req.Checksum, s.now())
+		has, err := s.db.TouchSourceMapBundle(r.Context(), p.ID, req.Checksum, req.Version, req.Dist, s.now())
 		if err != nil {
 			s.unavailable(w, r, err)
 			return
@@ -252,7 +273,9 @@ func (s *Service) assemble(w http.ResponseWriter, r *http.Request, tok store.API
 		return
 	}
 
-	key := req.Checksum
+	// One token's request at a time per bundle: putting it together
+	// removes the token's chunks. Another token has chunks of its own.
+	key := assembly{tok.ID, req.Checksum}
 	s.mu.Lock()
 	busy := s.assembling[key]
 	s.assembling[key] = true
@@ -354,19 +377,21 @@ func (s *Service) updateRelease(w http.ResponseWriter, r *http.Request, _ store.
 }
 
 // uploadError answers a failed chunk upload: 413 over the size limit, 400
-// for what the client got wrong, else a server problem.
+// for what the client got wrong or sent damaged, else a server problem
+// (the disk).
 func (s *Service) uploadError(w http.ResponseWriter, r *http.Request, err error) {
 	var (
 		tooLarge *http.MaxBytesError
 		bad      errBadUpload
+		damaged  requestError
 	)
 	switch {
 	case errors.As(err, &tooLarge):
 		detail(w, http.StatusRequestEntityTooLarge, "A chunk upload can be at most "+sizeText(maxRequestBytes)+".")
 	case errors.As(err, &bad):
 		detail(w, http.StatusBadRequest, bad.Error())
-	case errors.Is(err, io.ErrUnexpectedEOF), strings.Contains(err.Error(), "multipart"):
-		detail(w, http.StatusBadRequest, "The multipart body is damaged or cut short.")
+	case errors.As(err, &damaged):
+		detail(w, http.StatusBadRequest, "The upload is damaged or cut short: its multipart body or a chunk's gzip.")
 	default:
 		s.log.Error("sourcemaps: store chunk", "err", err)
 		detail(w, http.StatusInternalServerError, "The chunk could not be stored. The server log says why.")

@@ -190,9 +190,9 @@ func (db *DB) ProjectsWithCustomEvents(ctx context.Context) (map[int64]bool, err
 // HasCustomEvents reports whether a project has any custom event in its
 // hourly summaries.
 func (db *DB) HasCustomEvents(ctx context.Context, projectID int64) (bool, error) {
-	var n int
-	err := db.read.QueryRowContext(ctx, "SELECT COUNT(*) FROM (SELECT 1 FROM event_hourly WHERE project_id = ? LIMIT 1)", projectID).Scan(&n)
-	return n > 0, err
+	var has bool
+	err := db.read.QueryRowContext(ctx, "SELECT EXISTS (SELECT 1 FROM event_hourly WHERE project_id = ?)", projectID).Scan(&has)
+	return has, err
 }
 
 // EventStats sums a project's hourly event summaries over the hours that

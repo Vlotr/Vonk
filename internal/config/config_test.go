@@ -274,3 +274,23 @@ func TestLoadConfig_DevAllowHTTPWebhooks(t *testing.T) {
 		t.Errorf("bad value: err = %v", err)
 	}
 }
+
+// SOURCEMAP_CACHE_MB sizes the cache of parsed source maps: 64 MiB by
+// default, a whole number of MiB from 1 to 64 GiB.
+func TestLoadConfig_SourceMapCache(t *testing.T) {
+	cfg, err := Load(env(validEnv()))
+	if err != nil || cfg.SourceMapCacheBytes != 64<<20 {
+		t.Errorf("default = %d, %v; want 64 MiB", cfg.SourceMapCacheBytes, err)
+	}
+	vars := validEnv()
+	vars["SOURCEMAP_CACHE_MB"] = " 256 "
+	if cfg, err := Load(env(vars)); err != nil || cfg.SourceMapCacheBytes != 256<<20 {
+		t.Errorf("256 = %d, %v; want 256 MiB", cfg.SourceMapCacheBytes, err)
+	}
+	for _, bad := range []string{"0", "-1", "1.5", "64MB", "65537"} {
+		vars["SOURCEMAP_CACHE_MB"] = bad
+		if _, err := Load(env(vars)); err == nil || !strings.Contains(err.Error(), "SOURCEMAP_CACHE_MB") {
+			t.Errorf("SOURCEMAP_CACHE_MB=%s: err = %v, want one naming it", bad, err)
+		}
+	}
+}

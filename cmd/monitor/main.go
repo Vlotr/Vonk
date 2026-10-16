@@ -26,7 +26,7 @@ const usage = `Usage:
   monitor admin reset-password --email EMAIL   print a one-time link to choose a new password
 
 Settings come from environment variables: SECRET_KEY and BASE_URL are required;
-DATABASE_URL, MAIL_URL, ADDR, DATA_DIR, LOG_LEVEL and TZ are optional;
+DATABASE_URL, MAIL_URL, ADDR, DATA_DIR, LOG_LEVEL, TZ and SOURCEMAP_CACHE_MB are optional;
 DEV_ALLOW_HTTP_WEBHOOKS=true (plain http Slack webhooks) is for local tests only.
 `
 

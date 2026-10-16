@@ -34,12 +34,14 @@ import (
 	"monitor/internal/store"
 )
 
-// Limits of the upload API.
+// Limits of the upload API. New puts them in the Service's fields, which
+// tests lower.
 const (
 	// MaxBundleBytes is the largest bundle (a zip of minified files and
 	// their maps) a client may upload.
 	MaxBundleBytes = 100 << 20
-	// ChunkBytes is the size of the pieces clients upload a bundle in.
+	// ChunkBytes is the size of the pieces clients upload a bundle in, and
+	// the most one chunk may be once its gzip is undone: a gzip bomb stops here.
 	ChunkBytes = 8 << 20
 	// maxRequestBytes is how much one chunk upload request may carry.
 	maxRequestBytes = 32 << 20
@@ -48,6 +50,8 @@ const (
 	maxExtractBytes = 1 << 30
 	// maxStagedBytes is how much one token may have in chunks at once.
 	maxStagedBytes = 256 << 20
+	// maxBundleFiles is how many files a bundle's manifest may list.
+	maxBundleFiles = 10_000
 	// chunkTTL is how long chunks of a bundle that was never put together are kept.
 	chunkTTL = time.Hour
 )
@@ -62,7 +66,9 @@ type Options struct {
 	// HashToken hashes an API token as the database stores it (auth.Service.HashToken).
 	HashToken func(string) string
 	Logger    *slog.Logger
-	// CacheBytes is how much memory parsed files may take; 0 means DefaultCacheBytes.
+	// CacheBytes is how much memory parsed files may take
+	// (SOURCEMAP_CACHE_MB); 0 means DefaultCacheBytes. One file is used up
+	// to a quarter of it.
 	CacheBytes int64
 	// Now is the clock; nil means time.Now.
 	Now func() time.Time
@@ -78,19 +84,31 @@ type Service struct {
 	now       func() time.Time
 	cache     *cache
 
-	// maxBundle is MaxBundleBytes; tests lower it.
-	maxBundle int64
+	// The limits of uploads (see the constants); tests lower them.
+	maxBundle  int64 // MaxBundleBytes
+	maxChunk   int64 // ChunkBytes
+	maxStaged  int64 // maxStagedBytes
+	maxExtract int64 // maxExtractBytes
 	// readAll reads a stored file: os.ReadFile; tests count the reads.
 	readAll func(name string) ([]byte, error)
 
 	mu         sync.Mutex
-	assembling map[string]bool // bundles being put together, by checksum
+	assembling map[assembly]bool   // bundles being put together
+	reserved   map[int64]int64     // per token: room taken by chunks being written (reserveChunk)
+	hasMaps    map[int64]mapsKnown // per project: whether it has source maps (projectHasMaps)
+}
+
+// assembly is one token's request to put a bundle together.
+type assembly struct {
+	tokenID  int64
+	checksum string
 }
 
 // New returns a Service. Its directories are made when the first upload comes in.
 func New(o Options) *Service {
 	s := &Service{db: o.DB, dir: o.Dir, baseURL: o.BaseURL, hashToken: o.HashToken, log: o.Logger, now: o.Now,
-		maxBundle: MaxBundleBytes, assembling: map[string]bool{}, readAll: os.ReadFile}
+		maxBundle: MaxBundleBytes, maxChunk: ChunkBytes, maxStaged: maxStagedBytes, maxExtract: maxExtractBytes,
+		assembling: map[assembly]bool{}, reserved: map[int64]int64{}, hasMaps: map[int64]mapsKnown{}, readAll: os.ReadFile}
 	if s.now == nil {
 		s.now = time.Now
 	}
@@ -109,28 +127,28 @@ func (s *Service) chunkDir(tokenID int64) string {
 
 // saveChunk stores one chunk of a token's upload, after checking that its
 // SHA-1 is the checksum the client named it by, and returns its size. r is
-// the chunk as it was sent, already decompressed; it may be at most ChunkBytes.
+// the chunk as it was sent, already decompressed; it may be at most maxChunk.
 func (s *Service) saveChunk(tokenID int64, checksum string, r io.Reader) (int64, error) {
 	dir := s.chunkDir(tokenID)
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return 0, err
 	}
-	tmp, err := os.CreateTemp(dir, "upload-*")
+	tmp, err := os.CreateTemp(dir, chunkTempPrefix+"*")
 	if err != nil {
 		return 0, err
 	}
 	defer os.Remove(tmp.Name()) // no-op after the rename
 
 	sum := sha1.New()
-	n, err := io.Copy(io.MultiWriter(tmp, sum), io.LimitReader(r, ChunkBytes+1))
+	n, err := io.Copy(io.MultiWriter(tmp, sum), io.LimitReader(r, s.maxChunk+1))
 	if closeErr := tmp.Close(); err == nil {
 		err = closeErr
 	}
 	if err != nil {
 		return 0, err
 	}
-	if n > ChunkBytes {
-		return 0, errBadUpload(fmt.Sprintf("A chunk can be at most %d bytes.", ChunkBytes))
+	if n > s.maxChunk {
+		return 0, errBadUpload("A chunk can be at most " + sizeText(s.maxChunk) + " once unpacked.")
 	}
 	if got := hex.EncodeToString(sum.Sum(nil)); got != checksum {
 		return 0, errBadUpload(fmt.Sprintf("The chunk named %s has the checksum %s.", checksum, got))
@@ -138,7 +156,11 @@ func (s *Service) saveChunk(tokenID int64, checksum string, r io.Reader) (int64,
 	return n, os.Rename(tmp.Name(), filepath.Join(dir, checksum))
 }
 
-// stagedBytes returns how many bytes of chunks a token has waiting.
+// chunkTempPrefix starts the name of a chunk while it is being written.
+const chunkTempPrefix = "upload-"
+
+// stagedBytes returns how many bytes of chunks a token has waiting (the
+// ones being written count in reserved instead).
 func (s *Service) stagedBytes(tokenID int64) int64 {
 	entries, err := os.ReadDir(s.chunkDir(tokenID))
 	if err != nil {
@@ -146,11 +168,35 @@ func (s *Service) stagedBytes(tokenID int64) int64 {
 	}
 	var total int64
 	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), chunkTempPrefix) {
+			continue
+		}
 		if info, err := e.Info(); err == nil {
 			total += info.Size()
 		}
 	}
 	return total
+}
+
+// reserveChunk takes room for one chunk of a token's upload before it is
+// written, so requests sent at the same moment cannot together stage more
+// than maxStaged; release gives the room back once the chunk is on disk
+// (where stagedBytes counts it) or failed. ok is false when the token has
+// too much waiting already.
+func (s *Service) reserveChunk(tokenID int64) (release func(), ok bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.stagedBytes(tokenID)+s.reserved[tokenID]+s.maxChunk > s.maxStaged {
+		return nil, false
+	}
+	s.reserved[tokenID] += s.maxChunk
+	return func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if s.reserved[tokenID] -= s.maxChunk; s.reserved[tokenID] <= 0 {
+			delete(s.reserved, tokenID)
+		}
+	}, true
 }
 
 // errBadUpload is a problem with what the client sent; its text is shown to people.
@@ -276,6 +322,9 @@ func (s *Service) unpackBundle(zr *zip.Reader, req bundleRequest) ([]store.Sourc
 	if err := readJSONEntry(zr, "manifest.json", &m); err != nil {
 		return nil, err
 	}
+	if len(m.Files) > maxBundleFiles {
+		return nil, errBadUpload(fmt.Sprintf("A bundle can list at most %d files; this one lists %d.", maxBundleFiles, len(m.Files)))
+	}
 	release, dist := req.Release, req.Dist
 	if release == "" {
 		release, dist = m.Release, m.Dist
@@ -304,7 +353,7 @@ func (s *Service) unpackBundle(zr *zip.Reader, req bundleRequest) ([]store.Sourc
 			continue
 		}
 		for _, p := range req.Projects {
-			rel, n, err := s.extract(entry, p.ID, maxExtractBytes-extracted)
+			rel, n, err := s.extract(entry, p.ID, s.maxExtract-extracted)
 			if err != nil {
 				removeFiles(s.dir, files)
 				return nil, err
@@ -352,7 +401,7 @@ func (s *Service) extract(entry *zip.File, projectID int64, limit int64) (string
 	}
 	rel := path.Join(strconv.FormatInt(projectID, 10), name)
 	if err == nil && n > limit {
-		err = errBadUpload(fmt.Sprintf("The bundle unpacks to more than %d bytes.", int64(maxExtractBytes)))
+		err = errBadUpload("The bundle unpacks to more than " + sizeText(s.maxExtract) + ".")
 	}
 	var bad errBadUpload
 	if err != nil && !errors.As(err, &bad) && !isDiskError(err) {
@@ -449,8 +498,17 @@ func (s *Service) DeleteUploadedBefore(ctx context.Context, projectID int64, cut
 }
 
 // CleanUp removes what uploads left behind: chunks and half-assembled
-// bundles older than an hour, and files no row points to any more (the
-// files of deleted projects). The sweep job runs it every hour.
+// bundles older than an hour, the chunk directories of tokens that no
+// longer exist, and files no row points to any more (the files of deleted
+// projects). The sweep job runs it every hour.
+//
+// A token's chunks are removed when it is revoked (RemoveTokenChunks), but
+// a directory can outlive its token: one revoked before that existed, or
+// while the server was down. Ids of tokens are never used again on
+// Postgres or since migration 0008 on SQLite, but 0008 started counting at
+// the highest id left then, so an id deleted before it can come back once:
+// removing the directories of missing tokens keeps such a token from
+// finding another token's chunks.
 func (s *Service) CleanUp(ctx context.Context, now time.Time) {
 	removeOld := func(dir string) {
 		entries, err := os.ReadDir(dir)
@@ -464,9 +522,23 @@ func (s *Service) CleanUp(ctx context.Context, now time.Time) {
 		}
 		os.Remove(dir) // only when empty
 	}
+	// The directories are listed before the tokens are read: a token made
+	// in between has no directory in the list yet.
 	tokens, _ := os.ReadDir(filepath.Join(s.dir, "chunks"))
+	exist, err := s.db.APITokenIDs(ctx)
+	if err != nil {
+		s.log.Warn("sourcemaps: clean up", "err", err)
+		exist = nil // keep every token's directory; only old chunks go
+	}
 	for _, t := range tokens {
-		removeOld(filepath.Join(s.dir, "chunks", t.Name()))
+		dir := filepath.Join(s.dir, "chunks", t.Name())
+		if id, err := strconv.ParseInt(t.Name(), 10, 64); err == nil && t.IsDir() && exist != nil && !exist[id] {
+			if err := os.RemoveAll(dir); err != nil {
+				s.log.Warn("sourcemaps: remove the chunks of a token that no longer exists", "token", id, "err", err)
+			}
+			continue
+		}
+		removeOld(dir)
 	}
 	removeOld(filepath.Join(s.dir, "tmp"))
 

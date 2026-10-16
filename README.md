@@ -85,6 +85,7 @@ Forgot your password? With `MAIL_URL` set, the login page mails a reset link. Wi
 | `DATA_DIR` | no | `/data` | Where the SQLite database, its backups (`backups/`) and uploaded source maps (`sourcemaps/`) live. |
 | `LOG_LEVEL` | no | `info` | `debug`, `info`, `warn` or `error`. |
 | `TZ` | no | UTC | Time zone of the schedules: summaries go out at 08:00 there, for example `Europe/Amsterdam`. |
+| `SOURCEMAP_CACHE_MB` | no | `64` | Memory in MiB for parsed source maps. One source map is used up to a quarter of it (16 MiB with the default); raise it for apps with larger maps. |
 | `DEV_ALLOW_HTTP_WEBHOOKS` | no | `false` | For development and tests only, never in production: `true` lets Slack webhooks use plain http (a fake Slack on your machine). Webhooks must otherwise be https. |
 
 ## Page views (PostHog)
@@ -140,7 +141,7 @@ Errors from a minified production build point at `assets/index-D8xk2Lp1.js:1`. U
    Build with `SENTRY_AUTH_TOKEN=<token>` and `SENTRY_CLI_NO_TELEMETRY=1` in the environment (the plugin's Sentry CLI otherwise sends its own error reports to sentry.io).
 3. Or with `sentry-cli`, after the build: `npx @sentry/cli sourcemaps inject ./dist` and `npx @sentry/cli sourcemaps upload --project webshop ./dist`, with the token in `SENTRY_AUTH_TOKEN`. The token carries the tool's address, so no `--url` or `--org` is needed.
 
-Maps are matched by the debug id the tools put in each file (and the browser SDK reports with each error), or else by release and file URL. Errors that arrive after the upload are stored with the original frames, so they group by your own code and stay one issue across builds; errors stored before the upload show the original code on their issue page. Tokens name the tool's `BASE_URL`: the tools must use that address, and after changing `BASE_URL` make new tokens. A token uploads only to its projects (403 for others); revoking it stops it at once. Bundles may be up to 100 MiB. One source map is used up to 16 MiB (a quarter of the 64 MiB the tool keeps parsed maps in); a larger one is stored but not used, and the server log says so. Source maps are kept for the project's retention, counted from their upload.
+Maps are matched by the debug id the tools put in each file (and the browser SDK reports with each error), or else by release and file URL. Errors that arrive after the upload are stored with the original frames, so they group by your own code and stay one issue across builds; errors stored before the upload show the original code on their issue page. Tokens name the tool's `BASE_URL`: the tools must use that address, and after changing `BASE_URL` make new tokens. A token uploads only to its projects (403 for others); revoking it stops it at once. Bundles may be up to 100 MiB. One source map is used up to a quarter of `SOURCEMAP_CACHE_MB`, the memory the tool keeps parsed maps in: 16 MiB with the default of 64. A larger one is stored but not used, and the server log says so ("file too large to symbolicate with"); raise `SOURCEMAP_CACHE_MB` for it. The same build uploaded again for another release is stored for that release too. Source maps are kept for the project's retention, counted from their upload.
 
 ## Alerts and health
 
