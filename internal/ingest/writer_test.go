@@ -125,6 +125,9 @@ func TestWriter_GroupsIntoIssues(t *testing.T) {
 	if len(issues) != 2 {
 		t.Fatalf("got %d issues, want 2 (same fingerprint twice, one different)", len(issues))
 	}
+	if got := w.StoredLastHour(); got != 3 {
+		t.Errorf("StoredLastHour = %d, want 3 (the status page shows it)", got)
+	}
 	charge := issues[0]
 	if charge.TimesSeen != 2 || !charge.LastSeen.Equal(t0.Add(time.Hour)) || !charge.FirstSeen.Equal(t0) {
 		t.Errorf("issue = times_seen %d, first %v, last %v; want 2, %v, %v", charge.TimesSeen, charge.FirstSeen, charge.LastSeen, t0, t0.Add(time.Hour))

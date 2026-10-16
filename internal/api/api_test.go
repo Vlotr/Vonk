@@ -110,7 +110,7 @@ func newTestEnv(t *testing.T, opts ...envOption) *testEnv {
 	checker := &health.Checker{DB: db, DataDir: dir, Queue: queue, Version: "test", Log: logger,
 		DiskUsage: func(string) (uint64, uint64, error) { return 40 << 30, 100 << 30, nil }}
 	h := New(Options{DB: db, Auth: svc, BaseURL: "https://monitor.example.com", Logger: logger,
-		Health: checker, Slack: slack, Started: testNow.Add(-90 * time.Minute)})
+		Health: checker, Slack: slack, Started: testNow.Add(-90 * time.Minute), StoredLastHour: func() int { return 7 }})
 	h.now = func() time.Time { return testNow }
 	guarded := http.NewServeMux()
 	svc.Register(guarded)

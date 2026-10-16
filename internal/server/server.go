@@ -47,6 +47,8 @@ type Deps struct {
 	Slack api.SlackPoster
 	// Started is when the process started, for the status page's uptime.
 	Started time.Time
+	// StoredLastHour counts the events stored in the last hour, for the status page.
+	StoredLastHour func() int
 }
 
 // New returns the handler for the whole server.
@@ -71,13 +73,14 @@ func New(deps Deps) http.Handler {
 	dashboard := http.NewServeMux()
 	accounts.Register(dashboard)
 	api.New(api.Options{
-		DB:      deps.DB,
-		Auth:    accounts,
-		BaseURL: deps.Config.BaseURL,
-		Logger:  deps.Logger,
-		Health:  checker,
-		Slack:   deps.Slack,
-		Started: deps.Started,
+		DB:             deps.DB,
+		Auth:           accounts,
+		BaseURL:        deps.Config.BaseURL,
+		Logger:         deps.Logger,
+		Health:         checker,
+		Slack:          deps.Slack,
+		Started:        deps.Started,
+		StoredLastHour: deps.StoredLastHour,
 	}).Register(dashboard)
 	dashboard.HandleFunc("/ui/api/", notFoundJSON)
 	// "/" rather than "GET /": Go's mux refuses a method-only catch-all next to

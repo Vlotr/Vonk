@@ -53,8 +53,8 @@ func TestStatus_ShowsHowTheToolIsDoing(t *testing.T) {
 	if got.DatabaseBytes <= 0 || got.DiskFreeBytes != 40<<30 || got.DiskTotalBytes != 100<<30 || got.QueueCapacity != 100 || got.Admins != 1 {
 		t.Errorf("numbers = %+v", got)
 	}
-	if got.EventsLastHour != 1 {
-		t.Errorf("events in the last hour = %d, want 1 (the other is 2 hours old)", got.EventsLastHour)
+	if got.EventsLastHour != 7 {
+		t.Errorf("events in the last hour = %d, want the writer's 7", got.EventsLastHour)
 	}
 	if got.LastBackup != nil || len(got.AdminAlerts) != 0 || got.AdminSlackWebhook != nil {
 		t.Errorf("before any backup, alert or webhook = %+v", got)

@@ -46,7 +46,8 @@ type statusJSON struct {
 	DatabaseBytes  int64  `json:"databaseBytes"`
 	DiskFreeBytes  uint64 `json:"diskFreeBytes"`
 	DiskTotalBytes uint64 `json:"diskTotalBytes"`
-	// EventsLastHour counts the error events of the last hour, all projects.
+	// EventsLastHour counts the events stored in the last hour (since the
+	// start, when that is less than an hour ago), all projects.
 	EventsLastHour int `json:"eventsLastHour"`
 	QueueDepth     int `json:"queueDepth"`
 	QueueCapacity  int `json:"queueCapacity"`
@@ -88,11 +89,7 @@ func (h *Handler) status(w http.ResponseWriter, r *http.Request) {
 		out.QueueCapacity = h.health.Queue.Cap()
 	}
 
-	var err error
-	if out.EventsLastHour, err = h.db.CountAllErrorEventsSince(ctx, now.Add(-time.Hour)); err != nil {
-		h.internalError(w, r, err)
-		return
-	}
+	out.EventsLastHour = h.stored()
 	backups, err := h.db.Backups()
 	if err != nil {
 		h.internalError(w, r, err)

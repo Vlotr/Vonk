@@ -19,16 +19,6 @@ func (db *DB) CountErrorEventsBetween(ctx context.Context, projectID int64, from
 	return n, err
 }
 
-// CountAllErrorEventsSince counts the error events of every project from since on.
-func (db *DB) CountAllErrorEventsSince(ctx context.Context, since time.Time) (int, error) {
-	var n int
-	// Per project, so the (project_id, timestamp) index serves each.
-	err := db.read.QueryRowContext(ctx,
-		"SELECT COUNT(*) FROM error_events WHERE project_id IN (SELECT id FROM projects) AND timestamp >= ?",
-		since.UnixMilli()).Scan(&n)
-	return n, err
-}
-
 // IssueCount is an issue with the number of its events in a period.
 type IssueCount struct {
 	Issue

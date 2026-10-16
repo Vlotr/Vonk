@@ -41,6 +41,9 @@ type Options struct {
 	Slack SlackPoster
 	// Started is when the process started, for the status page's uptime.
 	Started time.Time
+	// StoredLastHour counts the events ingest stored in the last hour; nil
+	// counts none.
+	StoredLastHour func() int
 }
 
 // Handler serves the dashboard API.
@@ -52,6 +55,7 @@ type Handler struct {
 	health  *health.Checker
 	slack   SlackPoster
 	started time.Time
+	stored  func() int
 	log     *slog.Logger
 	now     func() time.Time // the clock; tests set it
 }
@@ -59,7 +63,10 @@ type Handler struct {
 // New returns the API handler.
 func New(o Options) *Handler {
 	h := &Handler{db: o.DB, auth: o.Auth, baseURL: o.BaseURL, health: o.Health, slack: o.Slack,
-		started: o.Started, log: o.Logger, now: time.Now}
+		started: o.Started, stored: o.StoredLastHour, log: o.Logger, now: time.Now}
+	if h.stored == nil {
+		h.stored = func() int { return 0 }
+	}
 	if h.slack == nil {
 		h.slack = alerts.NewSlack()
 	}

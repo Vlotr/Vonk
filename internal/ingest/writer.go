@@ -49,6 +49,8 @@ type Writer struct {
 
 	mu    sync.Mutex
 	stats WriterStats
+
+	stored hourCounter // events stored, per minute of the last hour
 }
 
 // WriterStats count what the writer could not store, since the start.
@@ -59,6 +61,12 @@ type WriterStats struct {
 	LostEvents int64
 	// LastError is the database's answer to the last failed batch.
 	LastError string
+}
+
+// StoredLastHour returns how many events the writer stored in the last
+// hour (since the start, when that was less than an hour ago).
+func (w *Writer) StoredLastHour() int {
+	return w.stored.lastHour(time.Now())
 }
 
 // Stats returns what the writer could not store so far.
@@ -183,6 +191,7 @@ func (w *Writer) flush(ctx context.Context, batch []Item) {
 		time.Sleep(w.retryDelays[attempt])
 	}
 
+	w.stored.add(time.Now(), result.Stored)
 	if result.Orphaned > 0 {
 		w.log.Warn("ingest: events of deleted projects skipped", "events", result.Orphaned)
 	}
