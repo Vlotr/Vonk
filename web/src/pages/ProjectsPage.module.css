@@ -3,7 +3,7 @@
 }
 
 .cardTitle {
-  padding: 18px var(--space-4) 14px;
+  padding: var(--card-padding-top) var(--space-4) var(--row-padding-y);
 }
 
 .name {
@@ -22,7 +22,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
-  margin-top: 6px;
+  margin-top: var(--meta-gap);
 }
 
 .none {

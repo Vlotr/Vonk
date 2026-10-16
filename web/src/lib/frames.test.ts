@@ -57,15 +57,27 @@ describe('isFrameOpen', () => {
 
   test("the viewer's choices carry over to a newer event with the same frames", () => {
     const choices = new Map([
-      [frameKey(event1[0]), false],
-      [frameKey(event1[2]), true],
+      [frameKey(event1[0], event1), false],
+      [frameKey(event1[2], event1), true],
     ])
     // A newer event: new objects, the same files and lines, one frame more.
     const event2 = [frame('/app/Http/Controllers/CheckoutController.php', true, { line: 14, ...withCode }), frame('/vendor/y.php', false, { line: 9, ...withCode }), frame('/public/index.php', true, { line: 20, ...withCode })]
     expect(event2.map((f) => isFrameOpen(f, event2, choices))).toEqual([false, false, true])
   })
 
-  test('a frame is known by file and line', () => {
-    expect(frameKey(frame('/app/A.php', true, { line: 7 }))).toBe('/app/A.php:7')
+  test('recursive frames each keep their own choice', () => {
+    // walk() calls itself: the same file, line and function twice.
+    const recursive = [
+      frame('/app/Tree.php', true, { function: 'walk', line: 7, ...withCode }),
+      frame('/app/Tree.php', true, { function: 'walk', line: 7, ...withCode }),
+      frame('/app/Tree.php', true, { function: 'start', line: 7, ...withCode }),
+    ]
+    const keys = recursive.map((f) => frameKey(f, recursive))
+    expect(new Set(keys).size).toBe(3)
+
+    const choices = new Map([[keys[1], true]])
+    expect(recursive.map((f) => isFrameOpen(f, recursive, choices))).toEqual([true, true, false])
+    choices.set(keys[0], false)
+    expect(recursive.map((f) => isFrameOpen(f, recursive, choices))).toEqual([false, true, false])
   })
 })

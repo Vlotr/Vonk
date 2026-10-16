@@ -26,11 +26,17 @@ export function visibleFrames(frames: Frame[], showFramework: boolean): { shown:
 }
 
 /**
- * frameKey names a frame by file and line, so the viewer's open and closed
- * frames still apply when a poll brings a newer event of the same issue.
+ * frameKey names a frame of frames by file, line and function, plus how many
+ * frames before it have those three too (recursion repeats them). A newer
+ * event of the same issue has new frame objects but the same keys, so the
+ * viewer's open and closed frames still apply after a poll.
  */
-export function frameKey(frame: Frame): string {
-  return `${frame.file}:${frame.line}`
+export function frameKey(frame: Frame, frames: Frame[]): string {
+  const name = `${frame.file}:${frame.line}:${frame.function}`
+  const before = frames
+    .slice(0, Math.max(0, frames.indexOf(frame)))
+    .filter((f) => f.file === frame.file && f.line === frame.line && f.function === frame.function).length
+  return `${name}#${before}`
 }
 
 /**
@@ -38,7 +44,7 @@ export function frameKey(frame: Frame): string {
  * (choices, by frameKey), or else open for the first in-app frame with source.
  */
 export function isFrameOpen(frame: Frame, frames: Frame[], choices: Map<string, boolean>): boolean {
-  const chosen = choices.get(frameKey(frame))
+  const chosen = choices.get(frameKey(frame, frames))
   if (chosen !== undefined) return chosen
   return frames.find((f) => f.inApp && codeLines(f).length > 0) === frame
 }

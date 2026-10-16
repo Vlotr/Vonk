@@ -43,17 +43,29 @@ function freePort(): Promise<number> {
 /** stopping holds the processes teardown is stopping, whose exit is expected. */
 const stopping = new Set<ChildProcess>()
 
+/** failures holds why a started process could not run or stopped early, by process. */
+const failures = new Map<ChildProcess, string>()
+
 /**
  * start runs a long-lived process in its own process group, so teardown can
  * stop it together with the children it starts (artisan serve runs php -S).
+ * A process that cannot be started (no php or npx on the PATH) or that stops
+ * early is noted in failures; waitFor then fails setup, which runs teardown
+ * for everything started before it.
  */
 function start(name: string, command: string, args: string[], cwd: string, env: NodeJS.ProcessEnv): ChildProcess {
   const log = createWriteStream(join(logDir, `${name}.log`))
   const child = spawn(command, args, { cwd, env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] })
   child.stdout?.pipe(log)
   child.stderr?.pipe(log)
+  child.on('error', (err) => {
+    failures.set(child, `${name} could not be started (${command}: ${err.message})`)
+    console.error(`[e2e] ${failures.get(child)}`)
+  })
   child.on('exit', (code, signal) => {
-    if (!stopping.has(child)) console.error(`[e2e] ${name} stopped early (${signal ?? code}); see e2e/.logs/${name}.log`)
+    if (stopping.has(child)) return
+    failures.set(child, `${name} stopped early (${signal ?? code}); see e2e/.logs/${name}.log`)
+    console.error(`[e2e] ${failures.get(child)}`)
   })
   return child
 }
@@ -68,10 +80,15 @@ function stop(child: ChildProcess) {
   }
 }
 
-/** waitFor polls url until it answers at all (any status), or fails after 30 s. */
-async function waitFor(url: string, name: string) {
+/**
+ * waitFor polls url until it answers at all (any status). It fails after
+ * 30 s, or at once when child could not be started or stopped.
+ */
+async function waitFor(url: string, name: string, child: ChildProcess) {
   const deadline = Date.now() + 30_000
   while (Date.now() < deadline) {
+    const failure = failures.get(child)
+    if (failure) throw new Error(failure)
     try {
       await fetch(url)
       return
@@ -110,8 +127,9 @@ export default async function globalSetup() {
       DATA_DIR: join(tmp, 'data'),
       DEV_BASIC_AUTH: `e2e:${password}`,
     }
-    children.push(start('monitor', join(root, 'bin/monitor'), ['serve'], root, monitorEnv))
-    await waitFor(`${monitorURL}/health`, 'monitor')
+    const monitor = start('monitor', join(root, 'bin/monitor'), ['serve'], root, monitorEnv)
+    children.push(monitor)
+    await waitFor(`${monitorURL}/health`, 'monitor', monitor)
 
     const created = spawnSync(join(root, 'bin/monitor'), ['project', 'create', '--name', 'Webshop'], {
       env: monitorEnv,
@@ -126,8 +144,12 @@ export default async function globalSetup() {
     // them on to the PHP server. File sessions and cache need no database.
     const laravelPort = await freePort()
     const laravelURL = `http://127.0.0.1:${laravelPort}`
-    children.push(
-      start('laravel', 'php', ['artisan', 'serve', '--host=127.0.0.1', `--port=${laravelPort}`, '--no-reload'], laravelDir, {
+    const laravel = start(
+      'laravel',
+      'php',
+      ['artisan', 'serve', '--host=127.0.0.1', `--port=${laravelPort}`, '--no-reload'],
+      laravelDir,
+      {
         ...process.env,
         APP_KEY: `base64:${randomBytes(32).toString('base64')}`,
         APP_ENV: 'local',
@@ -140,17 +162,23 @@ export default async function globalSetup() {
         SENTRY_RELEASE: 'example@1.0.0',
         // Screenshots are committed: show a neutral server, not this machine's name.
         SENTRY_SERVER_NAME: 'web-1',
-      }),
+      },
     )
-    await waitFor(`${laravelURL}/up`, 'Laravel example')
+    children.push(laravel)
+    await waitFor(`${laravelURL}/up`, 'Laravel example', laravel)
 
     // The browser example with @sentry/browser, served by Vite.
     const browserPort = await freePort()
     const browserURL = `http://127.0.0.1:${browserPort}`
-    children.push(
-      start('browser', 'npx', ['vite', '--host', '127.0.0.1', '--port', String(browserPort), '--strictPort'], browserDir, process.env),
+    const browserExample = start(
+      'browser',
+      'npx',
+      ['vite', '--host', '127.0.0.1', '--port', String(browserPort), '--strictPort'],
+      browserDir,
+      process.env,
     )
-    await waitFor(browserURL, 'browser example')
+    children.push(browserExample)
+    await waitFor(browserURL, 'browser example', browserExample)
 
     Object.assign(process.env, {
       MONITOR_URL: monitorURL,

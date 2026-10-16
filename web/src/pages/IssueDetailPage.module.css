@@ -74,7 +74,7 @@
 
 .columns {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 358px;
+  grid-template-columns: minmax(0, 1fr) var(--side-column-width);
   align-items: start;
   gap: var(--space-6);
   margin-top: var(--space-6);
@@ -92,7 +92,7 @@
 }
 
 .fieldsCard {
-  padding: 18px var(--space-4) var(--space-4);
+  padding: var(--card-padding-top) var(--space-4) var(--space-4);
 }
 
 .fields {

@@ -3,7 +3,7 @@
 }
 
 .barsColumn {
-  width: calc(168px + 2 * var(--space-4));
+  width: calc(var(--hour-bars-width) + 2 * var(--space-4));
 }
 
 .title {
@@ -27,7 +27,7 @@
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
-  margin-top: 6px;
+  margin-top: var(--meta-gap);
 }
 
 .culprit {
@@ -48,7 +48,7 @@
 .footer {
   display: flex;
   align-items: center;
-  min-height: 72px;
+  min-height: var(--list-footer-height);
   padding: 0 var(--space-4);
   border-top: var(--border-width) solid var(--color-border);
   color: var(--color-text-muted);

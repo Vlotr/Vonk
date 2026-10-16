@@ -226,6 +226,11 @@ func TestDashboardAPI_Mounted(t *testing.T) {
 	if rec := do(h, http.MethodGet, "/ui/api/projects", ""); rec.Code != http.StatusUnauthorized {
 		t.Errorf("GET /ui/api/projects without credentials = %d, want 401", rec.Code)
 	}
+	// A wrong method falls through to the /ui/api/ catch-all: a JSON 404, not Go's plain-text 405.
+	rec = do(h, http.MethodDelete, "/ui/api/projects", "", func(r *http.Request) { r.SetBasicAuth("dev", "secret-password") })
+	if rec.Code != http.StatusNotFound || rec.Body.String() != "{\"error\":\"not found\"}\n" {
+		t.Errorf("DELETE /ui/api/projects = %d %q, want 404 {\"error\":\"not found\"}", rec.Code, rec.Body)
+	}
 }
 
 func TestSPA_NotBuilt(t *testing.T) {

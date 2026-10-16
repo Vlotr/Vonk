@@ -27,13 +27,17 @@ type StatusCounts struct {
 	Open, Resolved, Ignored int
 }
 
+// usersColumn counts the distinct non-empty user ids of an issue's events,
+// for queries on the issues table. It is computed at query time for every
+// row the query reads; a counter on issues can replace it if it gets slow.
+const usersColumn = `(SELECT COUNT(DISTINCT e.user_id) FROM error_events e
+	WHERE e.issue_id = issues.id AND e.user_id <> '') AS users`
+
 // ListIssuePage returns one page of a project's issues with the status in f,
 // the most recently seen first.
 func (db *DB) ListIssuePage(ctx context.Context, f IssueFilter) ([]IssueRow, error) {
 	rows, err := db.read.QueryContext(ctx, `
-		SELECT `+issueColumns+`,
-			(SELECT COUNT(DISTINCT e.user_id) FROM error_events e
-			 WHERE e.issue_id = issues.id AND e.user_id <> '') AS users
+		SELECT `+issueColumns+`, `+usersColumn+`
 		FROM issues
 		WHERE project_id = ? AND status = ?
 		ORDER BY last_seen DESC, id DESC
@@ -58,11 +62,8 @@ func (db *DB) ListIssuePage(ctx context.Context, f IssueFilter) ([]IssueRow, err
 // IssueRowByID returns one issue with its user count, or ErrNotFound.
 func (db *DB) IssueRowByID(ctx context.Context, id int64) (IssueRow, error) {
 	var row IssueRow
-	err := scanIssueRow(db.read.QueryRowContext(ctx, `
-		SELECT `+issueColumns+`,
-			(SELECT COUNT(DISTINCT e.user_id) FROM error_events e
-			 WHERE e.issue_id = issues.id AND e.user_id <> '') AS users
-		FROM issues WHERE id = ?`, id), &row)
+	err := scanIssueRow(db.read.QueryRowContext(ctx,
+		"SELECT "+issueColumns+", "+usersColumn+" FROM issues WHERE id = ?", id), &row)
 	return row, err
 }
 

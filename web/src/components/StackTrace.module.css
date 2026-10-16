@@ -10,7 +10,7 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-4);
-  padding: 18px var(--space-4) 0;
+  padding: var(--card-padding-top) var(--space-4) 0;
 }
 
 .title {
@@ -61,7 +61,7 @@
 }
 
 .frame {
-  padding: 14px var(--space-4);
+  padding: var(--row-padding-y) var(--space-4);
 }
 
 .frame + .frame {
@@ -104,12 +104,20 @@ button.frameHeading {
   line-height: var(--line-height-frame);
 }
 
+/*
+ * Long lines scroll sideways inside the box, never the page. A shadow at the
+ * right edge says there is more: the "local" cover moves with the code and
+ * hides the shadow once the end of the longest line is in view.
+ */
 .code {
   margin: var(--space-2) 0 2px;
   overflow-x: auto;
   border: var(--border-width) solid var(--color-divider);
   border-radius: var(--radius-code);
-  background: var(--color-surface-sunken);
+  background:
+    linear-gradient(to left, var(--color-surface-sunken) 60%, transparent) right / var(--space-10) 100% no-repeat local,
+    linear-gradient(to left, var(--color-scroll-shadow), transparent) right / var(--space-3) 100% no-repeat scroll,
+    var(--color-surface-sunken);
 }
 
 .codeLines {

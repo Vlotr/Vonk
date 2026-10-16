@@ -1,7 +1,10 @@
 /*
  * Design tokens, sampled from the PNGs in "Monitoring dashboard-png/" (drawn
- * at 2x; the values here are CSS pixels). Every color, font, radius and
- * spacing value of the dashboard lives here; components use the variables.
+ * at 2x; the values here are CSS pixels). Every color, font, radius and line
+ * height of the dashboard lives here, and so do the spacing steps and the
+ * sizes that several components share. A one-off nudge that fits a single
+ * element to the design (a 2px offset, the height of one bar) stays in that
+ * element's CSS module.
  *
  * Type: Instrument Sans (matched glyph for glyph, weights by ink coverage)
  * and JetBrains Mono (its "->" ligature is the arrow in the stack trace).
@@ -49,6 +52,9 @@
   /* Buttons */
   --color-button-primary: #1b2430;
   --color-button-primary-text: #ffffff;
+
+  /* The shadow at the edge of a code box that scrolls sideways */
+  --color-scroll-shadow: rgba(27, 36, 48, 0.14);
 
   /* Fonts */
   --font-sans: 'Instrument Sans Variable', system-ui, -apple-system, 'Segoe UI', sans-serif;
@@ -110,4 +116,11 @@
   --button-height: 40px;
   --icon-size: 18px;
   --border-width: 1px;
+  --card-padding-top: 18px; /* above a card's title */
+  --row-padding-y: 14px; /* above and below a table row or a stack frame */
+  --table-header-height: 40px;
+  --meta-gap: 6px; /* between a name and the tags under it */
+  --hour-bars-width: 168px; /* the "Last 24 hours" bars of the issue list */
+  --side-column-width: 358px; /* the User and Details cards on the issue page */
+  --list-footer-height: 72px; /* "Showing 6 of 14 open issues" */
 }

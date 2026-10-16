@@ -67,7 +67,7 @@
   font-size: var(--font-size-culprit);
 }
 
-/* Tables inside cards: a 40px header row, rows split by thin lines. */
+/* Tables inside cards: a header row, rows split by thin lines. */
 .scroll {
   overflow-x: auto;
 }
@@ -78,7 +78,7 @@
 }
 
 .table th {
-  height: 40px;
+  height: var(--table-header-height);
   padding: 0 var(--space-4);
   border-bottom: var(--border-width) solid var(--color-border);
   color: var(--color-text-muted);
@@ -90,7 +90,7 @@
 }
 
 .table td {
-  padding: 14px var(--space-4);
+  padding: var(--row-padding-y) var(--space-4);
   border-top: var(--border-width) solid var(--color-divider);
   color: var(--color-text);
   vertical-align: middle;

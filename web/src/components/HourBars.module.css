@@ -5,7 +5,7 @@
 
 .bars {
   gap: 2px;
-  width: 168px;
+  width: var(--hour-bars-width);
   height: 20px;
 }
 

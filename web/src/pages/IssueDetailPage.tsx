@@ -6,7 +6,16 @@ import { LoadError } from '../components/LoadError'
 import { StackTrace } from '../components/StackTrace'
 import { Tag } from '../components/Tag'
 import { useProjects } from '../layout/ProjectsContext'
-import { countryName, formatDateTime, runtimeLabel, shortType, sourceLabel, timeAgo, urlPath } from '../lib/format'
+import {
+  countryName,
+  formatDateTime,
+  majorMinor,
+  runtimeLabel,
+  shortType,
+  sourceLabel,
+  timeAgo,
+  urlPath,
+} from '../lib/format'
 import { usePolling } from '../lib/usePolling'
 import styles from './IssueDetailPage.module.css'
 import { NotFoundPage } from './NotFoundPage'
@@ -165,7 +174,8 @@ function DetailsCard({ event }: { event: EventDetail }) {
         event.server && { label: 'Server', value: event.server },
         runtime && {
           label: runtime.name ? runtimeLabel(runtime.name) : 'Runtime',
-          value: runtime.version || runtime.name,
+          value: runtime.version ? majorMinor(runtime.version) : runtime.name,
+          title: runtime.version || undefined,
         },
         event.url && { label: 'URL', value: urlPath(event.url), mono: true, title: event.url },
       ]}

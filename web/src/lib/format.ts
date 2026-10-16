@@ -60,11 +60,12 @@ export function formatTime(date: Date): string {
   return `${twoDigits(date.getHours())}:${twoDigits(date.getMinutes())}`
 }
 
-/** formatDateTime writes "Oct 15, 21:06" in local time, with the year when it is not this year. */
+/**
+ * formatDateTime writes "Oct 15, 21:06" in local time, with the year when it
+ * is not this year: "Dec 31, 2025, 23:59" (the date as formatDate writes it).
+ */
 export function formatDateTime(date: Date, now: Date): string {
-  const day = `${MONTHS[date.getMonth()]} ${date.getDate()}`
-  const time = formatTime(date)
-  return date.getFullYear() === now.getFullYear() ? `${day}, ${time}` : `${day} ${date.getFullYear()}, ${time}`
+  return `${formatDate(date, now)}, ${formatTime(date)}`
 }
 
 /** timeAgo writes "4 min ago", "3 h ago", "2 d ago", and a date after a month. */
@@ -98,6 +99,11 @@ export function sourceLabel(source: string): string {
 }
 
 const RUNTIME_LABELS: Record<string, string> = { php: 'PHP', node: 'Node.js' }
+
+/** majorMinor shortens a version to its first two numbers, as the Details card shows it: "8.4" for 8.4.1. */
+export function majorMinor(version: string): string {
+  return /^\D*\d+(\.\d+)?/.exec(version)?.[0] ?? version
+}
 
 /** runtimeLabel names a runtime for the Details card: "PHP". */
 export function runtimeLabel(name: string): string {

@@ -6,6 +6,7 @@ import {
   formatTime,
   hiddenFramesSentence,
   issuesHeadline,
+  majorMinor,
   newIssuesSentence,
   projectsHeadline,
   runtimeLabel,
@@ -107,7 +108,8 @@ describe('formatDateTime', () => {
   })
 
   test('adds the year when it is not this year', () => {
-    expect(formatDateTime(new Date(2025, 11, 31, 23, 59), now)).toBe('Dec 31 2025, 23:59')
+    // The same style as dates without a time: "Jan 2, 2025".
+    expect(formatDateTime(new Date(2025, 11, 31, 23, 59), now)).toBe('Dec 31, 2025, 23:59')
   })
 })
 
@@ -126,6 +128,21 @@ describe('sourceLabel', () => {
     expect(sourceLabel('node')).toBe('Node.js')
     expect(sourceLabel('python')).toBe('Python')
     expect(sourceLabel('other')).toBe('Other')
+  })
+})
+
+describe('majorMinor', () => {
+  test('keeps major and minor version, as the design shows "PHP 8.3"', () => {
+    expect(majorMinor('8.4.1')).toBe('8.4')
+    expect(majorMinor('8.3')).toBe('8.3')
+    expect(majorMinor('8')).toBe('8')
+    expect(majorMinor('8.4.0-dev')).toBe('8.4')
+    expect(majorMinor('v20.11.1')).toBe('v20.11')
+  })
+
+  test('leaves versions without numbers alone', () => {
+    expect(majorMinor('unknown')).toBe('unknown')
+    expect(majorMinor('')).toBe('')
   })
 })
 
