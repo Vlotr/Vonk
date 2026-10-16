@@ -1,27 +1,26 @@
 import { useState } from 'react'
 import type { EventDetail, Frame } from '../api/client'
 import { displayFile, hiddenFramesSentence, shortFunction } from '../lib/format'
-import { codeLines, visibleFrames } from '../lib/frames'
+import { codeLines, frameKey, isFrameOpen, visibleFrames } from '../lib/frames'
 import styles from './StackTrace.module.css'
 
 // StackTrace shows the newest event's exception and its frames, the most
 // recent call first. Framework frames (not in-app) are hidden until asked
 // for; the first in-app frame with source opens with the error line marked.
+//
+// The page polls every minute and may bring a newer event of the same issue.
+// What the viewer opened or hid stays: the toggle lives here (the page keys
+// this component by issue, not by event) and frames are known by file and
+// line rather than by position.
 export function StackTrace({ event }: { event: EventDetail }) {
   const [showFramework, setShowFramework] = useState(false)
-  const firstWithCode = event.frames.findIndex((f) => f.inApp && codeLines(f).length > 0)
-  const [open, setOpen] = useState<Set<number>>(() => new Set(firstWithCode >= 0 ? [firstWithCode] : []))
+  const [choices, setChoices] = useState<Map<string, boolean>>(() => new Map())
 
   const { shown, hidden } = visibleFrames(event.frames, showFramework)
   const hasFramework = event.frames.some((f) => !f.inApp) && event.frames.some((f) => f.inApp)
 
-  const toggle = (index: number) =>
-    setOpen((prev) => {
-      const next = new Set(prev)
-      if (next.has(index)) next.delete(index)
-      else next.add(index)
-      return next
-    })
+  const toggle = (frame: Frame) =>
+    setChoices((prev) => new Map(prev).set(frameKey(frame), !isFrameOpen(frame, event.frames, prev)))
 
   return (
     <section className={styles.card} aria-labelledby="stack-trace-title">
@@ -47,10 +46,14 @@ export function StackTrace({ event }: { event: EventDetail }) {
         <p className={styles.empty}>This event has no stack trace.</p>
       ) : (
         <ol className={styles.frames}>
-          {shown.map((frame) => {
-            const index = event.frames.indexOf(frame)
-            return <FrameItem key={index} frame={frame} open={open.has(index)} onToggle={() => toggle(index)} />
-          })}
+          {shown.map((frame) => (
+            <FrameItem
+              key={event.frames.indexOf(frame)}
+              frame={frame}
+              open={isFrameOpen(frame, event.frames, choices)}
+              onToggle={() => toggle(frame)}
+            />
+          ))}
         </ol>
       )}
 

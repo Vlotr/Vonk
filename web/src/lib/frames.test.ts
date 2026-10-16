@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import type { Frame } from '../api/client'
-import { codeLines, visibleFrames } from './frames'
+import { codeLines, frameKey, isFrameOpen, visibleFrames } from './frames'
 
 function frame(file: string, inApp: boolean, extra: Partial<Frame> = {}): Frame {
   return { file, function: 'f', line: 10, inApp, preContext: [], contextLine: '', postContext: [], ...extra }
@@ -43,5 +43,29 @@ describe('visibleFrames', () => {
   test("shows all frames when none is the app's own", () => {
     const vendor = [frame('v1', false), frame('v2', false)]
     expect(visibleFrames(vendor, false)).toEqual({ shown: vendor, hidden: 0 })
+  })
+})
+
+describe('isFrameOpen', () => {
+  const withCode = { preContext: ['a'], contextLine: 'b', postContext: ['c'] }
+  const event1 = [frame('/app/Http/Controllers/CheckoutController.php', true, { line: 14, ...withCode }), frame('/vendor/x.php', false, { line: 3, ...withCode }), frame('/public/index.php', true, { line: 20, ...withCode })]
+
+  test('the first in-app frame with source is open, the rest closed', () => {
+    const choices = new Map<string, boolean>()
+    expect(event1.map((f) => isFrameOpen(f, event1, choices))).toEqual([true, false, false])
+  })
+
+  test("the viewer's choices carry over to a newer event with the same frames", () => {
+    const choices = new Map([
+      [frameKey(event1[0]), false],
+      [frameKey(event1[2]), true],
+    ])
+    // A newer event: new objects, the same files and lines, one frame more.
+    const event2 = [frame('/app/Http/Controllers/CheckoutController.php', true, { line: 14, ...withCode }), frame('/vendor/y.php', false, { line: 9, ...withCode }), frame('/public/index.php', true, { line: 20, ...withCode })]
+    expect(event2.map((f) => isFrameOpen(f, event2, choices))).toEqual([false, false, true])
+  })
+
+  test('a frame is known by file and line', () => {
+    expect(frameKey(frame('/app/A.php', true, { line: 7 }))).toBe('/app/A.php:7')
   })
 })

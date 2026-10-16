@@ -24,3 +24,21 @@ export function visibleFrames(frames: Frame[], showFramework: boolean): { shown:
   if (showFramework || own.length === 0) return { shown: frames, hidden: 0 }
   return { shown: own, hidden: frames.length - own.length }
 }
+
+/**
+ * frameKey names a frame by file and line, so the viewer's open and closed
+ * frames still apply when a poll brings a newer event of the same issue.
+ */
+export function frameKey(frame: Frame): string {
+  return `${frame.file}:${frame.line}`
+}
+
+/**
+ * isFrameOpen tells whether a frame shows its source: as the viewer chose
+ * (choices, by frameKey), or else open for the first in-app frame with source.
+ */
+export function isFrameOpen(frame: Frame, frames: Frame[], choices: Map<string, boolean>): boolean {
+  const chosen = choices.get(frameKey(frame))
+  if (chosen !== undefined) return chosen
+  return frames.find((f) => f.inApp && codeLines(f).length > 0) === frame
+}

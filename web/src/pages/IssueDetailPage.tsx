@@ -86,7 +86,7 @@ export function IssueDetailPage() {
       <div className={styles.columns}>
         <div className={styles.main}>
           {event ? (
-            <StackTrace key={event.eventId} event={event} />
+            <StackTrace key={issue.id} event={event} />
           ) : (
             <div className={page.card}>
               <p className={page.empty}>The events of this issue are no longer stored.</p>
