@@ -136,6 +136,12 @@ func (db *DB) ProjectByID(ctx context.Context, id int64) (Project, error) {
 	return scanProject(row)
 }
 
+// ProjectBySlug returns the project with this slug, or ErrNotFound.
+func (db *DB) ProjectBySlug(ctx context.Context, slug string) (Project, error) {
+	row := db.read.QueryRowContext(ctx, "SELECT "+projectColumns+" FROM projects WHERE slug = ?", slug)
+	return scanProject(row)
+}
+
 // ProjectByPosthogToken returns the project with this PostHog token, or ErrNotFound.
 func (db *DB) ProjectByPosthogToken(ctx context.Context, token string) (Project, error) {
 	row := db.read.QueryRowContext(ctx, "SELECT "+projectColumns+" FROM projects WHERE posthog_token = ?", token)
