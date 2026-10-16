@@ -19,6 +19,10 @@ const (
 	// maxFutureSkew is how far ahead of the receive time an event may be;
 	// later timestamps (a client clock that is off) become the receive time.
 	maxFutureSkew = time.Hour
+	// maxAge is how far before the receive time an event may be. SDKs send
+	// late (a browser that was offline), but not a month late; older
+	// timestamps ("timestamp": 1) become the receive time too.
+	maxAge = 30 * 24 * time.Hour
 )
 
 // defaultRetryDelays are the waits between attempts when a batch fails to
@@ -81,6 +85,7 @@ func (w *Writer) run(ctx context.Context) {
 	for {
 		select {
 		case item := <-w.queue.items:
+			w.queue.release(item)
 			batch = append(batch, item)
 			if len(batch) >= w.batchSize {
 				w.flush(ctx, batch)
@@ -106,6 +111,7 @@ func (w *Writer) drain(ctx context.Context, batch []Item) {
 	for {
 		select {
 		case item := <-w.queue.items:
+			w.queue.release(item)
 			batch = append(batch, item)
 			if len(batch) >= w.batchSize {
 				w.flush(ctx, batch)
@@ -161,7 +167,8 @@ func (w *Writer) flush(ctx context.Context, batch []Item) {
 }
 
 // errorEvent turns a queued event into its database row: grouping, title,
-// culprit and source, the stored JSON, and a timestamp that is not in the future.
+// culprit and source, the stored JSON, and a timestamp that is neither in
+// the future nor more than 30 days old.
 func errorEvent(item Item) (store.NewErrorEvent, error) {
 	ev := item.Event
 	if ev.EventID == "" {
@@ -173,7 +180,7 @@ func errorEvent(item Item) (store.NewErrorEvent, error) {
 	}
 
 	ts := ev.Timestamp
-	if ts.IsZero() || ts.After(item.ReceivedAt.Add(maxFutureSkew)) {
+	if ts.IsZero() || ts.After(item.ReceivedAt.Add(maxFutureSkew)) || ts.Before(item.ReceivedAt.Add(-maxAge)) {
 		ts = item.ReceivedAt
 	}
 	summary := sentry.Summarize(ev)

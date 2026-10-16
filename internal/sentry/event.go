@@ -44,6 +44,10 @@ type Event struct {
 	// Raw is the whole event. Numbers are json.Number, so they are stored
 	// exactly as sent. Call Refresh after changing it.
 	Raw map[string]any
+
+	// Size is how many bytes of JSON the event was decoded from. The ingest
+	// queue adds it up to bound the memory that waiting events take.
+	Size int
 }
 
 // Exception is one exception of an event.
@@ -132,7 +136,7 @@ func DecodeEvent(data []byte) (*Event, error) {
 	if dec.More() {
 		return nil, errors.New("event has data after the JSON object")
 	}
-	ev := &Event{Raw: raw}
+	ev := &Event{Raw: raw, Size: len(data)}
 	ev.Refresh()
 	return ev, nil
 }
@@ -156,9 +160,10 @@ func (e *Event) SetEventID(id string) {
 
 // Refresh reads the typed fields from Raw again, after Raw was changed.
 func (e *Event) Refresh() {
-	raw := e.Raw
+	raw, size := e.Raw, e.Size
 	*e = Event{
 		Raw:         raw,
+		Size:        size,
 		EventID:     NormalizeEventID(str(raw["event_id"])),
 		Timestamp:   timestamp(raw["timestamp"]),
 		Platform:    str(raw["platform"]),

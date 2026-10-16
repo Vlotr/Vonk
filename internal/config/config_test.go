@@ -148,6 +148,12 @@ func TestLoadConfig_BaseURLErrorsHideCredentials(t *testing.T) {
 		"https://admin:secret-pass@monitor.example.com/sub", // path
 		"admin:secret-pass@monitor.example.com",             // no scheme
 		"https://admin:secret-pass@",                        // no host
+		// Unencoded "#", "?" or "/" in the password: the authority does not
+		// end there, the last "@" is what counts.
+		"https://admin:secret-pass#1@monitor.example.com",
+		"https://admin:secret-pass?1@monitor.example.com",
+		"https://admin:secret-pass/1@monitor.example.com",
+		"admin:secret-pass#1@monitor.example.com",
 	}
 	for _, in := range bad {
 		t.Run(in, func(t *testing.T) {

@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	"monitor/internal/httpjson"
 	"monitor/internal/store"
 )
 
@@ -86,7 +87,7 @@ func (h *Handler) listIssues(w http.ResponseWriter, r *http.Request) {
 	// request answers the same whether the project exists or not.
 	filter, err := parseIssueFilter(r.URL.Query())
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		httpjson.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	filter.ProjectID = projectID
@@ -145,7 +146,7 @@ func (h *Handler) listIssues(w http.ResponseWriter, r *http.Request) {
 	for _, row := range rows {
 		list.Issues = append(list.Issues, toIssueJSON(row, hourly[row.ID], now))
 	}
-	writeJSON(w, http.StatusOK, list)
+	httpjson.Write(w, http.StatusOK, list)
 }
 
 // parseIssueFilter reads status, limit and offset, with their defaults.
@@ -220,7 +221,7 @@ func (h *Handler) issueDetail(w http.ResponseWriter, r *http.Request) {
 		}
 		resp.LatestEvent = ev
 	}
-	writeJSON(w, http.StatusOK, resp)
+	httpjson.Write(w, http.StatusOK, resp)
 }
 
 // hourly returns, for each issue, its events per clock hour over the last

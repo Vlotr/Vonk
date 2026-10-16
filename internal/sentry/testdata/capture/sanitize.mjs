@@ -8,10 +8,36 @@
 //   node sanitize.mjs <NNNN-....body> <NNNN-....json> <out> [app-dir]
 //
 // writes <out>.envelope (or <out>.envelope.gz) and <out>.headers.json.
+// `node --test` in this directory runs sanitize.test.mjs.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { hostname, userInfo } from 'node:os';
+import { fileURLToPath } from 'node:url';
 import { gunzipSync, gzipSync } from 'node:zlib';
 
+const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * findLeaks returns what in text still names this machine: the user name as
+ * a whole path segment (/Users/jan/, C:\\Users\\jan\\, also JSON's \/jan\/),
+ * the host name or its first label as a whole host token (not "web" inside
+ * "web-1", "webshop" or "web.example.com"), and the app directory anywhere.
+ * User and host are matched in the exact case the system reports them, as
+ * paths and SDKs write them: a host named "mac" is no match for "Mac OS X"
+ * in a User-Agent. Whole segments and tokens keep short names such as
+ * "www", "web" or "jan" from matching ordinary words; "localhost" is no leak.
+ */
+export function findLeaks(text, { user, host, appDir }) {
+  const leaks = [];
+  if (user && new RegExp(`(^|[\\\\/])${escapeRegExp(user)}([\\\\/]|$)`).test(text)) leaks.push(user);
+  for (const name of new Set(host ? [host, host.split('.')[0]] : [])) {
+    if (name === '' || name === 'localhost') continue;
+    if (new RegExp(`(^|[^A-Za-z0-9.-])${escapeRegExp(name)}($|[^A-Za-z0-9.-])`).test(text)) leaks.push(name);
+  }
+  if (appDir && text.includes(appDir)) leaks.push(appDir);
+  return leaks;
+}
+
+function main() {
 const [bodyPath, metaPath, out, appDir] = process.argv.slice(2);
 if (!bodyPath || !metaPath || !out) {
   console.error('usage: node sanitize.mjs <captured.body> <captured.json> <out> [app-dir]');
@@ -35,12 +61,9 @@ text = text.replace(
     '"kernel_version":"Linux web-1 6.8.0-45-generic #45-Ubuntu SMP PREEMPT_DYNAMIC x86_64"}',
 );
 
-const leaks = [userInfo().username, hostname(), appDir].filter(Boolean);
-for (const leak of leaks) {
-  if (text.toLowerCase().includes(leak.toLowerCase())) {
-    console.error(`sanitize: the body still contains ${JSON.stringify(leak)}; extend the replacements`);
-    process.exit(1);
-  }
+for (const leak of findLeaks(text, { user: userInfo().username, host: hostname(), appDir })) {
+  console.error(`sanitize: the body still contains ${JSON.stringify(leak)}; extend the replacements`);
+  process.exit(1);
 }
 
 const body = gzipped ? gzipSync(Buffer.from(text, 'utf8')) : Buffer.from(text, 'utf8');
@@ -52,3 +75,6 @@ meta.headers['Content-Length'] = [String(body.length)];
 meta.bodySize = body.length;
 writeFileSync(`${out}.headers.json`, `${JSON.stringify(meta, null, 2)}\n`);
 console.log(`sanitize: wrote ${bodyOut} (${body.length} bytes) and ${out}.headers.json`);
+}
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) main();

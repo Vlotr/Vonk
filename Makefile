@@ -26,11 +26,13 @@ dev: web/node_modules
 	server=$$!; trap 'kill $$server 2>/dev/null' EXIT; \
 	cd web && npm run dev
 
-# Everything CI checks: Go vet and race tests, web typecheck and Vitest.
+# Everything CI checks: Go vet and race tests, web typecheck and Vitest, and
+# the fixture sanitizer's leak check.
 test: web/node_modules
 	go vet ./...
 	go test -race ./...
 	cd web && npm run typecheck && npm test
+	node --test internal/sentry/testdata/capture/sanitize.test.mjs
 
 # Install the end-to-end test dependencies when their lockfile changes.
 e2e/node_modules: e2e/package.json e2e/package-lock.json

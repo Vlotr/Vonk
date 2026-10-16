@@ -152,23 +152,21 @@ func parseBaseURL(raw string) (string, error) {
 	return u.Scheme + "://" + u.Host, nil
 }
 
-// redactUserInfo replaces anything before an "@" in the host part of raw with
-// "xxxxx", so "ftp://user:secret@host" becomes "ftp://xxxxx@host". It works on
-// the text, so it also covers values that url.Parse refuses or reads oddly.
+// redactUserInfo replaces everything between "://" (or the start) and the
+// last "@" of raw with "xxxxx", so "ftp://user:secret@host" becomes
+// "ftp://xxxxx@host". It works on the text and looks at the whole value,
+// because a password with an unencoded "#", "?" or "/" would otherwise end
+// the host part early; for an error message, hiding too much is fine.
 func redactUserInfo(raw string) string {
-	prefix, rest := "", raw
-	if i := strings.Index(raw, "://"); i >= 0 {
-		prefix, rest = raw[:i+3], raw[i+3:]
-	}
-	authority, tail := rest, ""
-	if i := strings.IndexAny(rest, "/?#"); i >= 0 {
-		authority, tail = rest[:i], rest[i:]
-	}
-	at := strings.LastIndex(authority, "@")
+	at := strings.LastIndex(raw, "@")
 	if at < 0 {
 		return raw
 	}
-	return prefix + "xxxxx" + authority[at:] + tail
+	start := 0
+	if i := strings.Index(raw, "://"); i >= 0 && i < at {
+		start = i + 3
+	}
+	return raw[:start] + "xxxxx" + raw[at:]
 }
 
 func checkDatabaseURL(raw string) error {

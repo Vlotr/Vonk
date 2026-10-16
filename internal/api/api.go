@@ -6,12 +6,12 @@
 package api
 
 import (
-	"encoding/json"
 	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
 
+	"monitor/internal/httpjson"
 	"monitor/internal/store"
 )
 
@@ -41,24 +41,12 @@ func pathID(r *http.Request, name string) (id int64, ok bool) {
 	return id, err == nil && id > 0
 }
 
-// writeJSON writes v as a JSON response.
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
-}
-
-// writeError writes the {"error":"..."} body every JSON endpoint uses for errors.
-func writeError(w http.ResponseWriter, status int, message string) {
-	writeJSON(w, status, map[string]string{"error": message})
-}
-
 func notFound(w http.ResponseWriter) {
-	writeError(w, http.StatusNotFound, "not found")
+	httpjson.Error(w, http.StatusNotFound, "not found")
 }
 
 // internalError logs a failed query and answers 500 without details.
 func (h *Handler) internalError(w http.ResponseWriter, r *http.Request, err error) {
 	h.log.Error("dashboard api", "path", r.URL.Path, "err", err)
-	writeError(w, http.StatusInternalServerError, "internal error")
+	httpjson.Error(w, http.StatusInternalServerError, "internal error")
 }

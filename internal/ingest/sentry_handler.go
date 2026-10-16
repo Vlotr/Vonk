@@ -7,7 +7,6 @@ import (
 	"compress/zlib"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -19,6 +18,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"monitor/internal/httpjson"
 	"monitor/internal/scrub"
 	"monitor/internal/sentry"
 	"monitor/internal/store"
@@ -71,7 +71,7 @@ func (h *SentryHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	default:
 		w.Header().Set("Allow", corsAllowMethods)
-		writeError(w, http.StatusMethodNotAllowed, "envelopes are sent with POST")
+		httpjson.Error(w, http.StatusMethodNotAllowed, "envelopes are sent with POST")
 		return
 	}
 
@@ -101,7 +101,7 @@ func (h *SentryHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		var maxBytes *http.MaxBytesError
 		if errors.Is(err, errBodyTooLarge) || errors.As(err, &maxBytes) {
-			writeError(w, http.StatusRequestEntityTooLarge, "envelope larger than 20 MiB")
+			httpjson.Error(w, http.StatusRequestEntityTooLarge, "envelope larger than 20 MiB")
 			return
 		}
 		badRequest(w, err.Error())
@@ -120,7 +120,7 @@ func (h *SentryHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.logger.Debug("sentry: dropped events larger than 1 MiB", "project", project.ID, "events", env.Dropped)
 	}
 	if len(env.Events) == 0 {
-		writeJSON(w, http.StatusOK, map[string]string{}) // sessions, client reports, ...
+		httpjson.Write(w, http.StatusOK, map[string]string{}) // sessions, client reports, ...
 		return
 	}
 
@@ -128,7 +128,7 @@ func (h *SentryHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		seconds := strconv.Itoa(max(1, int(math.Ceil(wait.Seconds()))))
 		w.Header().Set("Retry-After", seconds)
 		w.Header().Set("X-Sentry-Rate-Limits", seconds+"::project")
-		writeError(w, http.StatusTooManyRequests,
+		httpjson.Error(w, http.StatusTooManyRequests,
 			fmt.Sprintf("this project accepts %d events a minute", project.RateLimitPerMinute))
 		return
 	}
@@ -144,18 +144,18 @@ func (h *SentryHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"id": env.Events[0].EventID})
+	httpjson.Write(w, http.StatusOK, map[string]string{"id": env.Events[0].EventID})
 }
 
 // authFailed answers 401 for a bad key and 503 when the lookup itself failed.
 func (h *SentryHandler) authFailed(w http.ResponseWriter, err error) {
 	if errors.Is(err, errUnauthorized) {
-		writeError(w, http.StatusUnauthorized, err.Error())
+		httpjson.Error(w, http.StatusUnauthorized, err.Error())
 		return
 	}
 	h.logger.Error("sentry: project lookup failed", "err", err)
 	w.Header().Set("Retry-After", dbErrorRetryAfter)
-	writeError(w, http.StatusServiceUnavailable, "temporarily unavailable")
+	httpjson.Error(w, http.StatusServiceUnavailable, "temporarily unavailable")
 }
 
 // queueFull answers 429 and logs a warning, at most once per queueFullLogEvery.
@@ -163,10 +163,11 @@ func (h *SentryHandler) queueFull(w http.ResponseWriter) {
 	now := time.Now().UnixNano()
 	last := h.lastQueueFullLog.Load()
 	if now-last >= int64(queueFullLogEvery) && h.lastQueueFullLog.CompareAndSwap(last, now) {
-		h.logger.Warn("sentry: ingest queue is full; answering 429 until the writer catches up", "capacity", h.queue.Cap())
+		h.logger.Warn("sentry: ingest queue is full; answering 429 until the writer catches up",
+			"items", h.queue.Len(), "capacity", h.queue.Cap(), "bytes", h.queue.Bytes(), "max_bytes", h.queue.maxBytes)
 	}
 	w.Header().Set("Retry-After", queueFullRetryAfter)
-	writeError(w, http.StatusTooManyRequests, "too busy; try again in a few seconds")
+	httpjson.Error(w, http.StatusTooManyRequests, "too busy; try again in a few seconds")
 }
 
 // decodeBody returns the request body, decompressed per Content-Encoding and
@@ -239,15 +240,5 @@ func badRequest(w http.ResponseWriter, reason string) {
 		reason = reason[:200]
 	}
 	w.Header().Set("X-Sentry-Error", reason)
-	writeError(w, http.StatusBadRequest, reason)
-}
-
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
-}
-
-func writeError(w http.ResponseWriter, status int, message string) {
-	writeJSON(w, status, map[string]string{"error": message})
+	httpjson.Error(w, http.StatusBadRequest, reason)
 }

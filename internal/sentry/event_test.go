@@ -88,6 +88,13 @@ func TestDecodeEvent_MessageShapes(t *testing.T) {
 	}
 }
 
+func TestDecodeEvent_Size(t *testing.T) {
+	data := `{"event_id":"5f2b6a0c7d3e4f1a8b9c0d1e2f3a4b5c","message":"hello"}`
+	if ev := decode(t, data); ev.Size != len(data) {
+		t.Errorf("Size = %d, want %d (the bytes it was decoded from)", ev.Size, len(data))
+	}
+}
+
 func TestDecodeEvent_UnixTimestamp(t *testing.T) {
 	ev := decode(t, `{"timestamp": 1792150946.5}`)
 	if want := time.Unix(1792150946, 500_000_000).UTC(); ev.Timestamp.Sub(want).Abs() > time.Millisecond {

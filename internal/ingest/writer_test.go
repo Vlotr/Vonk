@@ -208,6 +208,39 @@ func TestWriter_ClampsFutureTimestamp(t *testing.T) {
 	}
 }
 
+func TestWriter_ClampsOldTimestamp(t *testing.T) {
+	env := newTestEnv(t, 100)
+	p := env.project(t, "Webshop", 0)
+	w := startWriter(t, env, &recordingHooks{})
+
+	received := t0
+	enqueue(t, env,
+		errorItem(t, p.ID, eventIDN(1), "charge", received.Add(-29*24*time.Hour), received), // late: kept
+		errorItem(t, p.ID, eventIDN(2), "charge", received.Add(-31*24*time.Hour), received), // too old
+		errorItem(t, p.ID, eventIDN(3), "charge", time.Unix(1, 0), received),                // "timestamp": 1
+	)
+	w.Close()
+
+	want := map[string]time.Time{
+		eventIDN(1): received.Add(-29 * 24 * time.Hour),
+		eventIDN(2): received,
+		eventIDN(3): received,
+	}
+	for id, ts := range want {
+		ev, err := env.db.ErrorEventByEventID(context.Background(), p.ID, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !ev.Timestamp.Equal(ts) {
+			t.Errorf("event %s: timestamp %v, want %v", id, ev.Timestamp, ts)
+		}
+	}
+	issues, _ := env.db.ListIssues(context.Background(), p.ID)
+	if len(issues) != 1 || !issues[0].FirstSeen.Equal(received.Add(-29*24*time.Hour)) {
+		t.Errorf("issues = %+v, want first_seen at the oldest kept timestamp, not 1970", issues)
+	}
+}
+
 func TestWriter_FlushOnClose(t *testing.T) {
 	env := newTestEnv(t, 100)
 	p := env.project(t, "Webshop", 0)

@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 
+	"monitor/internal/httpjson"
 	"monitor/internal/store"
 )
 
@@ -40,7 +41,7 @@ func (h *Handler) listProjects(w http.ResponseWriter, r *http.Request) {
 			OpenIssues: open[p.ID],
 		})
 	}
-	writeJSON(w, http.StatusOK, list)
+	httpjson.Write(w, http.StatusOK, list)
 }
 
 // sources lists what a project tracks, Laravel first, as the designs show the tags.

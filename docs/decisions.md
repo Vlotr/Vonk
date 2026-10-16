@@ -197,3 +197,16 @@ Fix round 1 (review of Task 3):
 - The issue page keys the stack trace by issue, not by event, and remembers opened frames by `file:line`: the minute poll often brings a newer event of the same issue, and that used to fold the framework frames and close opened frames again.
 - Controller ruling 26: an issue whose main exception has mechanism `onunhandledrejection` (or `….onunhandledrejection`, as `@sentry/browser` 11 sends: `auto.browser.global_handlers.onunhandledrejection`) is titled "Unhandled rejection". The rule is in `sentry.Summarize`, so the stored title and every place that shows it agree; the fingerprint is unchanged and the real type stays in the stack trace. New fixture `browser-rejection.envelope`, captured from the browser example.
 - Controller ruling 27: for platform `javascript` the culprit is the frame URL's path without origin, query, fragment and leading slash (`assets/index-D8xk2Lp1.js:8301`, `src/main.js:21`); other platforms keep the file name. This replaces the Task 2 rule for browsers only; grouping inputs are unchanged.
+
+## Task 4: Issue workflow, issue detail and the All projects overview
+
+Follow-ups from the Task 2 and Task 3 reviews:
+
+- `BASE_URL` errors hide everything between `://` (or the start) and the last `@` of the whole value, so a password with an unencoded `#`, `?` or `/` is hidden too; a path or query with an `@` after the host is hidden along with it, which is fine for an error message.
+- The scrubber replaces the password of every `scheme://user:password@host` in any string, free text included (`connecting to amqp://guest:…@queue failed`); the user name stays, so a DSN's public key (`https://key@host/1`) is kept. The host part runs to the next `/` or whitespace and the last `@` in it ends the user info. Accepted false positive: a URL without a path whose query holds an `@` and that has a port (`https://host:8080?email=a@b.com`) loses everything between the port and that `@`.
+- A request body sent as JSON text that is a list of `[key, value]` pairs gets the pair rule, like the same list sent as JSON.
+- Timestamps more than 30 days before the receive time become the receive time, like those more than an hour ahead; `"timestamp": 1` no longer makes an issue first seen in 1970.
+- The ingest queue is also full at 256 MiB of queued event JSON (`sentry.Event.Size`, the bytes the event was decoded from, added up when queued and released when the writer takes it). Decoded events take more memory than their JSON; the cap is an approximation that keeps 10 000 large events from taking gigabytes. The "queue is full" warning names both limits.
+- `writeJSON`/`writeError` live once, in `internal/httpjson` (`Write`, `Error`), used by `api`, `server` and `ingest`.
+- `sanitize.mjs` looks for the user name only as a whole path segment and for the host name (and its first label) only as a whole host token, both in the exact case the system reports them; `localhost` is never a leak. A host called `mac` therefore no longer matches `Mac OS X` in a User-Agent. The check is exported as `findLeaks` and tested by `sanitize.test.mjs` with `node --test`, which `make test` runs.
+- The PHP capture recipe sends the fixture's Chrome-on-macOS User-Agent, and CLAUDE.md says the session envelope's headers file is not committed.

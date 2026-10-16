@@ -63,9 +63,15 @@ func defaultFingerprint(e *Event) string {
 
 // Summary is how an issue is shown in lists.
 type Summary struct {
-	Title   string // the exception type, or the first line of the log message
-	Message string // the exception value, or the log message
-	Culprit string // "PaymentGateway.php:12": the top in-app frame (the top frame when none is in-app)
+	// Title is the exception type ("Unhandled rejection" when the SDK caught
+	// an unhandled promise rejection), or the first line of the log message.
+	Title string
+	// Message is the exception value, or the log message.
+	Message string
+	// Culprit is the top in-app frame (the top frame when none is in-app) and
+	// its line: the file name for server platforms ("PaymentGateway.php:12"),
+	// the URL's path for javascript ("assets/main.js:21").
+	Culprit string
 }
 
 // Summarize returns the title, message and culprit of an event, from the

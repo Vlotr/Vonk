@@ -170,12 +170,44 @@ func TestScrub_URLQuery(t *testing.T) {
 	}
 }
 
+func TestScrub_URLUserInfo(t *testing.T) {
+	ev, data := scrubbed(t, `{
+		"breadcrumbs":[{"category":"http","data":{"url":"https://user:secret-1@api.example.com/v1/orders?page=2"}}],
+		"extra":{
+			"database":"mysql://root:secret-2@db/app",
+			"cache":"redis://:secret-3@cache:6379/0",
+			"log":"connecting to amqp://guest:secret-4@queue:5672 failed, retrying",
+			"odd":"https://admin:pa#ss@secret-5@monitor.example.com/x",
+			"dsn":"https://5f2b6a0c7d3e4f1a@sentry.example.com/1",
+			"plain":"https://shop.example.com/products?ref=mail"}}`)
+
+	assertNotContains(t, data, "secret-1", "secret-2", "secret-3", "secret-4", "secret-5")
+	want := map[string]string{
+		"database": "mysql://root:[Filtered]@db/app",
+		"cache":    "redis://:[Filtered]@cache:6379/0",
+		"log":      "connecting to amqp://guest:[Filtered]@queue:5672 failed, retrying",
+		"odd":      "https://admin:[Filtered]@monitor.example.com/x",
+		// A user name without a password, such as a DSN's public key, stays.
+		"dsn":   "https://5f2b6a0c7d3e4f1a@sentry.example.com/1",
+		"plain": "https://shop.example.com/products?ref=mail",
+	}
+	for key, value := range want {
+		if got := at(ev.Raw, "extra", key); got != value {
+			t.Errorf("extra.%s = %q, want %q", key, got, value)
+		}
+	}
+	if got := at(ev.Raw, "breadcrumbs", 0, "data", "url"); got != "https://user:[Filtered]@api.example.com/v1/orders?page=2" {
+		t.Errorf("breadcrumb url = %q", got)
+	}
+}
+
 func TestScrub_RequestBody(t *testing.T) {
 	cases := map[string]string{
 		"object":       `{"request":{"data":{"email":"jan@example.com","password":"pw-123","cart":{"cvv":"cvv-123"}}}}`,
 		"form string":  `{"request":{"data":"email=jan%40example.com&password=pw-123"}}`,
 		"JSON string":  `{"request":{"data":"{\"user\":{\"password\":\"pw-123\"},\"items\":3}"}}`,
 		"other string": `{"request":{"data":"<login><password>pw-123</password></login>"}}`,
+		"JSON pairs":   `{"request":{"data":"[[\"password\",\"pw-123\"],[\"email\",\"jan@example.com\"]]"}}`,
 	}
 	for name, event := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -191,6 +223,11 @@ func TestScrub_RequestBody(t *testing.T) {
 	_, data = scrubbed(t, `{"request":{"data":"just some text"}}`)
 	if !strings.Contains(data, "just some text") {
 		t.Errorf("harmless text body changed: %s", data)
+	}
+	// A body of [key, value] pairs sent as JSON text gets the pair rule.
+	ev, _ := scrubbed(t, `{"request":{"data":"[[\"password\",\"pw-123\"],[\"email\",\"jan@example.com\"]]"}}`)
+	if body, _ := at(ev.Raw, "request", "data").(string); body != `[["password","[Filtered]"],["email","jan@example.com"]]` {
+		t.Errorf("pair body = %s", body)
 	}
 }
 

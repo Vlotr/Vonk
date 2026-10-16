@@ -190,7 +190,8 @@ func dropIPKeys(v any) any {
 }
 
 // scrubBody filters a request body the SDK sent as text: JSON and form
-// bodies by key; other text is filtered whole when it mentions a sensitive word.
+// bodies by key (a JSON list of [key, value] pairs by the pair rule); other
+// text is filtered whole when it mentions a sensitive word.
 func scrubBody(body string) string {
 	trimmed := strings.TrimSpace(body)
 	if strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[") {
@@ -198,7 +199,7 @@ func scrubBody(body string) string {
 		dec.UseNumber()
 		var v any
 		if err := dec.Decode(&v); err == nil {
-			if out, err := encode(Value(v)); err == nil {
+			if out, err := encode(scrubPairs(Value(v))); err == nil {
 				return out
 			}
 		}
@@ -212,10 +213,11 @@ func scrubBody(body string) string {
 	return body
 }
 
-// scrubURL filters sensitive query and fragment parameters in a string that
-// looks like a URL or path (no whitespace, a "?" or "#"); other strings are
-// returned as they are.
+// scrubURL filters the password of every URL in s ("mysql://root:secret@db"
+// anywhere in the text), then, when s itself looks like a URL or path (no
+// whitespace, a "?" or "#"), its sensitive query and fragment parameters.
 func scrubURL(s string) string {
+	s = scrubUserInfo(s)
 	if !strings.ContainsAny(s, "?#") || strings.ContainsAny(s, " \t\r\n") {
 		return s
 	}
@@ -232,6 +234,41 @@ func scrubURL(s string) string {
 		b.WriteByte('#')
 		b.WriteString(scrubQuery(fragment)) // OAuth puts tokens here: #access_token=...
 	}
+	return b.String()
+}
+
+// scrubUserInfo replaces the password of each "scheme://user:password@host"
+// in s with Filtered, keeping the user name ("https://key@host", a DSN, has
+// no password and stays). The host part runs to the next "/" or whitespace
+// and the last "@" in it ends the user info, so a password with an
+// unencoded "#", "?" or "@" is filtered whole.
+func scrubUserInfo(s string) string {
+	if !strings.Contains(s, "://") || !strings.Contains(s, "@") {
+		return s
+	}
+	var b strings.Builder
+	for {
+		i := strings.Index(s, "://")
+		if i < 0 {
+			break
+		}
+		start := i + 3
+		b.WriteString(s[:start])
+		s = s[start:]
+
+		end := strings.IndexAny(s, "/ \t\r\n")
+		if end < 0 {
+			end = len(s)
+		}
+		at := strings.LastIndex(s[:end], "@")
+		user, _, hasPassword := strings.Cut(s[:max(at, 0)], ":")
+		if at < 0 || !hasPassword {
+			continue
+		}
+		b.WriteString(user + ":" + Filtered)
+		s = s[at:]
+	}
+	b.WriteString(s)
 	return b.String()
 }
 

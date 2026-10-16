@@ -13,7 +13,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
-	"encoding/json"
 	"log/slog"
 	"net"
 	"net/http"
@@ -23,6 +22,7 @@ import (
 
 	"monitor/internal/api"
 	"monitor/internal/config"
+	"monitor/internal/httpjson"
 	"monitor/internal/ingest"
 	"monitor/internal/store"
 	"monitor/internal/web"
@@ -82,7 +82,7 @@ func healthHandler(deps Deps) http.HandlerFunc {
 			body["db"] = "error"
 			status = http.StatusServiceUnavailable
 		}
-		writeJSON(w, status, body)
+		httpjson.Write(w, status, body)
 	}
 }
 
@@ -117,7 +117,7 @@ func dashboardGuard(devBasicAuth string) func(http.Handler) http.Handler {
 // writeGuardError answers in JSON for the dashboard API and in plain text for pages.
 func writeGuardError(w http.ResponseWriter, r *http.Request, status int, message string) {
 	if strings.HasPrefix(r.URL.Path, "/ui/api/") {
-		writeError(w, status, message)
+		httpjson.Error(w, status, message)
 		return
 	}
 	http.Error(w, message, status)
@@ -222,19 +222,7 @@ func (s *statusRecorder) Unwrap() http.ResponseWriter {
 	return s.ResponseWriter
 }
 
-// writeJSON writes v as a JSON response.
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
-}
-
 // notFoundJSON answers unknown API paths, so SDKs and the dashboard never get HTML.
 func notFoundJSON(w http.ResponseWriter, _ *http.Request) {
-	writeError(w, http.StatusNotFound, "not found")
-}
-
-// writeError writes the {"error":"..."} body every JSON endpoint uses for errors.
-func writeError(w http.ResponseWriter, status int, message string) {
-	writeJSON(w, status, map[string]string{"error": message})
+	httpjson.Error(w, http.StatusNotFound, "not found")
 }

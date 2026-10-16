@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"monitor/internal/sentry"
 )
 
 func TestQueueFull_Returns429(t *testing.T) {
@@ -65,5 +67,65 @@ func TestQueue_KeepsOrderAndCapacity(t *testing.T) {
 	}
 	if first, second := <-q.items, <-q.items; first.ProjectID != 1 || second.ProjectID != 2 {
 		t.Errorf("order = %d, %d; want 1, 2", first.ProjectID, second.ProjectID)
+	}
+}
+
+func TestQueue_BoundedByBytes(t *testing.T) {
+	if DefaultQueueMaxBytes != 256<<20 {
+		t.Fatalf("DefaultQueueMaxBytes = %d, want 256 MiB", DefaultQueueMaxBytes)
+	}
+	q := NewQueue(10)
+	q.maxBytes = 1000
+	sized := func(n int) Item { return Item{ProjectID: 1, Event: &sentry.Event{Size: n}} }
+
+	if !q.TryEnqueue(sized(600)) {
+		t.Fatal("refused the first item although it fits")
+	}
+	if q.TryEnqueue(sized(600)) {
+		t.Fatal("accepted an item that takes the queue over its byte limit")
+	}
+	if !q.TryEnqueue(sized(400)) {
+		t.Fatal("refused an item that exactly fits")
+	}
+	if got := q.bytes.Load(); got != 1000 {
+		t.Errorf("queued bytes = %d, want 1000", got)
+	}
+
+	// The writer takes an item off: its bytes are free again.
+	q.release(<-q.items)
+	if got := q.bytes.Load(); got != 400 {
+		t.Errorf("queued bytes after one is taken = %d, want 400", got)
+	}
+	if !q.TryEnqueue(sized(600)) {
+		t.Error("refused an item after room was made")
+	}
+}
+
+func TestQueueFullOfBytes_Returns429(t *testing.T) {
+	env := newTestEnv(t, 100)
+	env.queue.maxBytes = 10 // smaller than any event
+	p := env.project(t, "Webshop", 1_000_000)
+
+	rec := env.post(envelopePath(p), envelope(eventIDN(1), ""), authHeader(p.SentryKey))
+	if rec.Code != http.StatusTooManyRequests || rec.Header().Get("Retry-After") != "5" {
+		t.Errorf("status %d, Retry-After %q; want 429 and 5", rec.Code, rec.Header().Get("Retry-After"))
+	}
+	if env.queue.Len() != 0 || env.queue.bytes.Load() != 0 {
+		t.Errorf("queue holds %d items, %d bytes; want nothing", env.queue.Len(), env.queue.bytes.Load())
+	}
+}
+
+func TestWriter_ReleasesQueuedBytes(t *testing.T) {
+	env := newTestEnv(t, 100)
+	p := env.project(t, "Webshop", 0)
+	w := startWriter(t, env, &recordingHooks{})
+	item := errorItem(t, p.ID, eventIDN(1), "charge", t0, t0)
+	if item.Event.Size == 0 {
+		t.Fatal("a decoded event has no size")
+	}
+	enqueue(t, env, item)
+	w.Close()
+	if got := env.queue.bytes.Load(); got != 0 {
+		t.Errorf("queued bytes after the writer took everything = %d, want 0", got)
 	}
 }
