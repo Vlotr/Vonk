@@ -123,7 +123,7 @@ Writer (Step 7):
 - Events of a project deleted while they were queued are skipped and counted (warning), instead of failing the batch on the foreign key.
 - A batch that fails is retried after 0.2 s, 1 s and 5 s (SQLite already waits up to 5 s for a lock in each attempt), then logged as an error and dropped.
 - Timestamps: missing, or more than 1 h after the receive time, become the receive time; older timestamps are kept (SDKs send late).
-- `route` stays empty until Task 7 fills it.
+- `route` stays empty until Task 7 fills it. (Task 7: filled from the request URL with `routes.Normalize`.)
 - `OnIssueCreated` runs once per new issue after the commit, on the writer goroutine, with the issue as it is after the batch.
 - `Close` without `Run` writes the queue itself; `Run` and `Close` may each be called twice.
 - No new migration: the Task 1 unique keys on `issues (project_id, fingerprint)` and `error_events (project_id, event_id)` carry grouping and deduplication.
@@ -388,7 +388,7 @@ Spike (ruling 9):
 Summaries:
 
 - The job runs daily at 08:00 in `TZ` (`jobs.DailyAt` keeps the local time across daylight saving changes). Daily covers the calendar day before in `TZ`, weekly (Mondays) Monday to Sunday before, monthly (the 1st) the month before. The period's first day is claimed per project and frequency, so a period goes out once, across restarts too. A server that is down at 08:00 skips that day's summaries (no catch-up later).
-- A summary has the errors, the number of new issues with up to 5 of them, the 5 busiest issues and the issues open now. Page views join it once they are stored (Task 7); none are stored yet.
+- A summary has the errors, the number of new issues with up to 5 of them, the 5 busiest issues and the issues open now. (Task 7 adds page views, visitors and the average time for projects that track page views.)
 
 Admin alerts:
 
@@ -491,4 +491,6 @@ Aggregation (Step 5):
 
 Performance (Step 6):
 
+- No index on `error_events.route` after all: the issues filter finds events through their issue, and errors per route per hour use the `(project_id, timestamp)` index.
+- Files beyond the brief's list: `internal/hll` (the sketches), `internal/store/{pageviews,pages}.go` (the queries live in `store`), `internal/alerts/{cap,messages}.go` (the review's split), `tools/capture/{leaks,fixtures.test}.mjs` and the PostHog recipe's `sanitize.mjs` and `responses.json`.
 - `make perf` (`internal/jobs/perf_test.go`, build tag `perf`) runs the brief's load in a temp database that the test deletes; results in `docs/perf.md`: writer 50 400 events/s, aggregation 1.8 s, 30-day pages query at most 188 ms, overview 4 ms (24 h). All targets met.
