@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Browser errors example</title>
+    <style>
+      body { margin: 40px; font-family: system-ui, sans-serif; line-height: 1.5; color: #1b2430; }
+      button { margin-right: 8px; padding: 8px 14px; font: inherit; cursor: pointer; }
+      code { font-family: ui-monospace, monospace; }
+    </style>
+  </head>
+  <body>
+    <h1>Browser errors example</h1>
+    <p id="status">Loading…</p>
+    <p>
+      <button id="type-error" type="button">Throw a TypeError</button>
+      <button id="rejection" type="button">Reject a promise</button>
+    </p>
+    <p>Price: <span id="price">–</span></p>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
