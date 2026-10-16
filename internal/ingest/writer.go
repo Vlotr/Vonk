@@ -1,9 +1,12 @@
 package ingest
 
 import (
+	"bytes"
 	"cmp"
 	"context"
+	"encoding/json"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -34,8 +37,8 @@ var defaultRetryDelays = []time.Duration{200 * time.Millisecond, time.Second, 5 
 
 // Writer takes items off the queue and writes them to the database in
 // batches: every second, or as soon as 500 items are waiting. It is the only
-// goroutine that writes ingested data (error events and page events), so
-// SQLite never sees two writers.
+// goroutine that writes ingested data (error events, page events and custom
+// events), so SQLite never sees two writers.
 type Writer struct {
 	db    *store.DB
 	queue *Queue
@@ -66,9 +69,9 @@ type WriterStats struct {
 	LastError string
 }
 
-// StoredLastHour returns how many events (errors, page views and page
-// leaves) the writer stored in the last hour (since the start, when that
-// was less than an hour ago).
+// StoredLastHour returns how many events (errors, page views, page leaves
+// and custom events) the writer stored in the last hour (since the start,
+// when that was less than an hour ago).
 func (w *Writer) StoredLastHour() int {
 	return w.stored.lastHour(time.Now())
 }
@@ -159,13 +162,15 @@ func (w *Writer) drain(ctx context.Context, batch []Item) {
 }
 
 // flush writes one batch, retrying when the database fails, and then
-// tells the hooks about new and regressed issues. Error events and page
-// events go in a transaction each. A part that still fails after the
-// retries is logged and dropped, so one bad moment never stops ingest.
+// tells the hooks about new and regressed issues. Error events, page
+// events and custom events go in a transaction each. A part that still
+// fails after the retries is logged and dropped, so one bad moment never
+// stops ingest.
 func (w *Writer) flush(ctx context.Context, batch []Item) {
 	var (
-		errorEvents []store.NewErrorEvent
-		pageEvents  []store.PageEvent
+		errorEvents  []store.NewErrorEvent
+		pageEvents   []store.PageEvent
+		customEvents []store.CustomEvent
 	)
 	for _, item := range batch {
 		switch {
@@ -178,6 +183,13 @@ func (w *Writer) flush(ctx context.Context, batch []Item) {
 			errorEvents = append(errorEvents, ev)
 		case item.Page != nil:
 			pageEvents = append(pageEvents, pageEvent(item))
+		case item.Custom != nil:
+			ev, err := customEvent(item)
+			if err != nil {
+				w.log.Error("ingest: custom event cannot be encoded; dropped", "project", item.ProjectID, "err", err)
+				continue
+			}
+			customEvents = append(customEvents, ev)
 		}
 	}
 
@@ -212,6 +224,19 @@ func (w *Writer) flush(ctx context.Context, batch []Item) {
 				w.log.Warn("ingest: page events of deleted projects skipped", "events", result.Orphaned)
 			}
 			w.log.Debug("ingest: page events written", "stored", result.Stored, "duplicates", result.Duplicates)
+		}
+	}
+	if len(customEvents) > 0 {
+		var result store.CustomSaveResult
+		if w.save(len(customEvents), func() (err error) {
+			result, err = w.db.SaveCustomEvents(ctx, customEvents)
+			return err
+		}) {
+			w.stored.add(time.Now(), result.Stored)
+			if result.Orphaned > 0 {
+				w.log.Warn("ingest: custom events of deleted projects skipped", "events", result.Orphaned)
+			}
+			w.log.Debug("ingest: custom events written", "stored", result.Stored, "duplicates", result.Duplicates)
 		}
 	}
 }
@@ -271,6 +296,30 @@ func pageEvent(item Item) store.PageEvent {
 	pe.Path = item.Path
 	pe.IsBot = item.IsBot
 	return pe
+}
+
+// customEvent turns a queued PostHog custom event into its database row:
+// known by its uuid (so a resent one is stored once), at the time PostHog's
+// rule and the clamp give, with the app's own properties as JSON.
+func customEvent(item Item) (store.CustomEvent, error) {
+	ev := item.Custom
+	var props bytes.Buffer
+	enc := json.NewEncoder(&props)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(ev.OwnProperties()); err != nil {
+		return store.CustomEvent{}, err
+	}
+	return store.CustomEvent{
+		ProjectID:  item.ProjectID,
+		EventID:    cmp.Or(ev.UUID, newEventID()),
+		Name:       ev.Name,
+		UserID:     ev.DistinctID,
+		Path:       item.Path,
+		Route:      item.Route,
+		At:         clampTime(ev.Time(item.ReceivedAt), item.ReceivedAt),
+		IsBot:      item.IsBot,
+		Properties: strings.TrimSuffix(props.String(), "\n"),
+	}, nil
 }
 
 // errorEvent turns a queued event into its database row: grouping, title,

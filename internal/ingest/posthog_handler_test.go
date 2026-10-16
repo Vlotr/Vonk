@@ -141,18 +141,28 @@ func TestPosthog_Fixtures(t *testing.T) {
 		}
 	}
 
-	// Two page views and the leave reach the queue; identify and the
-	// custom event are accepted and left for later (Task 9).
-	items := env.drain()
+	// Two page views, the custom event and the leave reach the queue;
+	// identify ($identify, PostHog's own) is accepted and not stored.
+	queued := env.drain()
 	var names []string
-	for _, it := range items {
-		if it.ProjectID != p.ID || it.Page == nil {
+	var items, custom []Item // the page events, the custom events
+	for _, it := range queued {
+		switch {
+		case it.ProjectID != p.ID:
 			t.Fatalf("item = %+v", it)
+		case it.Page != nil:
+			names = append(names, it.Page.Name)
+			items = append(items, it)
+		case it.Custom != nil:
+			names = append(names, it.Custom.Name)
+			custom = append(custom, it)
 		}
-		names = append(names, it.Page.Name)
 	}
-	if strings.Join(names, " ") != "$pageview $pageview $pageleave" {
+	if strings.Join(names, " ") != "$pageview $pageview custom $pageleave" {
 		t.Fatalf("queued %v", names)
+	}
+	if custom[0].Route != "/checkout" || custom[0].Path != "/checkout" || custom[0].IsBot {
+		t.Errorf("custom event: route %q, path %q, bot %v", custom[0].Route, custom[0].Path, custom[0].IsBot)
 	}
 	if items[0].Route != "/products/blue-shoes" || items[0].Path != "/products/blue-shoes" || items[1].Route != "/checkout" || items[0].IsBot {
 		t.Errorf("routes = %q %q, path %q, bot %v", items[0].Route, items[1].Route, items[0].Path, items[0].IsBot)
@@ -164,10 +174,17 @@ func TestPosthog_Fixtures(t *testing.T) {
 	// Through the writer: the first page view lasted until the second (a
 	// page change in the app), the second until the leave (12.025 s), the
 	// same times posthog-js reports itself.
-	for _, it := range items {
+	for _, it := range queued {
 		env.queue.TryEnqueue(it)
 	}
 	NewWriter(env.db, env.queue, &recordingHooks{}, env.logger).Close()
+	// The custom event keeps the app's own properties, scrubbed, and the
+	// identified user.
+	if rows := customEventRows(t, env, p.ID); len(rows) != 1 || rows[0].name != "custom" || rows[0].user != "42" ||
+		rows[0].properties["plan"] != "pro" || rows[0].properties["password"] != "[Filtered]" || rows[0].properties["utm_source"] != "newsletter" ||
+		len(rows[0].properties) != 3 {
+		t.Errorf("custom events = %+v", rows)
+	}
 	views := pageviewRows(t, env, p)
 	if len(views) != 2 {
 		t.Fatalf("page views = %+v", views)

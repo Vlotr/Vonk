@@ -23,7 +23,7 @@ const (
 )
 
 // Item is one piece of ingested data waiting for the writer: a Sentry
-// error event or a PostHog page event.
+// error event, a PostHog page event or a PostHog custom event.
 type Item struct {
 	ProjectID  int64
 	ReceivedAt time.Time
@@ -34,9 +34,12 @@ type Item struct {
 	Event *sentry.Event
 	// Page is a scrubbed PostHog $pageview or $pageleave, or nil.
 	Page *posthog.Event
-	// Path is a page view's URL path, without query and fragment.
+	// Custom is a scrubbed PostHog custom event (a name without "$"), or nil.
+	Custom *posthog.Event
+	// Path is the URL path of a page view's or custom event's page, without
+	// query and fragment.
 	Path string
-	// IsBot marks a page view sent by a bot.
+	// IsBot marks a page view or custom event sent by a bot.
 	IsBot bool
 }
 
@@ -48,6 +51,8 @@ func (it Item) size() int64 {
 		return int64(it.Event.Size)
 	case it.Page != nil:
 		return int64(it.Page.Size)
+	case it.Custom != nil:
+		return int64(it.Custom.Size)
 	}
 	return 0
 }

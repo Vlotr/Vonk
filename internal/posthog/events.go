@@ -85,6 +85,32 @@ func (e *Event) Scrub() {
 	scrub.Properties(e.Properties)
 }
 
+// IsCustom reports whether an event name is the app's own (such as
+// checkout_completed): PostHog's own events start with "$" ($pageview,
+// $identify, $autocapture, ...).
+func IsCustom(name string) bool {
+	return !strings.HasPrefix(name, "$")
+}
+
+// sdkProperties are properties posthog-js adds without a "$": the project
+// token and the user id, which the event already carries.
+var sdkProperties = map[string]bool{"token": true, "distinct_id": true}
+
+// OwnProperties returns the properties the app sent with a custom event:
+// not the SDK's own ("$browser", "$current_url", ... and the token and
+// user id), and not the ones without a value (posthog-js sends every
+// campaign parameter, mostly null). Call Scrub first.
+func (e *Event) OwnProperties() map[string]any {
+	own := map[string]any{}
+	for key, value := range e.Properties {
+		if strings.HasPrefix(key, "$") || sdkProperties[key] || value == nil {
+			continue
+		}
+		own[key] = value
+	}
+	return own
+}
+
 // eventFrom reads one event object. It returns false for an object
 // without an event name.
 func eventFrom(raw map[string]any, size int) (Event, bool) {

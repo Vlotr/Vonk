@@ -48,9 +48,10 @@ func IsPosthogPath(path string) bool {
 }
 
 // PosthogHandler accepts what PostHog SDKs send. Every project token is
-// accepted, whether or not the project shows page views. Page views and
-// page leaves are scrubbed and queued for the writer; other events are
-// accepted and not stored yet. It answers 200, or a 4xx for traffic it
+// accepted, whether or not the project shows page views. Page views, page
+// leaves and custom events (names without "$") are scrubbed and queued for
+// the writer; PostHog's other own events ($identify, $autocapture, ...)
+// are accepted and not stored. It answers 200, or a 4xx for traffic it
 // cannot use; 503 only when the database fails.
 type PosthogHandler struct {
 	db      *store.DB
@@ -181,22 +182,22 @@ func (h *PosthogHandler) capture(w http.ResponseWriter, r *http.Request) {
 		eventProjects[i] = p
 	}
 
-	// Every event counts against its project's limit; page views and page
-	// leaves are queued (custom events are stored from Task 9 on). A refused
-	// request leaves nothing behind: the queue's room is checked first,
-	// every project's limit before any is counted, and the budgets are given
-	// back when the queue filled up in between.
+	// Every event counts against its project's limit; page views, page
+	// leaves and custom events are queued. A refused request leaves nothing
+	// behind: the queue's room is checked first, every project's limit
+	// before any is counted, and the budgets are given back when the queue
+	// filled up in between.
 	perProject := map[int64]int{}
-	var pages []int // the events to queue
+	var stored []int // the events to queue
 	var size int64
 	for i, ev := range batch.Events {
 		perProject[eventProjects[i].ID]++
-		if ev.Name == posthog.EventPageview || ev.Name == posthog.EventPageleave {
-			pages = append(pages, i)
+		if ev.Name == posthog.EventPageview || ev.Name == posthog.EventPageleave || posthog.IsCustom(ev.Name) {
+			stored = append(stored, i)
 			size += int64(ev.Size)
 		}
 	}
-	if !h.queue.HasRoom(len(pages), size) {
+	if !h.queue.HasRoom(len(stored), size) {
 		h.full.answer(w)
 		return
 	}
@@ -214,17 +215,28 @@ func (h *PosthogHandler) capture(w http.ResponseWriter, r *http.Request) {
 
 	received := h.now()
 	userAgent := r.Header.Get("User-Agent")
-	items := make([]Item, 0, len(pages))
-	for _, i := range pages {
+	items := make([]Item, 0, len(stored))
+	for _, i := range stored {
 		ev, p := &batch.Events[i], eventProjects[i]
 		ev.Scrub()
-		item := Item{ProjectID: p.ID, ReceivedAt: received, Page: ev}
-		if ev.Name == posthog.EventPageview {
+		item := Item{ProjectID: p.ID, ReceivedAt: received}
+		switch ev.Name {
+		case posthog.EventPageleave:
+			item.Page = ev
+			items = append(items, item)
+			continue
+		case posthog.EventPageview:
+			item.Page = ev
+		default:
+			item.Custom = ev
+		}
+		// A custom event sent from a server has no page.
+		if item.Page != nil || ev.URL != "" || ev.Pathname != "" {
 			item.Path = pagePath(ev)
 			// From the stored path, so the raw paths on Edit project preview the routes exactly.
 			item.Route = routes.Normalize(item.Path, p.RoutePatterns)
-			item.IsBot = bots.IsBot(userAgent) || bots.IsBot(ev.RawUserAgent) || ev.BrowserType == "bot"
 		}
+		item.IsBot = bots.IsBot(userAgent) || bots.IsBot(ev.RawUserAgent) || ev.BrowserType == "bot"
 		items = append(items, item)
 	}
 	if !h.queue.TryEnqueueAll(items) {
