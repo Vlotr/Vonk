@@ -12,7 +12,7 @@ import (
 // Summaries go out at 08:00 in TZ: daily ones every day for the day
 // before, weekly ones on Mondays for the week before (Monday to Sunday),
 // monthly ones on the 1st for the month before. Each period goes out once:
-// the period is claimed in alert_state before the messages are queued.
+// the period is claimed in alert_state right before the messages are queued.
 
 // digestTop is how many of the busiest issues a summary lists, and how
 // many of the new ones.
@@ -82,11 +82,6 @@ func (n *Notifier) sendDigest(ctx context.Context, p store.Project, at time.Time
 	if !due {
 		return nil
 	}
-	claimed, err := n.db.ClaimPeriod(ctx, fmt.Sprintf("digest:%d:%s", p.ID, settings.DigestFrequency), p.ID, period.key, n.now())
-	if err != nil || !claimed {
-		return err
-	}
-
 	total, err := n.db.CountErrorEventsBetween(ctx, p.ID, period.from, period.to)
 	if err != nil {
 		return err
@@ -101,6 +96,11 @@ func (n *Notifier) sendDigest(ctx context.Context, p store.Project, at time.Time
 	}
 	open, err := n.db.CountOpenIssuesPerProject(ctx)
 	if err != nil {
+		return err
+	}
+	// Claimed last, so a failed query above leaves the period to the next run.
+	claimed, err := n.db.ClaimPeriod(ctx, fmt.Sprintf("digest:%d:%s", p.ID, settings.DigestFrequency), p.ID, period.key, n.now())
+	if err != nil || !claimed {
 		return err
 	}
 	n.send(ctx, p, settings, settings.Digest, n.digestMessage(p, period, total, newCount, newIssues, top, open[p.ID]), store.AlertDigest, false)

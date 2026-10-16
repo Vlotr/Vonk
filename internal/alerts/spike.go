@@ -59,12 +59,12 @@ func (n *Notifier) checkSpike(ctx context.Context, p store.Project) error {
 		return nil
 	}
 
-	fired, err := n.db.ClaimCooldown(ctx, fmt.Sprintf("spike:%d", p.ID), p.ID, strconv.Itoa(last), now, spikeCooldown)
-	if err != nil || !fired {
-		return err
-	}
 	top, err := n.db.TopIssuesBetween(ctx, p.ID, hourAgo, now.Add(time.Hour), 3)
 	if err != nil {
+		return err
+	}
+	fired, err := n.db.ClaimCooldown(ctx, fmt.Sprintf("spike:%d", p.ID), p.ID, strconv.Itoa(last), now, spikeCooldown)
+	if err != nil || !fired {
 		return err
 	}
 	n.send(ctx, p, settings, settings.Spike, n.spikeMessage(p, settings.SpikeThreshold, last, usual, top), store.AlertSpike, false)

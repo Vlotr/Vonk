@@ -166,8 +166,13 @@ func runServer(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 	if err := <-serveErr; !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
-	// The deferred stops run now: jobs, then the writer (its last batch
-	// still notifies), then the notifier, then the database.
+	// Then the background work, in order: the jobs, the writer (its last
+	// batch still notifies), the notifier. The deferred calls, which do the
+	// same on the error paths, find them stopped; the database closes last.
+	stopJobs()
+	<-jobsDone
+	writer.Close()
+	notifier.Close(notifierShutdown)
 	logger.Info("stopped")
 	return nil
 }
