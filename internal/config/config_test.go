@@ -258,3 +258,19 @@ func TestLoadConfig_TimeZone(t *testing.T) {
 		t.Errorf("unknown TZ: err = %v, want one naming TZ with an example", err)
 	}
 }
+
+func TestLoadConfig_DevAllowHTTPWebhooks(t *testing.T) {
+	cfg, err := Load(env(validEnv()))
+	if err != nil || cfg.AllowHTTPWebhooks {
+		t.Fatalf("default = %v, %v; want off", cfg.AllowHTTPWebhooks, err)
+	}
+	vars := validEnv()
+	vars["DEV_ALLOW_HTTP_WEBHOOKS"] = "true"
+	if cfg, err := Load(env(vars)); err != nil || !cfg.AllowHTTPWebhooks {
+		t.Errorf("true = %v, %v", cfg.AllowHTTPWebhooks, err)
+	}
+	vars["DEV_ALLOW_HTTP_WEBHOOKS"] = "yes please"
+	if _, err := Load(env(vars)); err == nil || !strings.Contains(err.Error(), "DEV_ALLOW_HTTP_WEBHOOKS") {
+		t.Errorf("bad value: err = %v", err)
+	}
+}

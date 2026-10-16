@@ -26,13 +26,16 @@ const maxWebhookLength = 500
 
 // Slack posts messages to incoming webhooks.
 type Slack struct {
-	client *http.Client
+	client    *http.Client
+	allowHTTP bool
 }
 
 // NewSlack returns a Slack client. Redirects are not followed: a webhook
 // answers itself, and following one would send the message elsewhere.
-func NewSlack() *Slack {
-	return &Slack{client: &http.Client{
+// Only https webhooks are posted to, unless allowHTTP
+// (DEV_ALLOW_HTTP_WEBHOOKS, for local fakes).
+func NewSlack(allowHTTP bool) *Slack {
+	return &Slack{allowHTTP: allowHTTP, client: &http.Client{
 		Timeout: slackTimeout,
 		CheckRedirect: func(*http.Request, []*http.Request) error {
 			return http.ErrUseLastResponse
@@ -42,6 +45,11 @@ func NewSlack() *Slack {
 
 // Post sends text (Slack's mrkdwn) to webhook. Its errors never contain the URL.
 func (s *Slack) Post(ctx context.Context, webhook, text string) error {
+	// A webhook saved with plain http while DEV_ALLOW_HTTP_WEBHOOKS was on
+	// is not used once it is off.
+	if _, err := CheckWebhookURL(webhook, s.allowHTTP); err != nil {
+		return err
+	}
 	body, err := json.Marshal(map[string]string{"text": text})
 	if err != nil {
 		return err
@@ -86,16 +94,19 @@ func slackReason(body []byte) string {
 	return s
 }
 
-// CheckWebhookURL trims raw and checks that it can be a webhook: an
-// http(s) URL with a host and no user name or password. Slack's start with
-// https://hooks.slack.com/; Mattermost and others that take Slack's format
-// work too, so other hosts (and plain http on a local network) are allowed.
-func CheckWebhookURL(raw string) (string, error) {
+// CheckWebhookURL trims raw and checks that it can be a webhook: an https
+// URL with a host and no user name or password, at most 500 characters.
+// Slack's start with https://hooks.slack.com/; Mattermost and others that
+// take Slack's format work too, so other hosts are allowed. allowHTTP
+// (DEV_ALLOW_HTTP_WEBHOOKS) accepts plain http as well, for local fakes.
+func CheckWebhookURL(raw string, allowHTTP bool) (string, error) {
 	raw = strings.TrimSpace(raw)
 	u, err := url.Parse(raw)
 	switch {
 	case err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http"):
 		return "", errors.New("Paste the whole webhook URL from Slack; it starts with https://hooks.slack.com/.")
+	case u.Scheme == "http" && !allowHTTP:
+		return "", errors.New("The webhook URL must start with https://, so the messages are encrypted on their way.")
 	case u.User != nil:
 		return "", errors.New("The webhook URL must not contain a user name or password.")
 	case len(raw) > maxWebhookLength:

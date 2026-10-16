@@ -1,7 +1,8 @@
 // Package config reads the settings from environment variables.
 //
 // Required: SECRET_KEY and BASE_URL. Optional: DATABASE_URL, MAIL_URL, ADDR,
-// DATA_DIR, LOG_LEVEL and TZ. Load reports every problem at once, so an
+// DATA_DIR, LOG_LEVEL and TZ; for development and tests only,
+// DEV_ALLOW_HTTP_WEBHOOKS. Load reports every problem at once, so an
 // operator can fix the whole environment in one go.
 package config
 
@@ -11,6 +12,7 @@ import (
 	"log/slog"
 	"net/url"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -54,6 +56,9 @@ type Config struct {
 	// Location is TZ, the clock of schedules such as the 08:00 summary
 	// mail; UTC when TZ is not set.
 	Location *time.Location
+	// AllowHTTPWebhooks lets Slack webhooks use plain http, for local fakes
+	// in development and tests (DEV_ALLOW_HTTP_WEBHOOKS=true). Never in production.
+	AllowHTTPWebhooks bool
 }
 
 // Load reads the configuration through getenv (pass os.Getenv in production).
@@ -100,6 +105,14 @@ func Load(getenv func(string) string) (Config, error) {
 		} else {
 			cfg.Location = loc
 		}
+	}
+
+	if v := strings.TrimSpace(getenv("DEV_ALLOW_HTTP_WEBHOOKS")); v != "" {
+		allow, err := strconv.ParseBool(v)
+		if err != nil {
+			problems = append(problems, fmt.Errorf("DEV_ALLOW_HTTP_WEBHOOKS must be true or false, got %q", v))
+		}
+		cfg.AllowHTTPWebhooks = allow
 	}
 
 	if cfg.MailURL != "" {

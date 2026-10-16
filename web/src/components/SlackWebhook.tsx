@@ -7,6 +7,8 @@ import styles from './SlackWebhook.module.css'
 interface SlackWebhookProps {
   /** saved is the saved webhook, masked by the server; null when there is none. */
   saved: string | null
+  /** readOnly shows only the masked webhook: for members, who cannot change alerts. */
+  readOnly?: boolean
   /** onSave saves a webhook; "" removes it. */
   onSave: (url: string) => Promise<void>
   /** onTest sends a test message to url, or to the saved webhook without one. */
@@ -18,7 +20,21 @@ interface SlackWebhookProps {
  * never sends the rest back), and a field to paste a new one, with "Send
  * test message" for both.
  */
-export function SlackWebhook({ saved, onSave, onTest }: SlackWebhookProps) {
+export function SlackWebhook({ saved, readOnly = false, onSave, onTest }: SlackWebhookProps) {
+  if (readOnly) {
+    return saved === null ? (
+      <p className={form.note}>No Slack webhook yet.</p>
+    ) : (
+      <div className={form.field}>
+        <span className={form.label}>Webhook</span>
+        <code className={styles.masked}>{saved}</code>
+      </div>
+    )
+  }
+  return <SlackWebhookForm saved={saved} onSave={onSave} onTest={onTest} />
+}
+
+function SlackWebhookForm({ saved, onSave, onTest }: Omit<SlackWebhookProps, 'readOnly'>) {
   const [editing, setEditing] = useState(false)
   const [url, setUrl] = useState('')
   const [busy, setBusy] = useState(false)

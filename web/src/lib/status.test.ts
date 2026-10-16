@@ -1,13 +1,13 @@
 import { expect, test } from 'vitest'
 import type { ToolStatus } from '../api/client'
-import { adminAlertLabel, diskFree, formatBytes, formatUptime, statusHeadline } from './status'
+import { adminAlertLabel, diskFree, formatBytes, formatUptime, healthSentence, statusHeadline } from './status'
 
 function status(over: Partial<ToolStatus> = {}): ToolStatus {
   return {
     version: '1.2.0',
     startedAt: '2026-10-16T10:00:00Z',
     uptimeSeconds: 3600,
-    healthy: true,
+    status: 'ok',
     failing: [],
     db: 'ok',
     disk: 'ok',
@@ -44,10 +44,19 @@ test('uptime in the largest units that fit', () => {
 
 test('the headline names what is wrong', () => {
   expect(statusHeadline(status())).toBe('Everything works')
-  expect(statusHeadline(status({ healthy: false, failing: ['disk'], disk: 'low' }))).toBe('The disk is almost full')
-  expect(statusHeadline(status({ healthy: false, failing: ['disk'], disk: 'error' }))).toBe('The free disk space cannot be read')
-  expect(statusHeadline(status({ healthy: false, failing: ['db'], db: 'error' }))).toBe('The database does not answer')
-  expect(statusHeadline(status({ healthy: false, failing: ['db', 'disk'], db: 'error', disk: 'low' }))).toBe('2 problems need attention')
+  expect(statusHeadline(status({ status: 'degraded', failing: ['disk'], disk: 'low' }))).toBe('Disk space is running low')
+  expect(statusHeadline(status({ status: 'error', failing: ['disk'], disk: 'critical' }))).toBe('The disk is almost full')
+  expect(statusHeadline(status({ status: 'degraded', failing: ['disk'], disk: 'error' }))).toBe('The free disk space cannot be read')
+  expect(statusHeadline(status({ status: 'error', failing: ['db'], db: 'error' }))).toBe('The database does not answer')
+  expect(statusHeadline(status({ status: 'error', failing: ['db', 'disk'], db: 'error', disk: 'low' }))).toBe('2 problems need attention')
+})
+
+test('the sentence says what /health answers: 503 only when the tool cannot work', () => {
+  expect(healthSentence(status())).toBe('The /health check answers OK.')
+  expect(healthSentence(status({ status: 'degraded', failing: ['disk'], disk: 'low' }))).toBe(
+    'The /health check answers OK, with status degraded, until this is fixed.',
+  )
+  expect(healthSentence(status({ status: 'error', failing: ['disk'], disk: 'critical' }))).toBe('The /health check answers 503 until this is fixed.')
 })
 
 test('disk space as free, then of total with the percentage', () => {

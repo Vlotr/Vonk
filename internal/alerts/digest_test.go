@@ -130,7 +130,7 @@ func TestDigest_NoDoubleSend(t *testing.T) {
 	job(at.Add(3 * time.Hour)) // the same day once more, as after a restart
 
 	// A restarted process (a new notifier on the same database) neither.
-	restarted := New(Options{DB: env.db, BaseURL: testBaseURL, Logger: env.n.log, Now: env.clock.Now})
+	restarted := New(Options{DB: env.db, BaseURL: testBaseURL, Logger: env.n.log, Now: env.clock.Now, AllowHTTPWebhooks: true})
 	restarted.Start()
 	restarted.SendDigests(context.Background(), at)
 	restarted.Close(5 * time.Second)

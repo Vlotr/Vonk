@@ -48,6 +48,9 @@ func serve(args []string, getenv func(string) string, stderr io.Writer) int {
 	// Ctrl-C ends the process at once instead of waiting for the shutdown.
 	context.AfterFunc(ctx, stop)
 
+	if cfg.AllowHTTPWebhooks {
+		logger.Warn("DEV_ALLOW_HTTP_WEBHOOKS is on: Slack webhooks may use plain http, unencrypted; this is for local tests only, never for production")
+	}
 	if getenv("DEV_BASIC_AUTH") != "" {
 		logger.Warn("DEV_BASIC_AUTH is no longer used: the dashboard has accounts now; unset it")
 	}
@@ -84,7 +87,8 @@ func runServer(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 
 	// Notifications: the writer tells the notifier about new and returning
 	// issues; it delivers in the background.
-	notifier := alerts.New(alerts.Options{DB: db, Mailer: mailer, BaseURL: cfg.BaseURL, Logger: logger, Location: cfg.Location})
+	notifier := alerts.New(alerts.Options{DB: db, Mailer: mailer, BaseURL: cfg.BaseURL, Logger: logger, Location: cfg.Location,
+		AllowHTTPWebhooks: cfg.AllowHTTPWebhooks})
 	notifier.Start()
 	defer notifier.Close(notifierShutdown)
 

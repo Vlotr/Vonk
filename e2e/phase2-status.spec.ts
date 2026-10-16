@@ -91,11 +91,40 @@ test('alerts go to Slack, and Settings shows the status of the tool', async ({ p
     expect(returning).toMatch(/<http:\/\/127\.0\.0\.1:\d+\/projects\/\d+\/issues\/\d+\|RuntimeException: Checkout failed>/)
     expect(returning).toContain('`CheckoutController.php:')
 
+    // A member who sees Webshop (invited in phase2-access.spec.ts) reads the
+    // alerts but cannot change them.
+    const memberContext = await browser.newContext()
+    const member = await memberContext.newPage()
+    await member.goto(`${monitor}/login`)
+    await member.getByLabel('Email').fill('member@example.com')
+    await member.getByLabel('Password').fill('member password 1')
+    await member.getByRole('button', { name: 'Sign in' }).click()
+    await member.waitForURL(`${monitor}/`)
+    await member.goto(`${monitor}/projects/${env('PROJECT_ID')}/alerts`)
+    await expect(member.getByText('Only admins can change alerts.')).toBeVisible()
+    await expect(member.getByLabel('New issue to Slack')).toBeChecked()
+    await expect(member.getByLabel('New issue to Slack')).toBeDisabled()
+    await expect(member.getByLabel('Spike threshold, times the usual hourly errors')).toBeDisabled()
+    await expect(member.getByLabel('How often the summary comes')).toBeDisabled()
+    await expect(member.locator('code', { hasText: '…/hook' })).toBeVisible()
+    await expect(member.getByRole('main').getByRole('button')).toHaveCount(0)
+    // The API refuses the change as on every admin route: 404, with a valid CSRF token.
+    const { csrfToken } = (await (await memberContext.request.get(`${monitor}/ui/api/me`)).json()) as { csrfToken: string }
+    const refused = await memberContext.request.patch(`${monitor}/ui/api/projects/${env('PROJECT_ID')}/alerts`, {
+      data: { slackWebhookUrl: '' },
+      headers: { 'X-CSRF-Token': csrfToken },
+    })
+    expect(refused.status()).toBe(404)
+    await memberContext.close()
+
     // Settings → Status, for admins.
     await ui.goto(`${monitor}/settings/projects`)
     await ui.getByRole('navigation', { name: 'Settings pages' }).getByRole('link', { name: 'Status' }).click()
     await expect(ui).toHaveURL(`${monitor}/settings/status`)
-    await expect(ui.getByText(/^Version .+, running for .+\. The \/health check answers (OK|503 until this is fixed)\.$/)).toBeVisible()
+    // 503 only when the tool cannot work; a low disk (as on many laptops) is degraded.
+    await expect(
+      ui.getByText(/^Version .+, running for .+\. The \/health check answers (OK|OK, with status degraded, until this is fixed|503 until this is fixed)\.$/),
+    ).toBeVisible()
     const server = ui.getByRole('region', { name: 'Server' })
     await expect(server).toContainText('Database')
     await expect(server).toContainText('Disk free')

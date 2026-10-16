@@ -128,6 +128,8 @@ export default async function globalSetup() {
       BASE_URL: monitorURL,
       ADDR: `127.0.0.1:${port}`,
       DATA_DIR: join(tmp, 'data'),
+      // The fake Slack of phase2-status.spec.ts speaks plain http; never set this in production.
+      DEV_ALLOW_HTTP_WEBHOOKS: 'true',
     }
     const monitor = start('monitor', join(root, 'bin/monitor'), ['serve'], root, monitorEnv)
     children.push(monitor)

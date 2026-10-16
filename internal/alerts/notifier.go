@@ -61,8 +61,11 @@ type Options struct {
 	DB *store.DB
 	// Mailer sends mail; nil when MAIL_URL is not set, and then nothing is mailed.
 	Mailer Mailer
-	// Slack posts to webhooks; nil means NewSlack().
+	// Slack posts to webhooks; nil means NewSlack(AllowHTTPWebhooks).
 	Slack SlackPoster
+	// AllowHTTPWebhooks lets the default Slack client post to plain http
+	// webhooks (DEV_ALLOW_HTTP_WEBHOOKS, for local fakes).
+	AllowHTTPWebhooks bool
 	// BaseURL is the dashboard's address; links in messages start with it.
 	BaseURL string
 	Logger  *slog.Logger
@@ -109,7 +112,7 @@ func New(o Options) *Notifier {
 	if loc == nil {
 		loc = time.UTC
 	}
-	var slack SlackPoster = NewSlack()
+	var slack SlackPoster = NewSlack(o.AllowHTTPWebhooks)
 	if o.Slack != nil {
 		slack = o.Slack
 	}

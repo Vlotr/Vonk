@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 
 	"monitor/internal/store"
@@ -85,13 +86,52 @@ func TestAlerts_DefaultsAndChanges(t *testing.T) {
 		}
 	}
 
-	// A member who sees the project may change its alerts; "" removes the webhook.
+	// A member who sees the project reads its alerts (the webhook masked)
+	// but cannot change them (ruling 33): 404, as on every admin route.
 	member := env.member(t, "second@example.com", shop.ID)
-	if rec := env.as(t, member, "PATCH", path, `{"slackWebhookUrl":""}`); rec.Code != http.StatusOK {
-		t.Fatalf("member PATCH = %d %s", rec.Code, rec.Body)
+	rec = env.as(t, member, "GET", path, "")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "https://hooks.slack.com/…/abcd") || strings.Contains(rec.Body.String(), "verysecret") {
+		t.Errorf("member GET = %d %s, want the alerts with the webhook masked", rec.Code, rec.Body)
+	}
+	before, _ := env.db.AlertSettings(context.Background(), shop.ID)
+	for _, change := range []string{`{"slackWebhookUrl":""}`, `{"alerts":{"newIssue":{"email":true}}}`} {
+		if rec := env.as(t, member, "PATCH", path, change); rec.Code != http.StatusNotFound {
+			t.Errorf("member PATCH %s = %d %s, want 404", change, rec.Code, rec.Body)
+		}
+	}
+	alertSettingsAre(t, env, shop.ID, before)
+
+	// An admin removes the webhook with "".
+	if rec := env.as(t, env.admin, "PATCH", path, `{"slackWebhookUrl":""}`); rec.Code != http.StatusOK {
+		t.Fatalf("admin PATCH = %d %s", rec.Code, rec.Body)
 	}
 	if got := getJSON[alertsResponse](t, env, path); got.SlackWebhook != nil || got.Alerts.Spike.Threshold != 10 {
 		t.Errorf("after removing the webhook = %+v", got)
+	}
+}
+
+// Webhooks must be https (ruling 33); plain http only with
+// DEV_ALLOW_HTTP_WEBHOOKS, which this test server does not set.
+func TestAlerts_WebhookMustBeHTTPS(t *testing.T) {
+	env := newTestEnv(t)
+	shop := env.project(t, "Webshop")
+	plain := `"http://hooks.slack.com/services/T0001/B0001/plain"`
+	for _, rt := range []struct{ method, path, body string }{
+		{"PATCH", fmt.Sprintf("/ui/api/projects/%d/alerts", shop.ID), `{"slackWebhookUrl":` + plain + `}`},
+		{"POST", fmt.Sprintf("/ui/api/projects/%d/alerts/slack-test", shop.ID), `{"webhookUrl":` + plain + `}`},
+		{"PUT", "/ui/api/settings/admin-slack", `{"webhookUrl":` + plain + `}`},
+		{"POST", "/ui/api/settings/admin-slack/test", `{"webhookUrl":` + plain + `}`},
+	} {
+		rec := env.as(t, env.admin, rt.method, rt.path, rt.body)
+		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "must start with https://") {
+			t.Errorf("%s %s = %d %s, want 400 asking for https", rt.method, rt.path, rec.Code, rec.Body)
+		}
+	}
+	if posts := env.slack.sent(); len(posts) != 0 {
+		t.Errorf("posted to an http webhook: %+v", posts)
+	}
+	if s, _ := env.db.AlertSettings(context.Background(), shop.ID); s.SlackWebhookURL != "" {
+		t.Errorf("stored webhook = %q", s.SlackWebhookURL)
 	}
 }
 
@@ -138,5 +178,46 @@ func alertSettingsAre(t *testing.T, env *testEnv, projectID int64, want store.Al
 	got, err := env.db.AlertSettings(context.Background(), projectID)
 	if err != nil || got != want {
 		t.Errorf("alert settings after a refused request = %+v, %v; want %+v", got, err, want)
+	}
+}
+
+// Two changes sent at once (a checkbox and the threshold field, say) each
+// change their own field; neither undoes the other.
+func TestAlerts_ConcurrentChangesBothStay(t *testing.T) {
+	env := newTestEnv(t)
+	shop := env.project(t, "Webshop")
+	path := fmt.Sprintf("/ui/api/projects/%d/alerts", shop.ID)
+	ctx := context.Background()
+
+	for round := range 30 {
+		on := round%2 == 0
+		bodies := []string{
+			fmt.Sprintf(`{"alerts":{"newIssue":{"email":%v}}}`, on),
+			fmt.Sprintf(`{"alerts":{"regression":{"slack":%v}}}`, on),
+			fmt.Sprintf(`{"alerts":{"spike":{"threshold":%d}}}`, 10+round),
+		}
+		var wg sync.WaitGroup
+		start := make(chan struct{})
+		for _, body := range bodies {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				if rec := env.as(t, env.admin, "PATCH", path, body); rec.Code != http.StatusOK {
+					t.Errorf("PATCH %s = %d %s", body, rec.Code, rec.Body)
+				}
+			}()
+		}
+		close(start)
+		wg.Wait()
+
+		got, err := env.db.AlertSettings(ctx, shop.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.NewIssue.Email != on || got.Regression.Slack != on || got.SpikeThreshold != 10+round {
+			t.Fatalf("round %d: settings = %+v; want newIssue.email %v, regression.slack %v, threshold %d (a change was lost)",
+				round, got, on, on, 10+round)
+		}
 	}
 }

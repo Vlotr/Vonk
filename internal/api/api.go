@@ -44,31 +44,35 @@ type Options struct {
 	// StoredLastHour counts the events ingest stored in the last hour; nil
 	// counts none.
 	StoredLastHour func() int
+	// AllowHTTPWebhooks accepts plain http webhooks (DEV_ALLOW_HTTP_WEBHOOKS,
+	// for local fakes); otherwise they must be https.
+	AllowHTTPWebhooks bool
 }
 
 // Handler serves the dashboard API.
 type Handler struct {
-	db      *store.DB
-	auth    *auth.Service
-	baseURL string // for the DSNs on the setup page
-	issues  *issues.Service
-	health  *health.Checker
-	slack   SlackPoster
-	started time.Time
-	stored  func() int
-	log     *slog.Logger
-	now     func() time.Time // the clock; tests set it
+	db        *store.DB
+	auth      *auth.Service
+	baseURL   string // for the DSNs on the setup page
+	issues    *issues.Service
+	health    *health.Checker
+	slack     SlackPoster
+	started   time.Time
+	stored    func() int
+	allowHTTP bool
+	log       *slog.Logger
+	now       func() time.Time // the clock; tests set it
 }
 
 // New returns the API handler.
 func New(o Options) *Handler {
 	h := &Handler{db: o.DB, auth: o.Auth, baseURL: o.BaseURL, health: o.Health, slack: o.Slack,
-		started: o.Started, stored: o.StoredLastHour, log: o.Logger, now: time.Now}
+		started: o.Started, stored: o.StoredLastHour, allowHTTP: o.AllowHTTPWebhooks, log: o.Logger, now: time.Now}
 	if h.stored == nil {
 		h.stored = func() int { return 0 }
 	}
 	if h.slack == nil {
-		h.slack = alerts.NewSlack()
+		h.slack = alerts.NewSlack(o.AllowHTTPWebhooks)
 	}
 	if h.started.IsZero() {
 		h.started = time.Now()
@@ -87,8 +91,9 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /ui/api/issues/{id}", h.issueDetail)
 	mux.HandleFunc("POST /ui/api/issues/{id}/status", h.setIssueStatus)
 	mux.HandleFunc("GET /ui/api/projects/{id}/alerts", h.projectAlerts)
-	mux.HandleFunc("PATCH /ui/api/projects/{id}/alerts", h.updateProjectAlerts)
-	mux.HandleFunc("POST /ui/api/projects/{id}/alerts/slack-test", h.testProjectSlack)
+	// Changing alerts is for admins (ruling 33); everyone who sees the project reads them.
+	mux.HandleFunc("PATCH /ui/api/projects/{id}/alerts", h.adminOnly(h.updateProjectAlerts))
+	mux.HandleFunc("POST /ui/api/projects/{id}/alerts/slack-test", h.adminOnly(h.testProjectSlack))
 
 	// Settings, for admins only.
 	mux.HandleFunc("GET /ui/api/settings/projects", h.adminOnly(h.settingsProjects))

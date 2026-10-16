@@ -79,6 +79,14 @@ func TestAdminAlert_DiskLow(t *testing.T) {
 	if len(states) != 1 || states[0].Value != "Disk space is low: 512 MiB free (12.5 %)." {
 		t.Errorf("recent admin alerts = %+v", states)
 	}
+
+	// A critical disk (under 256 MiB) alerts as well.
+	free = 100 << 20
+	env.clock.Add(12 * time.Hour)
+	env.adminCheck(a)
+	if lines, _ := env.mails(); len(lines) != 4 || !strings.Contains(strings.Join(lines, "\n"), "Disk space is low: 100 MiB free") {
+		t.Errorf("mails after the disk became critical = %q", lines)
+	}
 }
 
 func TestAdminAlert_LostEventsAndQueueDrops(t *testing.T) {

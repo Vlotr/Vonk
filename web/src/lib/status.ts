@@ -37,9 +37,20 @@ export function formatUptime(seconds: number): string {
 export function statusHeadline(s: ToolStatus): string {
   if (s.failing.length > 1) return `${s.failing.length} problems need attention`
   if (s.db === 'error') return 'The database does not answer'
-  if (s.disk === 'low') return 'The disk is almost full'
+  if (s.disk === 'critical') return 'The disk is almost full'
+  if (s.disk === 'low') return 'Disk space is running low'
   if (s.disk === 'error') return 'The free disk space cannot be read'
   return 'Everything works'
+}
+
+/**
+ * healthSentence says what /health answers: OK while the tool works, with
+ * status degraded when a check failed; 503 only when it cannot work.
+ */
+export function healthSentence(s: ToolStatus): string {
+  if (s.status === 'error') return 'The /health check answers 503 until this is fixed.'
+  if (s.status === 'degraded') return 'The /health check answers OK, with status degraded, until this is fixed.'
+  return 'The /health check answers OK.'
 }
 
 /** diskFree is the disk's free space and the line under it: "40 GiB", "of 100 GiB (40 %)". */

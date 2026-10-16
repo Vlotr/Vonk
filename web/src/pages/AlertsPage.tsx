@@ -15,6 +15,7 @@ import form from '../components/Form.module.css'
 import { ChevronDownIcon } from '../components/Icons'
 import { LoadError } from '../components/LoadError'
 import { SlackWebhook } from '../components/SlackWebhook'
+import { useMe } from '../layout/MeContext'
 import { alertsHeadline, alertsLead, MAX_THRESHOLD, MIN_THRESHOLD, parseThreshold, withAlertsChange } from '../lib/alerts'
 import { problem } from '../lib/signin'
 import { usePolling } from '../lib/usePolling'
@@ -30,12 +31,15 @@ const FREQUENCIES: { value: DigestFrequency; label: string }[] = [
 
 // AlertsPage is a project's notifications: which kinds go out by email
 // and to Slack, the spike threshold, how often the summary comes, and the
-// Slack webhook. Everyone who sees the project may change them; a change
-// saves at once.
+// Slack webhook. Everyone who sees the project reads them; admins change
+// them (ruling 35), and a change saves at once. Members see the same page
+// with every control disabled and the webhook masked.
 export function AlertsPage() {
   const projectId = Number(useParams().id)
   const polled = usePolling((signal) => getProjectAlerts(projectId, signal), `alerts-${projectId}`)
   const [failed, setFailed] = useState('')
+  // Read only until the user is known, and for members.
+  const canChange = useMe()?.role === 'admin'
 
   const change = async (c: AlertsChange) => {
     setFailed('')
@@ -61,6 +65,7 @@ export function AlertsPage() {
       <h1 className={page.title}>{alertsHeadline(data)}</h1>
       <p className={page.lead}>{alertsLead(data)}</p>
       {!data.mailEnabled && <p className={styles.mailOff}>Email is off. Set MAIL_URL to send email.</p>}
+      {!canChange && <p className={styles.mailOff}>Only admins can change alerts.</p>}
       {failed && (
         <p className={styles.failed} role="alert">
           {failed}
@@ -85,22 +90,29 @@ export function AlertsPage() {
               </tr>
             </thead>
             <tbody>
-              <KindRow kind="newIssue" name="New issue" alerts={data} onChange={change}>
+              <KindRow kind="newIssue" name="New issue" alerts={data} canChange={canChange} onChange={change}>
                 An error comes in for the first time.
               </KindRow>
-              <KindRow kind="regression" name="Returning issue" alerts={data} onChange={change}>
+              <KindRow kind="regression" name="Returning issue" alerts={data} canChange={canChange} onChange={change}>
                 A resolved issue comes back and opens again.
               </KindRow>
-              <KindRow kind="spike" name="Spike" alerts={data} onChange={change}>
-                <ThresholdField key={data.alerts.spike.threshold} value={data.alerts.spike.threshold} onChange={change} onInvalid={setFailed} />
+              <KindRow kind="spike" name="Spike" alerts={data} canChange={canChange} onChange={change}>
+                <ThresholdField
+                  key={data.alerts.spike.threshold}
+                  value={data.alerts.spike.threshold}
+                  disabled={!canChange}
+                  onChange={change}
+                  onInvalid={setFailed}
+                />
               </KindRow>
-              <KindRow kind="digest" name="Summary" alerts={data} onChange={change}>
+              <KindRow kind="digest" name="Summary" alerts={data} canChange={canChange} onChange={change}>
                 <span className={styles.inline}>
                   Errors, new issues and the busiest issues of the past period, at 08:00:
                   <span className={form.selectBox}>
                     <select
                       className={`${form.select} ${styles.frequency}`}
                       aria-label="How often the summary comes"
+                      disabled={!canChange}
                       value={data.alerts.digest.frequency}
                       onChange={(e) => change({ alerts: { digest: { frequency: e.target.value as DigestFrequency } } })}
                     >
@@ -125,11 +137,13 @@ export function AlertsPage() {
           Slack
         </h2>
         <p className={form.note}>
-          Paste an incoming webhook from Slack (Apps, Incoming WebHooks), for the channel the alerts of {data.project.name} should go to. It
-          stays secret: after saving, only its end is shown.
+          {canChange
+            ? `Paste an incoming webhook from Slack (Apps, Incoming WebHooks), for the channel the alerts of ${data.project.name} should go to. It must start with https:// and stays secret: after saving, only its end is shown.`
+            : `Slack messages about ${data.project.name} go to this webhook; only its end is shown.`}
         </p>
         <SlackWebhook
           saved={data.slackWebhook}
+          readOnly={!canChange}
           onSave={async (url) => {
             await updateProjectAlerts(projectId, { slackWebhookUrl: url })
             polled.reload()
@@ -147,13 +161,15 @@ interface KindRowProps {
   kind: keyof AlertKinds
   name: string
   alerts: ProjectAlerts
+  /** canChange is false for members: the checkboxes show the choices but are disabled. */
+  canChange: boolean
   onChange: (c: AlertsChange) => void
   /** children describe when the alert fires, with its setting. */
   children: ReactNode
 }
 
 /** KindRow is one kind of alert with its Email and Slack checkboxes. */
-function KindRow({ kind, name, alerts, onChange, children }: KindRowProps) {
+function KindRow({ kind, name, alerts, canChange, onChange, children }: KindRowProps) {
   const channels: AlertChannels = alerts.alerts[kind]
   const toggle = (channel: keyof AlertChannels, on: boolean) => onChange({ alerts: { [kind]: { [channel]: on } } })
   return (
@@ -168,7 +184,7 @@ function KindRow({ kind, name, alerts, onChange, children }: KindRowProps) {
           className={styles.check}
           aria-label={`${name} by email`}
           title={alerts.mailEnabled ? undefined : 'Email is off. Set MAIL_URL to send email.'}
-          disabled={!alerts.mailEnabled}
+          disabled={!canChange || !alerts.mailEnabled}
           checked={channels.email}
           onChange={(e) => toggle('email', e.target.checked)}
         />
@@ -178,6 +194,7 @@ function KindRow({ kind, name, alerts, onChange, children }: KindRowProps) {
           type="checkbox"
           className={styles.check}
           aria-label={`${name} to Slack`}
+          disabled={!canChange}
           checked={channels.slack}
           onChange={(e) => toggle('slack', e.target.checked)}
         />
@@ -187,7 +204,14 @@ function KindRow({ kind, name, alerts, onChange, children }: KindRowProps) {
 }
 
 /** ThresholdField is the spike threshold; it saves when it loses focus or on Enter. */
-function ThresholdField({ value, onChange, onInvalid }: { value: number; onChange: (c: AlertsChange) => void; onInvalid: (text: string) => void }) {
+interface ThresholdFieldProps {
+  value: number
+  disabled: boolean
+  onChange: (c: AlertsChange) => void
+  onInvalid: (text: string) => void
+}
+
+function ThresholdField({ value, disabled, onChange, onInvalid }: ThresholdFieldProps) {
   const [text, setText] = useState(String(value))
   const save = () => {
     const threshold = parseThreshold(text)
@@ -208,6 +232,7 @@ function ThresholdField({ value, onChange, onInvalid }: { value: number; onChang
         min={MIN_THRESHOLD}
         max={MAX_THRESHOLD}
         aria-label="Spike threshold, times the usual hourly errors"
+        disabled={disabled}
         value={text}
         onChange={(e) => setText(e.target.value)}
         onBlur={save}

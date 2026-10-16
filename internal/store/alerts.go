@@ -115,8 +115,18 @@ func (s *AlertSettings) channels(kind string) *Channels {
 // AlertSettings returns the project's notification choices, with the
 // defaults for kinds never saved, or ErrNotFound.
 func (db *DB) AlertSettings(ctx context.Context, projectID int64) (AlertSettings, error) {
+	return readAlertSettings(ctx, db.read, projectID)
+}
+
+// rowQuerier is what *sql.DB and *sql.Tx share for reading.
+type rowQuerier interface {
+	querier
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+func readAlertSettings(ctx context.Context, q rowQuerier, projectID int64) (AlertSettings, error) {
 	s := DefaultAlertSettings()
-	err := db.read.QueryRowContext(ctx, "SELECT slack_webhook_url FROM projects WHERE id = ?", projectID).Scan(&s.SlackWebhookURL)
+	err := q.QueryRowContext(ctx, "SELECT slack_webhook_url FROM projects WHERE id = ?", projectID).Scan(&s.SlackWebhookURL)
 	if errors.Is(err, sql.ErrNoRows) {
 		return AlertSettings{}, ErrNotFound
 	}
@@ -124,7 +134,7 @@ func (db *DB) AlertSettings(ctx context.Context, projectID int64) (AlertSettings
 		return AlertSettings{}, err
 	}
 
-	rows, err := db.read.QueryContext(ctx,
+	rows, err := q.QueryContext(ctx,
 		"SELECT kind, channel, enabled, threshold, frequency FROM alerts WHERE project_id = ?", projectID)
 	if err != nil {
 		return AlertSettings{}, err
@@ -159,22 +169,26 @@ func (db *DB) AlertSettings(ctx context.Context, projectID int64) (AlertSettings
 	return s, rows.Err()
 }
 
-// SaveAlertSettings stores all of a project's notification choices and its
-// Slack webhook in one transaction, or returns ErrNotFound. The spike
-// threshold and the digest frequency are stored on both channels' rows.
-func (db *DB) SaveAlertSettings(ctx context.Context, projectID int64, s AlertSettings) error {
+// UpdateAlertSettings changes a project's notification choices in one
+// write transaction: it reads them, lets change edit them, and writes all
+// of them back with the Slack webhook. Two changes at once therefore run
+// one after the other and never undo each other. It returns the settings
+// as stored, or ErrNotFound. change must not touch the database.
+func (db *DB) UpdateAlertSettings(ctx context.Context, projectID int64, change func(*AlertSettings)) (AlertSettings, error) {
 	tx, err := db.write.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return AlertSettings{}, err
 	}
 	defer tx.Rollback() // no-op after Commit
 
-	res, err := tx.ExecContext(ctx, "UPDATE projects SET slack_webhook_url = ? WHERE id = ?", s.SlackWebhookURL, projectID)
+	s, err := readAlertSettings(ctx, tx, projectID)
 	if err != nil {
-		return err
+		return AlertSettings{}, err
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return ErrNotFound
+	change(&s)
+
+	if _, err := tx.ExecContext(ctx, "UPDATE projects SET slack_webhook_url = ? WHERE id = ?", s.SlackWebhookURL, projectID); err != nil {
+		return AlertSettings{}, err
 	}
 	for _, kind := range AlertKinds {
 		c := s.Channels(kind)
@@ -197,11 +211,19 @@ func (db *DB) SaveAlertSettings(ctx context.Context, projectID int64, s AlertSet
 				DO UPDATE SET enabled = excluded.enabled, threshold = excluded.threshold, frequency = excluded.frequency`,
 				projectID, kind, ch.name, ch.enabled, threshold, frequency)
 			if err != nil {
-				return err
+				return AlertSettings{}, err
 			}
 		}
 	}
-	return tx.Commit()
+	return s, tx.Commit()
+}
+
+// SaveAlertSettings replaces all of a project's notification choices and
+// its Slack webhook, or returns ErrNotFound. The spike threshold and the
+// digest frequency are stored on both channels' rows.
+func (db *DB) SaveAlertSettings(ctx context.Context, projectID int64, s AlertSettings) error {
+	_, err := db.UpdateAlertSettings(ctx, projectID, func(old *AlertSettings) { *old = s })
+	return err
 }
 
 // ProjectRecipients returns the addresses of everyone who may see the

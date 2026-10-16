@@ -6,7 +6,7 @@ import { LoadError } from '../components/LoadError'
 import { SettingsHeader } from '../components/SettingsHeader'
 import { SlackWebhook } from '../components/SlackWebhook'
 import { formatDateTime, timeAgo } from '../lib/format'
-import { adminAlertLabel, diskFree, formatBytes, formatUptime, statusHeadline } from '../lib/status'
+import { adminAlertLabel, diskFree, formatBytes, formatUptime, healthSentence, statusHeadline } from '../lib/status'
 import { usePolling } from '../lib/usePolling'
 import page from './Page.module.css'
 import styles from './SettingsStatusPage.module.css'
@@ -29,10 +29,9 @@ function ToolStatusView() {
 
   const now = new Date()
   const disk = diskFree(s)
-  const health = s.healthy ? 'The /health check answers OK.' : 'The /health check answers 503 until this is fixed.'
   return (
     <section>
-      <SettingsHeader title={statusHeadline(s)} lead={`Version ${s.version}, running for ${formatUptime(s.uptimeSeconds)}. ${health}`} />
+      <SettingsHeader title={statusHeadline(s)} lead={`Version ${s.version}, running for ${formatUptime(s.uptimeSeconds)}. ${healthSentence(s)}`} />
 
       <section className={`${page.card} ${styles.stats}`} aria-label="Server">
         <dl className={styles.numbers}>
@@ -47,7 +46,7 @@ function ToolStatusView() {
             {s.queueDepth.toLocaleString('en-US')}
           </Stat>
         </dl>
-        {s.disk === 'low' && (
+        {(s.disk === 'low' || s.disk === 'critical') && (
           <p className={styles.problem}>
             When the disk is full, errors can no longer be stored. Free up space or give the volume more room; a shorter "Keep data for" in
             Projects keeps less.
@@ -89,7 +88,7 @@ function ToolStatusView() {
           </ul>
         )}
         <h3 className={styles.subTitle}>Slack</h3>
-        <p className={form.note}>Send the admin alerts to a Slack channel too, with an incoming webhook. It stays secret: after saving, only its end is shown.</p>
+        <p className={form.note}>Send the admin alerts to a Slack channel too, with an incoming webhook. It must start with https:// and stays secret: after saving, only its end is shown.</p>
         <SlackWebhook
           saved={s.adminSlackWebhook}
           onSave={async (url) => {

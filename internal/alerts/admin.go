@@ -70,7 +70,7 @@ func (a *AdminAlerts) Job() jobs.Job {
 // about what is wrong.
 func (a *AdminAlerts) Check(ctx context.Context, _ time.Time) {
 	report := a.health.Check(ctx)
-	if report.Disk == "low" {
+	if report.Disk == "low" || report.Disk == "critical" {
 		a.raise(ctx, AdminDiskLow, diskMessage(report))
 	}
 
@@ -108,8 +108,8 @@ func diskMessage(r health.Report) adminText {
 	}
 	return adminText{
 		summary: fmt.Sprintf("Disk space is low: %s free (%s %%).", Bytes(r.DiskFreeBytes), decimal(percent)),
-		detail: "When the disk is full, errors can no longer be stored. Free up space or give the volume more room. " +
-			"Each project keeps its data as long as Settings → Projects says; a shorter time keeps less.",
+		detail: "When the disk is full, errors can no longer be stored; under 1 % or 256 MiB free, /health answers 503. " +
+			"Free up space or give the volume more room. Each project keeps its data as long as Settings → Projects says; a shorter time keeps less.",
 	}
 }
 

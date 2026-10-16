@@ -15,7 +15,7 @@ import (
 type toolStatusResponse struct {
 	Version        string   `json:"version"`
 	UptimeSeconds  int64    `json:"uptimeSeconds"`
-	Healthy        bool     `json:"healthy"`
+	Status         string   `json:"status"`
 	Failing        []string `json:"failing"`
 	DB             string   `json:"db"`
 	Disk           string   `json:"disk"`
@@ -47,7 +47,7 @@ func TestStatus_ShowsHowTheToolIsDoing(t *testing.T) {
 	env.save(t, shop.ID, phpEvent(t, eventSpec{id: hexID(1)}), phpEvent(t, eventSpec{id: hexID(2), at: testNow.Add(-2 * time.Hour)}))
 
 	got := getJSON[toolStatusResponse](t, env, "/ui/api/settings/status")
-	if got.Version != "test" || got.UptimeSeconds != 90*60 || !got.Healthy || len(got.Failing) != 0 || got.DB != "ok" || got.Disk != "ok" {
+	if got.Version != "test" || got.UptimeSeconds != 90*60 || got.Status != "ok" || len(got.Failing) != 0 || got.DB != "ok" || got.Disk != "ok" {
 		t.Errorf("status = %+v", got)
 	}
 	if got.DatabaseBytes <= 0 || got.DiskFreeBytes != 40<<30 || got.DiskTotalBytes != 100<<30 || got.QueueCapacity != 100 || got.Admins != 1 {
@@ -81,8 +81,8 @@ func TestStatus_ShowsHowTheToolIsDoing(t *testing.T) {
 		t.Errorf("the status shows the webhook: %s", rec.Body)
 	}
 	got = getJSON[toolStatusResponse](t, env, "/ui/api/settings/status")
-	if got.Healthy || len(got.Failing) != 1 || got.Failing[0] != "disk" || got.Disk != "low" {
-		t.Errorf("with a low disk = %+v", got)
+	if got.Status != "degraded" || len(got.Failing) != 1 || got.Failing[0] != "disk" || got.Disk != "low" {
+		t.Errorf("with a low disk = %+v, want degraded", got)
 	}
 	if got.LastBackup == nil || got.LastBackup.Name != "pre-migrate-0003-20261015T080000Z.db" || got.LastBackup.SizeBytes != 6 ||
 		!got.LastBackup.CreatedAt.Equal(time.Date(2026, 10, 15, 8, 0, 0, 0, time.UTC)) {

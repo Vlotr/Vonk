@@ -73,14 +73,15 @@ func New(deps Deps) http.Handler {
 	dashboard := http.NewServeMux()
 	accounts.Register(dashboard)
 	api.New(api.Options{
-		DB:             deps.DB,
-		Auth:           accounts,
-		BaseURL:        deps.Config.BaseURL,
-		Logger:         deps.Logger,
-		Health:         checker,
-		Slack:          deps.Slack,
-		Started:        deps.Started,
-		StoredLastHour: deps.StoredLastHour,
+		DB:                deps.DB,
+		Auth:              accounts,
+		BaseURL:           deps.Config.BaseURL,
+		Logger:            deps.Logger,
+		Health:            checker,
+		Slack:             deps.Slack,
+		Started:           deps.Started,
+		StoredLastHour:    deps.StoredLastHour,
+		AllowHTTPWebhooks: deps.Config.AllowHTTPWebhooks,
 	}).Register(dashboard)
 	dashboard.HandleFunc("/ui/api/", notFoundJSON)
 	// "/" rather than "GET /": Go's mux refuses a method-only catch-all next to

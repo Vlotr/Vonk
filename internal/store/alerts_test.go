@@ -146,3 +146,44 @@ func TestSettings_SetAndRemove(t *testing.T) {
 		t.Errorf("removed = %q", v)
 	}
 }
+
+// An update that is still deciding holds the write transaction: a second
+// update waits for it, then starts from its result.
+func TestUpdateAlertSettings_OneAfterTheOther(t *testing.T) {
+	db := openTestDB(t)
+	ctx := context.Background()
+	p := addProject(t, db, "Webshop")
+
+	inside := make(chan struct{})
+	release := make(chan struct{})
+	first := make(chan error, 1)
+	go func() {
+		_, err := db.UpdateAlertSettings(ctx, p.ID, func(s *AlertSettings) {
+			close(inside)
+			<-release
+			s.NewIssue.Email = false
+		})
+		first <- err
+	}()
+	<-inside
+	second := make(chan error, 1)
+	go func() {
+		_, err := db.UpdateAlertSettings(ctx, p.ID, func(s *AlertSettings) { s.SpikeThreshold = 20 })
+		second <- err
+	}()
+	time.Sleep(50 * time.Millisecond) // the second one waits for the write connection
+	close(release)
+	if err := <-first; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-second; err != nil {
+		t.Fatal(err)
+	}
+	got, _ := db.AlertSettings(ctx, p.ID)
+	if got.NewIssue.Email || got.SpikeThreshold != 20 {
+		t.Errorf("settings = %+v, want both changes", got)
+	}
+	if _, err := db.UpdateAlertSettings(ctx, 999, func(*AlertSettings) {}); !errors.Is(err, ErrNotFound) {
+		t.Errorf("unknown project: err = %v, want ErrNotFound", err)
+	}
+}

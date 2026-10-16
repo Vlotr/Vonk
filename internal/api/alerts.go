@@ -13,13 +13,15 @@ import (
 	"monitor/internal/store"
 )
 
-// A project's alerts, for everyone who may see the project:
+// A project's alerts. Everyone who may see the project reads them; only
+// admins change them (ruling 33; members get 404, as on every admin route):
 //
 //	GET   /ui/api/projects/{id}/alerts             the choices, the masked Slack webhook, whether mail is on
 //	PATCH /ui/api/projects/{id}/alerts             {alerts?: {newIssue?: {email?, slack?}, …, spike?: {threshold?}, digest?: {frequency?}}, slackWebhookUrl?}
 //	POST  /ui/api/projects/{id}/alerts/slack-test  {webhookUrl?}: post a test message (to the saved webhook without one)
 //
-// The webhook URL is a secret: answers carry it only masked.
+// The webhook URL is a secret: answers carry it only masked. It must be
+// https, unless DEV_ALLOW_HTTP_WEBHOOKS is on.
 
 // Spike thresholds are whole multiples of the usual rate, from 2 to 100.
 const (
@@ -158,61 +160,65 @@ type alertsBody struct {
 	SlackWebhookURL *string `json:"slackWebhookUrl"`
 }
 
-// apply puts the fields that were sent onto s and checks them.
-func (b alertsBody) apply(s *store.AlertSettings) error {
+// check refuses values that cannot be stored, and normalizes the webhook.
+// It needs no stored settings, so the change itself cannot fail.
+func (b *alertsBody) check(allowHTTP bool) error {
+	if a := b.Alerts; a != nil {
+		if a.Spike != nil && a.Spike.Threshold != nil {
+			if t := *a.Spike.Threshold; t < minSpikeThreshold || t > maxSpikeThreshold {
+				return fmt.Errorf("The spike threshold is a whole number from %d to %d.", minSpikeThreshold, maxSpikeThreshold)
+			}
+		}
+		if a.Digest != nil && a.Digest.Frequency != nil && !store.ValidDigestFrequency(*a.Digest.Frequency) {
+			return errors.New("The summary goes out daily, weekly or monthly.")
+		}
+	}
+	if b.SlackWebhookURL != nil && *b.SlackWebhookURL != "" {
+		webhook, err := alerts.CheckWebhookURL(*b.SlackWebhookURL, allowHTTP)
+		if err != nil {
+			return err
+		}
+		b.SlackWebhookURL = &webhook
+	}
+	return nil
+}
+
+// apply puts the fields that were sent onto s; check them first.
+func (b alertsBody) apply(s *store.AlertSettings) {
 	if a := b.Alerts; a != nil {
 		a.NewIssue.apply(&s.NewIssue)
 		a.Regression.apply(&s.Regression)
 		a.Spike.apply(&s.Spike)
 		a.Digest.apply(&s.Digest)
 		if a.Spike != nil && a.Spike.Threshold != nil {
-			t := *a.Spike.Threshold
-			if t < minSpikeThreshold || t > maxSpikeThreshold {
-				return fmt.Errorf("The spike threshold is a whole number from %d to %d.", minSpikeThreshold, maxSpikeThreshold)
-			}
-			s.SpikeThreshold = t
+			s.SpikeThreshold = *a.Spike.Threshold
 		}
 		if a.Digest != nil && a.Digest.Frequency != nil {
-			if !store.ValidDigestFrequency(*a.Digest.Frequency) {
-				return errors.New("The summary goes out daily, weekly or monthly.")
-			}
 			s.DigestFrequency = *a.Digest.Frequency
 		}
 	}
 	if b.SlackWebhookURL != nil {
-		if *b.SlackWebhookURL == "" {
-			s.SlackWebhookURL = ""
-		} else {
-			webhook, err := alerts.CheckWebhookURL(*b.SlackWebhookURL)
-			if err != nil {
-				return err
-			}
-			s.SlackWebhookURL = webhook
-		}
+		s.SlackWebhookURL = *b.SlackWebhookURL
 	}
-	return nil
 }
 
+// updateProjectAlerts changes what was sent, for admins (ruling 33). The
+// change is read, applied and written in one transaction, so two changes
+// sent at once (a checkbox, the threshold) both stay.
 func (h *Handler) updateProjectAlerts(w http.ResponseWriter, r *http.Request) {
 	var body alertsBody
 	if !httpjson.Read(w, r, maxBodySettings, &body) {
+		return
+	}
+	if err := body.check(h.allowHTTP); err != nil {
+		httpjson.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	p, ok := h.alertsProject(w, r)
 	if !ok {
 		return
 	}
-	ctx := r.Context()
-	settings, err := h.db.AlertSettings(ctx, p.ID)
-	if err != nil {
-		h.internalError(w, r, err)
-		return
-	}
-	if err := body.apply(&settings); err != nil {
-		httpjson.Error(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	err = h.db.SaveAlertSettings(ctx, p.ID, settings)
+	settings, err := h.db.UpdateAlertSettings(r.Context(), p.ID, body.apply)
 	if errors.Is(err, store.ErrNotFound) {
 		notFound(w)
 		return
@@ -255,7 +261,7 @@ func (h *Handler) sendSlackTest(w http.ResponseWriter, r *http.Request, webhook,
 		httpjson.Error(w, http.StatusBadRequest, "Add a Slack webhook first.")
 		return
 	}
-	webhook, err := alerts.CheckWebhookURL(webhook)
+	webhook, err := alerts.CheckWebhookURL(webhook, h.allowHTTP)
 	if err != nil {
 		httpjson.Error(w, http.StatusBadRequest, err.Error())
 		return

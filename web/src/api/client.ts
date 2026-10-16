@@ -490,11 +490,16 @@ export interface ToolStatus {
   version: string
   startedAt: string
   uptimeSeconds: number
-  /** healthy is what /health says; failing names the checks that failed ("db", "disk"). */
-  healthy: boolean
+  /**
+   * status is what /health says: ok; degraded (it works, but a check
+   * failed, 200); error (it cannot work, 503). failing names the checks
+   * that failed ("db", "disk").
+   */
+  status: 'ok' | 'degraded' | 'error'
   failing: string[]
   db: 'ok' | 'error'
-  disk: 'ok' | 'low' | 'error'
+  /** low: under 10 % or 1 GiB free; critical: under 1 % or 256 MiB; error: it cannot be read. */
+  disk: 'ok' | 'low' | 'critical' | 'error'
   databaseBytes: number
   diskFreeBytes: number
   diskTotalBytes: number

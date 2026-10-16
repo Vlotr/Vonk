@@ -37,10 +37,12 @@ type statusJSON struct {
 	StartedAt time.Time `json:"startedAt"`
 	// UptimeSeconds is how long the process has run.
 	UptimeSeconds int64 `json:"uptimeSeconds"`
-	// Healthy is what /health says; Failing names the checks that failed.
-	Healthy bool     `json:"healthy"`
+	// Status is what /health says: "ok", "degraded" (it works, but a
+	// check failed; 200) or "error" (it cannot work; 503). Failing names
+	// the checks that failed.
+	Status  string   `json:"status"`
 	Failing []string `json:"failing"`
-	// DB is "ok" or "error"; Disk "ok", "low" or "error".
+	// DB is "ok" or "error"; Disk "ok", "low", "critical" or "error".
 	DB             string `json:"db"`
 	Disk           string `json:"disk"`
 	DatabaseBytes  int64  `json:"databaseBytes"`
@@ -71,7 +73,7 @@ func (h *Handler) status(w http.ResponseWriter, r *http.Request) {
 		Version:        report.Version,
 		StartedAt:      h.started,
 		UptimeSeconds:  int64(now.Sub(h.started).Seconds()),
-		Healthy:        report.OK(),
+		Status:         report.Status,
 		Failing:        report.Failing,
 		DB:             report.DB,
 		Disk:           report.Disk,
@@ -135,7 +137,7 @@ func (h *Handler) setAdminSlack(w http.ResponseWriter, r *http.Request) {
 	}
 	webhook := *body.WebhookURL
 	if webhook != "" {
-		checked, err := alerts.CheckWebhookURL(webhook)
+		checked, err := alerts.CheckWebhookURL(webhook, h.allowHTTP)
 		if err != nil {
 			httpjson.Error(w, http.StatusBadRequest, err.Error())
 			return

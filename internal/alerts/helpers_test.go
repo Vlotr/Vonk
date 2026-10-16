@@ -124,8 +124,9 @@ func newEnv(t *testing.T, opts ...func(*envOptions)) *testEnv {
 		p, _ := strconv.Atoi(port)
 		mailer = mail.NewSender(mail.Config{Host: host, Port: p}, testBaseURL)
 	}
+	// The fake Slack speaks plain http, as DEV_ALLOW_HTTP_WEBHOOKS allows.
 	env.n = New(Options{DB: db, Mailer: mailer, BaseURL: testBaseURL, Logger: slog.New(slog.NewTextHandler(env.logs, nil)),
-		Now: env.clock.Now, Location: o.location})
+		Now: env.clock.Now, Location: o.location, AllowHTTPWebhooks: true})
 	env.n.retryDelays = []time.Duration{time.Millisecond, time.Millisecond}
 	env.n.Start()
 	t.Cleanup(func() { env.n.Close(5 * time.Second) })

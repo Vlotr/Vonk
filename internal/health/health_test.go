@@ -70,7 +70,10 @@ func TestHealth_OK(t *testing.T) {
 	}
 }
 
-func TestHealth_503WhenDiskCheckFails(t *testing.T) {
+// Ruling 34: a low disk (under 10 % or 1 GiB free) is degraded, 200 with
+// the check named; an unreadable disk too. Only a disk that is all but
+// full (under 1 % or 256 MiB) answers 503, as a failing database does.
+func TestHealth_DegradedWhenDiskIsLow(t *testing.T) {
 	cases := []struct {
 		name        string
 		free, total uint64
@@ -84,8 +87,8 @@ func TestHealth_503WhenDiskCheckFails(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			code, body := get(t, testChecker(t, tc.free, tc.total, tc.err))
-			if code != http.StatusServiceUnavailable || body.Status != "error" || body.Disk != tc.disk || body.DB != "ok" {
-				t.Errorf("= %d %+v, want 503 with disk %q", code, body, tc.disk)
+			if code != http.StatusOK || body.Status != "degraded" || body.Disk != tc.disk || body.DB != "ok" {
+				t.Errorf("= %d %+v, want 200 degraded with disk %q", code, body, tc.disk)
 			}
 			if len(body.Failing) != 1 || body.Failing[0] != "disk" {
 				t.Errorf("failing = %v, want [disk]", body.Failing)
@@ -93,8 +96,33 @@ func TestHealth_503WhenDiskCheckFails(t *testing.T) {
 		})
 	}
 	// Exactly 10 percent and more than 1 GiB is fine.
-	if code, _ := get(t, testChecker(t, 10*gib, 100*gib, nil)); code != http.StatusOK {
-		t.Errorf("10 percent free = %d, want 200", code)
+	if code, body := get(t, testChecker(t, 10*gib, 100*gib, nil)); code != http.StatusOK || body.Status != "ok" {
+		t.Errorf("10 percent free = %d %s, want 200 ok", code, body.Status)
+	}
+}
+
+func TestHealth_503WhenDiskCheckFails(t *testing.T) {
+	cases := []struct {
+		name        string
+		free, total uint64
+	}{
+		{"under 1 percent free", 3 * gib, 400 * gib},
+		{"under 256 MiB free", 255 << 20, 1 * gib},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			code, body := get(t, testChecker(t, tc.free, tc.total, nil))
+			if code != http.StatusServiceUnavailable || body.Status != "error" || body.Disk != "critical" || body.DB != "ok" {
+				t.Errorf("= %d %+v, want 503 with disk critical", code, body)
+			}
+			if len(body.Failing) != 1 || body.Failing[0] != "disk" {
+				t.Errorf("failing = %v, want [disk]", body.Failing)
+			}
+		})
+	}
+	// Exactly 1 percent and 256 MiB is low, not critical.
+	if code, body := get(t, testChecker(t, 256<<20, 25*gib, nil)); code != http.StatusOK || body.Disk != "low" {
+		t.Errorf("1 percent and 256 MiB free = %d %s, want 200 low", code, body.Disk)
 	}
 }
 
@@ -102,7 +130,7 @@ func TestHealth_503WhenDatabaseFails(t *testing.T) {
 	c := testChecker(t, 50*gib, 100*gib, nil)
 	c.DB.Close()
 	code, body := get(t, c)
-	if code != http.StatusServiceUnavailable || body.DB != "error" || len(body.Failing) != 1 || body.Failing[0] != "db" {
+	if code != http.StatusServiceUnavailable || body.Status != "error" || body.DB != "error" || len(body.Failing) != 1 || body.Failing[0] != "db" {
 		t.Errorf("= %d %+v, want 503 failing db", code, body)
 	}
 }
