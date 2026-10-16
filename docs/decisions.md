@@ -364,3 +364,59 @@ Follow-ups from the Task 4 and Task 5 reviews:
 - `sanitize.mjs` compares the real paths of `process.argv[1]` and itself, so it runs through a symlinked path (macOS `/tmp`).
 - Setup and keys (Task 5) shows the Laravel steps only when the project tracks Laravel errors, the browser steps only when it tracks browser errors, and the PostHog token and host only when page views are on (otherwise a "Turn on page views" button); the kinds it does not track are named in one line linking to Edit project. A page full of steps for things the project does not collect would suggest it does.
 - `SettingsUsersPage.tsx` keeps the page and its tables; the invite and edit forms (with the role select and project checkboxes) are `pages/UserForms.tsx`, the card that shows a new link once is `components/LinkCard.tsx`.
+
+Schema (migration 0004):
+
+- `alerts` has one row per project, kind and channel, as the spec lists it; the spike threshold and the summary frequency are stored on both channel rows of their kind (the API keeps them equal). A project without rows uses `store.DefaultAlertSettings`: new issue, returning issue and spike on for email and Slack, the summary off (weekly). Slack needs a webhook and mail needs `MAIL_URL` before anything goes out.
+- The project's webhook is `projects.slack_webhook_url` ('' for none); the admins' webhook is the `settings` row `admin_slack_webhook_url` (ruling 18). Columns are called `name`, not `key`, which is a keyword in some SQL.
+- `alert_state` is keyed by a name (`spike:<id>`, `digest:<id>:<frequency>`, `admin:<kind>`) with a nullable project id that cascades, so a deleted project takes its state along. `ClaimCooldown` and `ClaimPeriod` read and write in one write transaction; an alert is recorded before its messages are queued, so it is never sent twice, and with in-memory delivery (ruling 11) a crash in between loses it.
+
+Notifications:
+
+- Delivery: 3 tries in all (ruling 11's "3 attempts"; the brief's "3 retries" read the same way), pausing 5 s and 30 s, each try at most 30 s; 4 workers; at most 1000 issue events and 1000 messages wait. A full event queue drops the notification with a warning instead of blocking the ingest writer, which calls the hooks.
+- Cap: 30 notifications per project and channel in the hour that starts with the first of them; a mail to several people is one notification. Only new and returning issues count: spikes have their 6 h cooldown and summaries go out once per period. When the hour has passed, one "N more notifications were suppressed" message goes out on that channel (a job checks every minute, and a notification that opens the next hour sends it first). The counts are in memory and start over after a restart.
+- Mail goes to everyone who may see the project when it is sent (ruling 10: every admin and the members with access); admin alerts go to admins only. Subjects are "[Webshop] New issue: RuntimeException: Checkout failed" (cut at 150 characters); bodies link to the issue and to the project's Alerts page and name `BASE_URL`, never the tool's name.
+- Slack messages use mrkdwn (`<url|label>`, with `&`, `<` and `>` escaped). The client follows no redirects; its errors never contain the URL (`*url.Error` is unwrapped) and pass on Slack's short error word ("Slack answered 404 (no_service).").
+- A webhook must be an http(s) URL with a host and no user name or password, at most 500 characters; other hosts than hooks.slack.com and plain http are allowed for Mattermost and the like on a local network. Masked as `scheme://host/…/` plus its last four characters (`…` alone when the rest is 8 characters or fewer).
+- Everyone who may see a project may change its alerts and webhook and send the test message (the brief makes only the status page and the admins' webhook admin-only). So a member can make the server post the fixed test text to any http(s) address and learn only whether it answered 2xx; accepted for a team tool.
+- The test message is sent at once (10 s), to the URL typed in (before saving) or the saved one; a failure answers 400 "The test message did not arrive. …", not 502, so the page shows the reason.
+
+Spike (ruling 9):
+
+- The last hour is events with a timestamp in [now − 1 h, now + 1 h) (an hour ahead counts, as on the dashboard). The usual rate is the events of the 168 hours before that hour divided by 168, also for a project younger than a week (it then fires more easily; the minimum of 10 errors guards). It fires at threshold × usual and at least 10 errors, at most once in 6 hours per project (both channels together). The threshold is a whole number from 2 to 100, default 5. The message names the three busiest issues of the hour.
+
+Summaries:
+
+- The job runs daily at 08:00 in `TZ` (`jobs.DailyAt` keeps the local time across daylight saving changes). Daily covers the calendar day before in `TZ`, weekly (Mondays) Monday to Sunday before, monthly (the 1st) the month before. The period's first day is claimed per project and frequency, so a period goes out once, across restarts too. A server that is down at 08:00 skips that day's summaries (no catch-up later).
+- A summary has the errors, the number of new issues with up to 5 of them, the 5 busiest issues and the issues open now. Page views join it once they are stored (Task 7); none are stored yet.
+
+Admin alerts:
+
+- Checked every minute: a low disk (the health check), stored-event losses of the writer, and events the queue turned away. The ingest counters run since the start; the first check takes their values then as the baseline. Each kind alerts at most once in 12 hours (`alert_state`, or in memory when the database itself fails). Its one-line summary is kept and shown on the status page as the last alert of that kind ("recent admin alerts"). Subjects name the `BASE_URL` host, so several installations can be told apart.
+- A disk that cannot be read makes `/health` fail (`disk: error`) but sends no admin alert; only a low disk does.
+
+Health:
+
+- `/health` answers `{status, version, db, disk, diskFreeBytes, diskTotalBytes, queueDepth, failing}`, 503 when any check fails. The disk is low under 10 % free or under 1 GiB free (the brief's "or"), counting the space this process may use (`Bavail`, via `statfs`); systems without `statfs` report the disk as `error`. A database error is logged on every call; the disk is the admin alert's job.
+- On a nearly full disk `/health` answers 503 and Docker marks the container unhealthy; the compose file restarts only on exit, so that changes nothing but the status.
+
+Retention, backups and jobs:
+
+- Retention runs daily, first a minute after the start: per project with a retention, events with a timestamp older than now − days, then issues last seen before that (with their remaining events), each in batches of 5000 rows, one transaction per batch. It goes by the event's timestamp, which the index covers; an issue with a newer event stays, and its counter (`times_seen`) still includes the deleted events.
+- Every command that opens the database (`serve`, `project create`, `admin reset-password`) backs it up first when migrations are pending and `schema_migrations` has rows (`cmd/monitor/database.go`). The copy is `VACUUM INTO <DATA_DIR>/backups/pre-migrate-<version>-<UTC time>.db` (`-2` when the name is taken), named after the version before the update. The five newest pre-migration backups are kept (by the time in the name); other files there are left alone. A failed backup stops the command before anything changes, naming `DATA_DIR`; a failed migration names the backup.
+- One scheduler goroutine runs the jobs one after another (retention every 24 h, spike check every 5 min, summaries at 08:00 in `TZ`, suppressed-count messages and admin checks every minute). A job that was due several times (a machine that slept) runs once; the scheduler looks at the clock at least every minute; a panic is logged and the rest carry on.
+- Shutdown order: the HTTP server, the jobs, the writer (its last batch still notifies), the notifier (10 s for messages under way), the database.
+- `TZ` is read by `config.Load` (a leading `:` is dropped; an unknown zone stops the start); without it schedules use UTC. The zone data comes from the distroless image (checked with `TZ=Europe/Amsterdam` in the container).
+
+Dashboard:
+
+- The sidebar's Alerts (bell icon, as in the designs) sits under Issues; Pages and Events come in between later. `/projects/:id/alerts` is for everyone who sees the project; Settings → Status (`/settings/status`) for admins, linked between Users and Account.
+- The Alerts page headline is a conclusion: "Webshop sends alerts by email and Slack" (or "by email", "to Slack", "no alerts"), counting a channel only when it can deliver (mail on, a webhook saved). Checkboxes save at once, optimistically like status changes; without `MAIL_URL` the email boxes keep their saved state but are disabled, under "Email is off. Set MAIL_URL to send email."; the threshold saves on leaving the field or Enter.
+- The Status page headline names the problem ("Everything works", "The disk is almost full", "The database does not answer", "2 problems need attention"), the sentence under it gives the version, the uptime and what `/health` answers. A strip of numbers in the style of the issue page (database size, disk free, events in the last hour, waiting to be stored), then Backups and Alerts for admins (the last alert of each kind, and the admins' webhook).
+- "Events in the last hour" counts what this process stored (a per-minute counter in the writer), from the start after a restart: counting by receive time in the database would need a new index or a full scan every minute, and the event timestamp can be days old. The database size is the SQLite file plus its WAL.
+- `internal/api/status.go` (the issue status route) is now `issue_status.go`, so `status.go` holds the status page as the brief names it. Extra files beyond the brief: `internal/store/{alerts,summary,retention}.go`, `internal/health/disk_{unix,other}.go`, `internal/ingest/counter.go`, `cmd/monitor/database.go`, `web/src/components/SlackWebhook.tsx`, `web/src/lib/{alerts,status}.ts`.
+- e2e: `phase2-status.spec.ts` (last in file order, so it changes nothing the others count) uses a fake Slack on 127.0.0.1 and the real sentry-laravel SDK for the returning issue; new screenshots `phase2-alerts.png` and `phase2-status.png`, whose headline depends on the disk of the machine running it.
+
+Container:
+
+- `compose.yaml` follows the spec's example with the local image `monitor:dev`, `TZ: Europe/Amsterdam` and `restart: unless-stopped`; `SECRET_KEY` comes from the environment (`${SECRET_KEY:?…}`), because the example's `verander-mij` is refused at startup; `BASE_URL` defaults to `http://localhost:8000`.

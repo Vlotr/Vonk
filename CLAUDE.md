@@ -11,9 +11,10 @@ A self-hosted monitoring tool: one Go binary that pretends to be Sentry (errors)
 | `make e2e` | Playwright end-to-end tests in `e2e/`: builds the binary, starts it with the Laravel and browser examples, checks the dashboard in Chromium and saves screenshots. Needs PHP 8.3+ and Composer. |
 | `make build` | Web build into `web/dist`, then `bin/monitor` with the dashboard embedded. |
 | `make docker` | Image `monitor:dev` for this machine's platform. |
+| `docker compose up -d` | The container as the spec's example runs it (`compose.yaml`: `monitor:dev`, one volume, `TZ=Europe/Amsterdam`); needs `SECRET_KEY` in the environment. |
 | `make clean` | Remove `bin/` and the web build. |
 
-Focused runs while iterating: `go test -race ./internal/store/ -run TestCreateProject`, `go test ./internal/api/`, `cd web && npm test`, `cd e2e && npx playwright test` (after `make build` once).
+Focused runs while iterating: `go test -race ./internal/store/ -run TestCreateProject`, `go test ./internal/api/`, `go test -race ./internal/alerts/`, `cd web && npm test`, `cd e2e && npx playwright test` (after `make build` once).
 
 Run the binary by hand:
 
@@ -26,7 +27,7 @@ ADDR=:8000 bin/monitor healthcheck   # exit 0 when /health answers 200
 
 `admin reset-password` prints a one-time link (valid one hour) for any account; it must run with the server's `SECRET_KEY`, which keys the stored token hashes.
 
-Container: `docker run -p 8000:8000 -e SECRET_KEY=... -e BASE_URL=http://localhost:8000 -v monitor-data:/data monitor:dev`, then open it and create the first admin. The image has no shell; run CLI commands with `docker exec <container> /monitor project create --name Webshop`.
+Container: `docker run -p 8000:8000 -e SECRET_KEY=... -e BASE_URL=http://localhost:8000 -v monitor-data:/data monitor:dev`, or `SECRET_KEY=$(openssl rand -hex 32) docker compose up -d` with `compose.yaml`; then open it and create the first admin. The image has no shell; run CLI commands with `docker exec <container> /monitor project create --name Webshop`. From inside the container, a fake webhook on this Mac is `http://host.docker.internal:<port>/...` (Docker Desktop).
 
 ## Capturing real SDK traffic
 
@@ -59,11 +60,11 @@ node internal/sentry/testdata/capture/sanitize.mjs \
 | `SECRET_KEY` | required | At least 16 characters; the example values `verander-mij` and `change-me` are refused. |
 | `BASE_URL` | required | Root of a host, such as `https://monitor.example.com`. No subpath. DSNs are built from it. |
 | `DATABASE_URL` | empty | `postgres://...` selects Postgres (not supported until Task 11; startup refuses it). Empty: SQLite at `<DATA_DIR>/monitor.db`. |
-| `MAIL_URL` | empty | `smtp://user:pass@host:587` (STARTTLS, required except to localhost) or `smtps://user:pass@host:465`, optional `?from=` (default `monitor@<BASE_URL host>`). Parsed at startup by `mail.Parse`; invites and reset links are mailed when set. |
+| `MAIL_URL` | empty | `smtp://user:pass@host:587` (STARTTLS, required except to localhost) or `smtps://user:pass@host:465`, optional `?from=` (default `monitor@<BASE_URL host>`). Parsed at startup by `mail.Parse`; invites, reset links and notifications are mailed when set. |
 | `ADDR` | `:8000` | Listen address. |
-| `DATA_DIR` | `/data` | SQLite file and later backups. |
+| `DATA_DIR` | `/data` | SQLite file, and `backups/` (pre-migration copies). Its disk is what the health check measures. |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`. |
-| `TZ` | UTC | Schedules (later tasks). |
+| `TZ` | UTC | The clock of schedules: summaries go out at 08:00 there. Parsed by `config.Load` into `Config.Location`; `compose.yaml` sets `Europe/Amsterdam`. |
 
 ## Layout
 
@@ -77,13 +78,16 @@ internal/sentry/        Sentry envelopes and events: ParseEnvelope, Event, Finge
   testdata/             real SDK requests (fixtures) and the recipes that made them (capture/)
 internal/scrub/         removes sensitive values and IP addresses before storage
 internal/ingest/        SDK endpoints: Sentry envelope handler, auth, CORS, rate limit, queue, batch writer
-internal/issues/        Service.SetStatus (resolve, ignore, reopen) and the Hooks the writer calls on new and regressed issues (NoHooks until Task 6)
+internal/issues/        Service.SetStatus (resolve, ignore, reopen) and the Hooks the writer calls on new and regressed issues (alerts.Notifier in serve)
 internal/httpjson/      Write and Error (the JSON responses every endpoint shares) and Read (JSON request bodies)
 internal/auth/          accounts: passwords (argon2id), sessions, CSRF, login throttle, invites and reset links, the sign-in handlers, access helpers
 internal/mail/          MAIL_URL parsing and a plain-text SMTP sender
-internal/api/           dashboard JSON API under /ui/api/ (overview, projects, issues, issue detail, status, settings for projects and users)
+internal/alerts/        notifications: Notifier (issues.Hooks, delivery, caps), slack.go, email.go, spike.go, digest.go, admin.go
+internal/jobs/          Scheduler (Every, DailyAt, injectable clock) and Retention
+internal/health/        Checker.Check: database, disk under DATA_DIR, queue depth; the /health handler
+internal/api/           dashboard JSON API under /ui/api/ (overview, projects, issues, issue detail and status, alerts, settings for projects, users and the status page)
 internal/server/        router (public, sign-in and signed-in routes), security headers, request logging, panic recovery, /health
-internal/testutil/      fakes for tests in several packages (a fake SMTP server)
+internal/testutil/      fakes for tests in several packages: an SMTP server and a Slack webhook
 internal/web/           serves the embedded SPA with index.html fallback
 web/                    Vite + React + TypeScript dashboard
   embed.go              Go package monitor/web: embeds web/dist into the binary
@@ -91,20 +95,23 @@ web/                    Vite + React + TypeScript dashboard
   src/brand.ts          the tool name, the only place it lives
   src/styles/tokens.css every color, font, radius and spacing value, sampled from the designs
   src/api/client.ts     typed calls to /ui/api; changes send the session's CSRF token
-  src/lib/              pure helpers with Vitest tests (format, levels, frames, issueFilters, settings, signin) and usePolling, useLinkCheck, clipboard
+  src/lib/              pure helpers with Vitest tests (format, levels, frames, issueFilters, issueList, settings, signin, alerts, status)
+                        and usePolling, useStatusChange, useLinkCheck, clipboard (hook tests run in happy-dom)
   src/layout/           AppShell (loads the user and the projects), Sidebar, MeContext, ProjectsContext
   src/pages/            AllProjectsPage, IssuesPage, IssueDetailPage, NotFoundPage; Setup, Login, Invite, ForgotPassword, ResetPassword;
-                        SettingsProjectsPage, ProjectSetupPage, SettingsUsersPage, AccountPage
+                        SettingsProjectsPage, ProjectSetupPage, SettingsUsersPage (+ UserForms), SettingsStatusPage, AccountPage, AlertsPage
   src/components/       HourBars (+ HourLegend), StackTrace, Tag, Icons, Logo, LoadError, CopyBlock, AuthLayout, SettingsHeader,
-                        AdminOnly, Button.module.css, Form.module.css
+                        AdminOnly, LinkCard, SlackWebhook, Button.module.css, Form.module.css
 examples/laravel/       Laravel 13 app with sentry/sentry-laravel: /boom and /boom-other fail on purpose
 examples/browser/       Vite page with @sentry/browser, DSN from ?dsn=: a TypeError and an unhandled rejection
-e2e/                    Playwright: global-setup.ts starts everything and makes the first admin, phase1.spec.ts, phase2-access.spec.ts, phase2-issues.spec.ts, screenshots/
+e2e/                    Playwright: global-setup.ts starts everything and makes the first admin, phase1.spec.ts, phase2-access.spec.ts, phase2-issues.spec.ts,
+                        phase2-status.spec.ts (alerts with a fake Slack, the status page), screenshots/
+compose.yaml            the spec's compose example with the local image
 tools/capture/          recorder for real SDK traffic (see "Capturing real SDK traffic")
 docs/decisions.md       one line per judgment call
 ```
 
-Packages still to come (see the plan): `internal/posthog`, `internal/alerts`, `internal/jobs`, `internal/routes`, `internal/bots`.
+Packages still to come (see the plan): `internal/posthog`, `internal/routes`, `internal/bots`.
 
 ## How Sentry ingest works
 
@@ -129,7 +136,7 @@ Auth API: public `GET /ui/api/auth/status` → `{setupNeeded, mailEnabled}`, `PO
 
 ## The dashboard
 
-Routes: `/` (All projects), `/projects/:id/issues` (tab, filters and search in the query: `?status=resolved&source=browser&sort=events&q=cart&route=/checkout`), `/projects/:id/issues/:issueId`, `/settings` (Projects for admins, Account for members), `/settings/projects` (`?new`, `?edit=<id>`), `/settings/projects/:id/setup`, `/settings/users` (`?invite`, `?edit=<id>`), `/settings/account`; outside the shell `/setup`, `/login?next=`, `/invite#token=`, `/forgot-password`, `/reset-password#token=`. The server redirects pages without a session to `/login` (or `/setup` before the first account); the SPA does the same when the API answers 401. Pages poll their data every 60 s (`usePolling`, which also keeps the old rows while new filters load and holds polls back during an optimistic change); the shell loads the project list for the sidebar, which shows the project of the URL (or the last one visited, or the first). A status change reloads that list, so the sidebar's open count follows.
+Routes: `/` (All projects), `/projects/:id/issues` (tab, filters and search in the query: `?status=resolved&source=browser&sort=events&q=cart&route=/checkout`), `/projects/:id/issues/:issueId`, `/projects/:id/alerts`, `/settings` (Projects for admins, Account for members), `/settings/projects` (`?new`, `?edit=<id>`), `/settings/projects/:id/setup`, `/settings/users` (`?invite`, `?edit=<id>`), `/settings/status`, `/settings/account`; outside the shell `/setup`, `/login?next=`, `/invite#token=`, `/forgot-password`, `/reset-password#token=`. The server redirects pages without a session to `/login` (or `/setup` before the first account); the SPA does the same when the API answers 401. Pages poll their data every 60 s (`usePolling`, which also keeps the old rows while new filters load and holds polls back during an optimistic change); the shell loads the project list for the sidebar, which shows the project of the URL (or the last one visited, or the first). A status change reloads that list, so the sidebar's open count follows.
 
 API (`internal/api`, registered on the dashboard mux, so behind `auth.RequireUser`; members get only their projects everywhere):
 
@@ -138,13 +145,24 @@ API (`internal/api`, registered on the dashboard mux, so behind `auth.RequireUse
 - `GET /ui/api/projects/{id}/issues?status=open&source=laravel&sort=last_seen&q=…&route=…&limit=25&offset=0` → `{project, counts, openIssues, new24h, total, issues: [{id, type, message, source, culprit, events, users, firstSeen, lastSeen, isNew, hourly}]}`. `source` is `laravel` or `browser`; `sort` is `last_seen` (default), `first_seen`, `events` or `users`; `q` (at most 200 characters) matches title, message, culprit or the URL of any event, ignoring case; `route` keeps issues with an event on that route (filled from Task 7). `counts` and `total` follow the filters; `openIssues` and `new24h` describe the whole project (the headline). `hourly` is 24 clock hours (UTC), oldest first, the current hour last.
 - `GET /ui/api/issues/{id}` → `{issue: {…, status, projectId}, hourly, latestEvent}`. `latestEvent.frames` is the main exception's trace with the most recent call first and at most three lines of code on each side of the error line; optional fields (user, browser, os, environment, server, runtime, url, release, country) are left out when the event lacks them. Browser and system come from the request's User-Agent header.
 - `POST /ui/api/issues/{id}/status` with `Content-Type: application/json`, `X-CSRF-Token` and `{"status":"open|resolved|ignored"}` → `{id, projectId, status}`; 400 for another status, 415 for another content type, 404 for an unknown issue or one of another project.
-- Settings, admins only (404 for members): `GET/POST /ui/api/settings/projects`, `GET/PATCH/DELETE /ui/api/settings/projects/{id}`, `POST /ui/api/settings/projects/{id}/rotate-keys` (bodies `{name, retentionDays: 30|90|180|365|null, tracksLaravel, tracksBrowser, tracksPageviews}`, PATCH changes only what is sent; the single-project answers add `dsn`, `posthogToken`, `posthogHost`), `GET /ui/api/settings/users` → `{users, invites}`, `PATCH/DELETE /ui/api/settings/users/{id}` (`{role?, projectIds?}`), `POST /ui/api/settings/users/{id}/reset-link` (members only) → `{link, expiresAt, mailed}`, `POST /ui/api/settings/invites` (`{email, role, projectIds}`) → `{invite, link, mailed}`, `DELETE /ui/api/settings/invites/{id}`.
+- Alerts, for everyone who sees the project: `GET /ui/api/projects/{id}/alerts` → `{project, mailEnabled, recipients, slackWebhook (masked or null), alerts: {newIssue: {email, slack}, regression, spike: {…, threshold}, digest: {…, frequency}}}`; `PATCH` the same path with `{alerts?: {kind?: {email?, slack?, threshold?, frequency?}}, slackWebhookUrl?}` (`""` removes it; threshold 2–100; daily, weekly or monthly) answers the same shape; `POST /ui/api/projects/{id}/alerts/slack-test` with `{webhookUrl?}` posts a test message (400 says why it did not arrive).
+- Settings, admins only (404 for members): `GET/POST /ui/api/settings/projects`, `GET/PATCH/DELETE /ui/api/settings/projects/{id}`, `POST /ui/api/settings/projects/{id}/rotate-keys` (bodies `{name, retentionDays: 30|90|180|365|null, tracksLaravel, tracksBrowser, tracksPageviews}`, PATCH changes only what is sent; the single-project answers add `dsn`, `posthogToken`, `posthogHost`), `GET /ui/api/settings/users` → `{users, invites}`, `PATCH/DELETE /ui/api/settings/users/{id}` (`{role?, projectIds?}`), `POST /ui/api/settings/users/{id}/reset-link` (members only) → `{link, expiresAt, mailed}`, `POST /ui/api/settings/invites` (`{email, role, projectIds}`) → `{invite, link, mailed}`, `DELETE /ui/api/settings/invites/{id}`, `GET /ui/api/settings/status` (version, uptime, health, database size, disk, events stored in the last hour, queue, last backup, recent admin alerts, the masked admins' webhook), `PUT /ui/api/settings/admin-slack` (`{webhookUrl}`, `""` removes it), `POST /ui/api/settings/admin-slack/test`.
 
 Issue status lives in `issues.Service.SetStatus` (resolving records `resolved_at`). The ingest writer reopens a resolved issue when an event arrives that was received at or after the resolve: status `open`, `resolved_at` cleared, `regressed_at` set, and `Hooks.OnIssueRegressed` called once after the batch. Ignored issues stay ignored but keep counting events.
 
 The API returns exception types in full (`Illuminate\Database\QueryException`); the UI shortens them with `shortType` and shows the full name in the stack trace and as a tooltip. An issue whose exception came in as an unhandled promise rejection is titled "Unhandled rejection" (set by `sentry.Summarize` at ingest; the fingerprint still uses the exception type). Culprits are `basename:line` for server platforms and the URL's path for browsers (`assets/main.js:21`).
 
 The look comes from the PNGs: Instrument Sans and JetBrains Mono (bundled with `@fontsource-variable`), sizes and weights fitted to the designs, all values in `tokens.css`. To compare a change with a design, render the page at 1360 px wide and device scale 2 (the PNGs' size) and put the two side by side; `make e2e` takes its screenshots at that size.
+
+## Alerts, health, retention and backups
+
+- Notifications (`internal/alerts`): `serve` passes the `Notifier` to the ingest writer as its `issues.Hooks`. New and returning issues, spikes and summaries go by mail (when `MAIL_URL` is set) to everyone who may see the project, and to the project's Slack webhook; each kind is on or off per channel on the project's Alerts page. Delivery is in the background, in memory: 3 tries (pauses 5 s and 30 s), lost on a restart. New and returning issue notifications are capped at 30 per project and channel per hour, then one "N more notifications were suppressed" message. Spike: the last hour has at least the threshold (default 5) times the hourly average of the 7 days before, and at least 10 errors; checked every 5 minutes, at most once in 6 hours. Summaries at 08:00 in `TZ` (daily; weekly on Mondays; monthly on the 1st), never twice for one period (`alert_state`).
+- Admin alerts: every minute, a low disk (under 10 % or 1 GiB free under `DATA_DIR`), events the database could not store, and events the full queue turned away; mail to admins and the optional admins' Slack webhook (Settings → Status); at most once in 12 hours per kind.
+- Webhook URLs are secrets: never logged, never in an error, answered only masked (`https://hooks.slack.com/…/abcd`).
+- `/health` → 200 or 503 with `{status, version, db, disk, diskFreeBytes, diskTotalBytes, queueDepth, failing}`; the status page and the admin alerts read the same `health.Checker`.
+- Jobs (`internal/jobs`): one scheduler goroutine; retention daily (first a minute after the start) deletes each project's events older than its retention and issues last seen before it, 5000 rows per transaction; projects kept indefinitely keep everything.
+- Backups: every command opens the database through `openDatabase` (`cmd/monitor/database.go`): when migrations are pending on a database that has data, `store.BackupBeforeMigrate` first writes `VACUUM INTO <DATA_DIR>/backups/pre-migrate-<version>-<time>.db` and keeps the five newest; when that fails, the command stops before migrating.
+- Tests: `internal/testutil` has a fake SMTP server and a fake Slack webhook; `alerts` tests wait for deliveries with `n.busy.Wait()` and move a fake clock. Health checks take `DiskUsage` so tests never depend on the machine's disk.
 
 ## Conventions
 
@@ -174,4 +192,5 @@ The look comes from the PNGs: Instrument Sans and JetBrains Mono (bundled with `
 - The e2e setup starts each process in its own process group and stops the group, because `php artisan serve` runs `php -S` as a child. It passes the DSN to Laravel as an environment variable with `--no-reload` (without it, artisan serve drops variables that are not in `.env`) and sets `SENTRY_SERVER_NAME=web-1` so screenshots never show this machine's host name.
 - The stack trace marks the error line with `aria-current="true"`; the e2e test finds it that way.
 - The e2e setup creates two projects: "Webshop" (fed by the Laravel and browser examples) and "Customer portal" (`PORTAL_DSN`; phase 2 points the browser example at it with `?dsn=`). The specs share one monitor and run in file order, but each makes the errors it checks itself. The first admin is created on the setup page in global setup; specs sign in with `browser.newContext({ storageState: env('ADMIN_STATE') })`. `phase2-access` deletes the project it creates again, since `phase2-issues` expects the two example projects only.
+- `/health` answers 503 on a machine whose disk has under 10 % (or 1 GiB) free, as many laptops do: the status page then says "The disk is almost full". Tests inject `health.Checker.DiskUsage`; the e2e setup only waits for `/health` to answer, and `phase2-status.png` shows whatever the disk of the machine says.
 - `go test -race ./internal/ingest/` takes about 17 s: `TestIngest_ConcurrentLoad` sends 10 000 envelopes over HTTP. `go test ./internal/sentry/ -run '^$' -fuzz FuzzParseEnvelope -fuzztime 60s` fuzzes parse, scrub and grouping.
