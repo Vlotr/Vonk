@@ -1,0 +1,113 @@
+/*
+ * Design tokens, sampled from the PNGs in "Monitoring dashboard-png/" (drawn
+ * at 2x; the values here are CSS pixels). Every color, font, radius and
+ * spacing value of the dashboard lives here; components use the variables.
+ *
+ * Type: Instrument Sans (matched glyph for glyph, weights by ink coverage)
+ * and JetBrains Mono (its "->" ligature is the arrow in the stack trace).
+ */
+:root {
+  /* Surfaces and lines */
+  --color-bg: #eef1f4;
+  --color-surface: #ffffff;
+  --color-surface-sunken: #f7f9fb; /* code blocks, the hidden-frames bar */
+  --color-border: #d5dbe2; /* cards, sidebar, buttons, table header */
+  --color-divider: #e8ecf0; /* between rows and frames, around code */
+
+  /* Text */
+  --color-text: #1b2430;
+  --color-text-secondary: #3d4652;
+  --color-text-muted: #56606e;
+  --color-link: #2b59c3;
+
+  /* Tags and badges */
+  --color-tag-bg: #eef1f4;
+  --color-tag-text: #3d4652;
+  --color-new-bg: #fdece3;
+  --color-new-text: #a8370a;
+
+  /* The line that raised the error */
+  --color-highlight-bg: #fdece3;
+  --color-highlight-text: #a8370a;
+
+  /* Accent: the logo corner and error markers */
+  --color-accent: #c2410c;
+  --color-logo-square: #d5dbe2;
+
+  /* Errors per hour, five steps from none to many */
+  --color-heat-0: #e3e8ee;
+  --color-heat-1: #f9d3bc;
+  --color-heat-2: #f2a071;
+  --color-heat-3: #e0642a;
+  --color-heat-4: #a8370a;
+
+  /* Charts of page views (Pages screen) */
+  --color-chart: #2b59c3;
+  --color-chart-light: #9db3e6;
+  --color-chart-track: #e8eefa;
+
+  /* Buttons */
+  --color-button-primary: #1b2430;
+  --color-button-primary-text: #ffffff;
+
+  /* Fonts */
+  --font-sans: 'Instrument Sans Variable', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono Variable', ui-monospace, 'SF Mono', Menlo, monospace;
+
+  --font-size-title: 34px; /* page headline */
+  --font-size-subtitle: 19px; /* the error message under an issue's name */
+  --font-size-stat: 22px; /* numbers in the stats strip */
+  --font-size-heading: 18px; /* card titles */
+  --font-size-name: 16px; /* project names in lists */
+  --font-size-brand: 17px;
+  --font-size-body: 15px;
+  --font-size-small: 14px; /* links above the headline, buttons, footers */
+  --font-size-label: 13px; /* column headers, field labels */
+  --font-size-tag: 12px;
+  --font-size-code: 13.5px; /* stack trace source */
+  --font-size-code-path: 14px; /* file of a stack frame, values in mono */
+  --font-size-culprit: 13px; /* file and line in the issue list */
+
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  --letter-spacing-title: -0.01em;
+  --line-height-title: 1.22;
+  --line-height-body: 1.4;
+  --line-height-field: 22.5px; /* rows of the User and Details cards */
+  --line-height-exception: 21px; /* the exception line above a stack trace */
+  --line-height-code: 23px;
+  --line-height-frame: 20px; /* the file and function line of a stack frame */
+  --line-height-badge: 19px; /* the open-issue count in the sidebar */
+
+  /* Corners */
+  --radius-card: 10px;
+  --radius-nav: 8px;
+  --radius-button: 6px;
+  --radius-code: 6px;
+  --radius-tag: var(--radius-pill);
+  --radius-hour-block: 3px;
+  --radius-hour-bar: 1px;
+  --radius-pill: 999px;
+
+  /* Spacing */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 28px;
+  --space-8: 32px;
+  --space-10: 40px;
+
+  /* Layout */
+  --sidebar-width: 220px;
+  --page-padding: 40px;
+  --nav-item-height: 44px;
+  --button-height: 40px;
+  --icon-size: 18px;
+  --border-width: 1px;
+}

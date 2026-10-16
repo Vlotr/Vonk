@@ -1,12 +1,115 @@
+/* Shared by every page: the link row above the headline, the headline and
+   the sentence under it, cards and empty states. */
+
+.breadcrumb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  margin: 0 0 6px;
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-medium);
+  line-height: normal;
+}
+
+.breadcrumb a {
+  color: var(--color-link);
+  text-decoration: none;
+}
+
+.breadcrumb a:hover {
+  text-decoration: underline;
+}
+
+.separator {
+  margin: 0 10px;
+  color: var(--color-text-muted);
+}
+
 .title {
-  margin: 0 0 8px;
-  font-size: 32px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
+  margin: 0 0 7px;
+  color: var(--color-text);
+  font-size: var(--font-size-title);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--letter-spacing-title);
+  line-height: var(--line-height-title);
+  overflow-wrap: anywhere;
 }
 
 .lead {
   margin: 0;
-  color: #4b5563;
-  font-size: 16px;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-body);
+  line-height: normal;
+}
+
+.card {
+  overflow: hidden;
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+}
+
+.cardTitle {
+  margin: 0;
+  color: var(--color-text);
+  font-size: var(--font-size-heading);
+  font-weight: var(--font-weight-semibold);
+  line-height: normal;
+}
+
+.empty {
+  margin: 0;
+  padding: var(--space-6) var(--space-4);
+  color: var(--color-text-secondary);
+}
+
+.empty code {
+  font-size: var(--font-size-culprit);
+}
+
+/* Tables inside cards: a 40px header row, rows split by thin lines. */
+.scroll {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.table th {
+  height: 40px;
+  padding: 0 var(--space-4);
+  border-bottom: var(--border-width) solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-medium);
+  line-height: normal;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.table td {
+  padding: 14px var(--space-4);
+  border-top: var(--border-width) solid var(--color-divider);
+  color: var(--color-text);
+  vertical-align: middle;
+}
+
+.table tbody tr:first-child td {
+  border-top: 0;
+}
+
+.row {
+  cursor: pointer;
+}
+
+.row:hover td {
+  background: var(--color-surface-sunken);
+}
+
+/* Columns as narrow as their content; the first column takes the rest. */
+.fit {
+  width: 1px;
+  white-space: nowrap;
 }

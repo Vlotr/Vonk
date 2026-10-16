@@ -1,0 +1,47 @@
+.bars,
+.blocks {
+  display: flex;
+}
+
+.bars {
+  gap: 2px;
+  width: 168px;
+  height: 20px;
+}
+
+.blocks {
+  gap: 3px;
+  height: 44px;
+}
+
+.hour {
+  flex: 1;
+}
+
+.bars .hour {
+  border-radius: var(--radius-hour-bar);
+}
+
+.blocks .hour {
+  border-radius: var(--radius-hour-block);
+}
+
+.level0 {
+  background: var(--color-heat-0);
+}
+
+.level1 {
+  background: var(--color-heat-1);
+}
+
+.level2 {
+  background: var(--color-heat-2);
+}
+
+.level3 {
+  background: var(--color-heat-3);
+}
+
+.level4 {
+  background: var(--color-heat-4);
+}

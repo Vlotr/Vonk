@@ -1,0 +1,135 @@
+/* The design has 2px more under the breadcrumb here than on the issue list. */
+.header {
+  margin-bottom: var(--space-6);
+  padding-top: 2px;
+}
+
+.header h1 {
+  margin-bottom: 10px;
+}
+
+.message {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-subtitle);
+  line-height: normal;
+  overflow-wrap: anywhere;
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.stats {
+  padding: var(--space-5);
+}
+
+.numbers {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: var(--space-4) var(--space-6);
+  margin: 0;
+}
+
+.stat dt {
+  margin-bottom: 5px;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-label);
+  line-height: normal;
+}
+
+.stat dd {
+  margin: 0;
+  overflow: hidden;
+  color: var(--color-text);
+  font-size: var(--font-size-stat);
+  font-weight: var(--font-weight-semibold);
+  line-height: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hourlyLabel {
+  margin: 18px 0 9px;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-label);
+  line-height: normal;
+}
+
+.axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-label);
+  line-height: normal;
+}
+
+.columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 358px;
+  align-items: start;
+  gap: var(--space-6);
+  margin-top: var(--space-6);
+}
+
+.main {
+  min-width: 0;
+}
+
+.side {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  min-width: 0;
+}
+
+.fieldsCard {
+  padding: 18px var(--space-4) var(--space-4);
+}
+
+.fields {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: baseline;
+  gap: 6px var(--space-4);
+  margin: var(--space-3) 0 0;
+}
+
+.field {
+  display: contents;
+}
+
+.field dt {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-label);
+}
+
+.field dd {
+  margin: 0;
+  color: var(--color-text);
+  line-height: var(--line-height-field);
+  overflow-wrap: anywhere;
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-code-path);
+}
+
+@media (max-width: 1100px) {
+  .columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .numbers {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}

@@ -1,56 +1,36 @@
-import { NavLink, Outlet } from 'react-router'
-import { TOOL_NAME } from '../brand'
+import { useEffect, useState } from 'react'
+import { Outlet, useMatch } from 'react-router'
+import { getProjects } from '../api/client'
+import { usePolling } from '../lib/usePolling'
 import styles from './AppShell.module.css'
+import { ProjectsContext } from './ProjectsContext'
+import { Sidebar } from './Sidebar'
 
 // AppShell is the frame around every page: the sidebar on the left and the
-// current page on the right.
+// current page on the right. It loads the project list for both.
 export function AppShell() {
-  return (
-    <div className={styles.shell}>
-      <aside className={styles.sidebar}>
-        <div className={styles.brand}>
-          <Logo />
-          <span>{TOOL_NAME}</span>
-        </div>
-        <nav className={styles.nav}>
-          <NavLink
-            to="/"
-            end
-            className={({ isActive }) => (isActive ? `${styles.navItem} ${styles.active}` : styles.navItem)}
-          >
-            All projects
-          </NavLink>
-        </nav>
-      </aside>
-      <main className={styles.main}>
-        <Outlet />
-      </main>
-    </div>
-  )
-}
+  const projects = usePolling(getProjects, 'projects')
+  const id = useMatch('/projects/:id/*')?.params.id
 
-// Logo is a three by three grid of squares with one orange corner.
-function Logo() {
-  const squares = []
-  for (let row = 0; row < 3; row++) {
-    for (let col = 0; col < 3; col++) {
-      const accent = row === 2 && col === 2
-      squares.push(
-        <rect
-          key={`${row}-${col}`}
-          x={col * 7}
-          y={row * 7}
-          width={6}
-          height={6}
-          rx={1}
-          className={accent ? styles.logoAccent : styles.logoSquare}
-        />,
-      )
-    }
-  }
+  // The sidebar shows the project of the URL; on pages without one (All
+  // projects) it keeps the last project visited, or else the first.
+  const routeProjectId = id === undefined ? undefined : Number(id)
+  const [lastProjectId, setLastProjectId] = useState<number>()
+  useEffect(() => {
+    if (routeProjectId !== undefined) setLastProjectId(routeProjectId)
+  }, [routeProjectId])
+  const list = projects.data ?? []
+  const current =
+    list.find((p) => p.id === (routeProjectId ?? lastProjectId)) ?? (routeProjectId === undefined ? list[0] : undefined)
+
   return (
-    <svg className={styles.logo} viewBox="0 0 20 20" aria-hidden="true">
-      {squares}
-    </svg>
+    <ProjectsContext.Provider value={projects}>
+      <div className={styles.shell}>
+        <Sidebar project={current} />
+        <main className={styles.main}>
+          <Outlet />
+        </main>
+      </div>
+    </ProjectsContext.Provider>
   )
 }
