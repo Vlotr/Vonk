@@ -21,3 +21,15 @@ test('an unknown URL shows the not found page inside the shell', () => {
   expect(html).toContain('Page not found')
   expect(html).toContain(TOOL_NAME)
 })
+
+test('the sign-in pages stand alone, outside the shell', () => {
+  const login = render('/login')
+  expect(login).toContain(`Sign in to ${TOOL_NAME}`)
+  expect(login).not.toContain('All projects')
+  expect(render('/setup')).toContain('Create the first account')
+  expect(render('/forgot-password')).toContain('Reset your password')
+})
+
+test('the sidebar links to Settings', () => {
+  expect(render('/')).toContain('href="/settings"')
+})

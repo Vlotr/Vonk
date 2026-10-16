@@ -66,6 +66,11 @@ export function formatDate(date: Date, now: Date): string {
   return date.getFullYear() === now.getFullYear() ? day : `${day}, ${date.getFullYear()}`
 }
 
+/** formatFullDate writes "Sep 2, 2026", always with the year, as Settings shows when projects were created. */
+export function formatFullDate(date: Date): string {
+  return `${MONTHS[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`
+}
+
 /** formatTime writes "10:42": local 24-hour time. */
 export function formatTime(date: Date): string {
   return `${twoDigits(date.getHours())}:${twoDigits(date.getMinutes())}`

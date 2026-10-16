@@ -80,10 +80,15 @@
   color: var(--color-text-muted);
 }
 
-/* Styled as the design's link; it becomes one when page tracking can be set up (Task 8). */
+/* A button that looks like the design's link: it turns page views on and opens Setup and keys. */
 .addTracking {
+  padding: 0;
+  border: 0;
+  background: none;
   color: var(--color-link);
+  font: inherit;
   text-decoration: underline;
+  cursor: pointer;
 }
 
 .newestCard {

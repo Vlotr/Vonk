@@ -3,15 +3,19 @@
   border-right: var(--border-width) solid var(--color-border);
 }
 
-/* Stays in view while the page scrolls. */
+/* Stays in view while the page scrolls, as tall as the window, so Settings sits at its bottom. */
 .inner {
   position: sticky;
   top: 0;
   display: flex;
   flex-direction: column;
   gap: var(--space-7);
-  max-height: 100vh;
+  height: 100vh;
   padding: var(--space-6) var(--space-4);
+}
+
+.bottom {
+  margin-top: auto;
 }
 
 .brand {
@@ -29,24 +33,6 @@
 /* One pixel lower than centered, as in the design. */
 .brand span {
   padding-top: 2px;
-}
-
-.logo {
-  flex: none;
-  width: 20px;
-  height: 20px;
-}
-
-.logoSquare {
-  fill: var(--color-logo-square);
-}
-
-.logoMiddle {
-  fill: var(--color-heat-2);
-}
-
-.logoCorner {
-  fill: var(--color-accent);
 }
 
 .nav {

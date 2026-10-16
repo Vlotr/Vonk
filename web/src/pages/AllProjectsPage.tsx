@@ -1,9 +1,10 @@
 import type { MouseEvent } from 'react'
 import { Link, useNavigate } from 'react-router'
-import { getOverview, type NewestIssue, type Overview, type OverviewProject } from '../api/client'
+import { getOverview, type NewestIssue, type Overview, type OverviewProject, updateProject } from '../api/client'
 import { HourBars, HourLegend } from '../components/HourBars'
 import { LoadError } from '../components/LoadError'
 import { Tag } from '../components/Tag'
+import { useMe } from '../layout/MeContext'
 import { formatDuration, formatTime, overviewHeadline, shortType, sourceLabel, timeAgo } from '../lib/format'
 import { usePolling } from '../lib/usePolling'
 import styles from './AllProjectsPage.module.css'
@@ -12,7 +13,8 @@ import page from './Page.module.css'
 // AllProjectsPage is the overview: per project the new issues and errors of
 // the last 24 hours with a bar per hour, then the newest issues of all
 // projects. Page views arrive with page tracking (Task 8); until then their
-// columns say "Add page tracking".
+// columns say "Add page tracking", which for admins turns page views on and
+// opens the project's Setup and keys.
 export function AllProjectsPage() {
   const { data, error } = usePolling(getOverview, 'overview')
   if (!data) return <section aria-busy={!error}>{error ? <LoadError /> : null}</section>
@@ -28,6 +30,7 @@ export function AllProjectsPage() {
 }
 
 function ProjectsCard({ overview }: { overview: Overview }) {
+  const me = useMe()
   // One scale for the whole table, so a quiet project stays light next to a busy one.
   const busiestHour = Math.max(0, ...overview.projects.flatMap((p) => p.hourly))
   return (
@@ -39,10 +42,13 @@ function ProjectsCard({ overview }: { overview: Overview }) {
         {overview.projects.length > 0 && <HourLegend label="Errors per hour" />}
       </header>
       {overview.projects.length === 0 ? (
-        <p className={page.empty}>
-          Create one on the server with <code>monitor project create --name Webshop</code>. It prints the DSN to give
-          your app's Sentry SDK.
-        </p>
+        me?.role === 'admin' ? (
+          <p className={page.empty}>
+            <Link to="/settings/projects?new">Add your first project</Link> in Settings. It gives you the DSN for your app's Sentry SDK.
+          </p>
+        ) : (
+          <p className={page.empty}>You do not see any project yet. Ask an admin to give you access.</p>
+        )
       ) : (
         <div className={page.scroll}>
           <table className={`${page.table} ${styles.table}`}>
@@ -68,7 +74,7 @@ function ProjectsCard({ overview }: { overview: Overview }) {
             </thead>
             <tbody>
               {overview.projects.map((p) => (
-                <ProjectRow key={p.id} project={p} busiestHour={busiestHour} />
+                <ProjectRow key={p.id} project={p} busiestHour={busiestHour} isAdmin={me?.role === 'admin'} />
               ))}
             </tbody>
           </table>
@@ -78,11 +84,11 @@ function ProjectsCard({ overview }: { overview: Overview }) {
   )
 }
 
-function ProjectRow({ project, busiestHour }: { project: OverviewProject; busiestHour: number }) {
+function ProjectRow({ project, busiestHour, isAdmin }: { project: OverviewProject; busiestHour: number; isAdmin: boolean }) {
   const navigate = useNavigate()
   const href = `/projects/${project.id}/issues`
   const onRowClick = (e: MouseEvent) => {
-    if (e.target instanceof Element && e.target.closest('a')) return
+    if (e.target instanceof Element && e.target.closest('a, button')) return
     if (window.getSelection()?.toString()) return
     navigate(href)
   }
@@ -113,8 +119,20 @@ function ProjectRow({ project, busiestHour }: { project: OverviewProject; busies
       </td>
       {project.pageviews24h === null ? (
         <td colSpan={2}>
-          {/* Settings (Task 5) and page tracking (Task 8) do not exist yet: styled like the design's link, but text. */}
-          <span className={styles.addTracking}>Add page tracking</span>
+          {isAdmin ? (
+            <button
+              type="button"
+              className={styles.addTracking}
+              onClick={async () => {
+                await updateProject(project.id, { tracksPageviews: true })
+                navigate(`/settings/projects/${project.id}/setup#page-views`)
+              }}
+            >
+              Add page tracking
+            </button>
+          ) : (
+            <span className={styles.none}>No page tracking yet</span>
+          )}
         </td>
       ) : (
         <>

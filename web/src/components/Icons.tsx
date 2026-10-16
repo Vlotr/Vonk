@@ -74,3 +74,35 @@ export function ChevronDownIcon({ className }: IconProps) {
     </svg>
   )
 }
+
+/** SettingsIcon is three sliders, each line broken where its knob sits: Settings. */
+export function SettingsIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h10M18 18h2" />
+      <circle cx="15" cy="6" r="2" />
+      <circle cx="9" cy="12" r="2" />
+      <circle cx="16" cy="18" r="2" />
+    </Icon>
+  )
+}
+
+/** PlusIcon is a plus: Add project, Invite user. */
+export function PlusIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <line x1="12" y1="4" x2="12" y2="20" />
+      <line x1="4" y1="12" x2="20" y2="12" />
+    </Icon>
+  )
+}
+
+/** CopyIcon is two sheets: copy a value. */
+export function CopyIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <rect x="9" y="9" width="12" height="12" rx="2" />
+      <path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1" />
+    </Icon>
+  )
+}

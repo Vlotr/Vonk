@@ -1,0 +1,10 @@
+.card {
+  max-width: 560px;
+  padding: var(--form-card-padding);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}

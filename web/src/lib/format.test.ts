@@ -3,6 +3,7 @@ import {
   countryName,
   displayFile,
   formatDateTime,
+  formatFullDate,
   formatTime,
   hiddenFramesSentence,
   emptyIssuesSentence,
@@ -244,4 +245,9 @@ describe('urlPath', () => {
     expect(urlPath('/checkout')).toBe('/checkout')
     expect(urlPath('not a url')).toBe('not a url')
   })
+})
+
+test('formatFullDate always writes the year', () => {
+  expect(formatFullDate(new Date(2026, 8, 2))).toBe('Sep 2, 2026')
+  expect(formatFullDate(new Date(2025, 11, 31))).toBe('Dec 31, 2025')
 })

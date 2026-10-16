@@ -1,0 +1,34 @@
+/* Setup and keys: one card per way of sending data, with numbered steps. */
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
+  padding: var(--card-padding-top) var(--space-4) var(--space-5);
+}
+
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  margin: 0;
+  padding-left: var(--space-5);
+  color: var(--color-text-secondary);
+}
+
+.steps li::marker {
+  color: var(--color-text-muted);
+}
+
+.steps p {
+  margin: 0 0 var(--space-2);
+  color: var(--color-text);
+}
+
+.steps code {
+  font-size: var(--font-size-culprit);
+}
+
+.untracked {
+  margin-top: var(--space-2);
+}

@@ -15,7 +15,9 @@
   --color-surface: #ffffff;
   --color-surface-sunken: #f7f9fb; /* code blocks, the hidden-frames bar */
   --color-border: #d5dbe2; /* cards, sidebar, buttons, table header */
+  --color-border-strong: #1b2430; /* the open form card ("New project") */
   --color-divider: #e8ecf0; /* between rows and frames, around code */
+  --color-input-border: #b9c2cc; /* text fields, selects, the dashed "Add page views" chip */
 
   /* Text */
   --color-text: #1b2430;
@@ -125,6 +127,12 @@
   --segmented-padding: 4px; /* around and between the status tabs */
   --icon-size: 18px;
   --icon-size-button: 16px; /* an icon alone in a button */
+  --icon-size-small: 14px; /* the plus in "Add project" */
+  --checkbox-size: 20px;
+  --form-card-padding: 20px; /* the "New project" card */
+  --form-columns-gap: 20px; /* between "Project name" and "Keep data for" */
+  --chip-height: 32px; /* the dashed "Add page views" chip */
+  --auth-width: 420px; /* the sign-in pages */
   --border-width: 1px;
   --card-padding-top: 18px; /* above a card's title */
   --row-padding-y: 14px; /* above and below a table row or a stack frame */

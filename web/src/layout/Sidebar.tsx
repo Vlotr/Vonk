@@ -1,15 +1,16 @@
 import { Link, NavLink } from 'react-router'
 import type { Project } from '../api/client'
 import { TOOL_NAME } from '../brand'
-import { AlertCircleIcon, GridIcon } from '../components/Icons'
+import { AlertCircleIcon, GridIcon, SettingsIcon } from '../components/Icons'
+import { Logo } from '../components/Logo'
 import styles from './Sidebar.module.css'
 
 function navClass({ isActive }: { isActive: boolean }): string {
   return isActive ? `${styles.navItem} ${styles.active}` : styles.navItem
 }
 
-// Sidebar is the navigation on the left. Pages, Events, Alerts and Settings
-// join it in the tasks that build those screens.
+// Sidebar is the navigation on the left, with Settings at the bottom.
+// Pages, Events and Alerts join it in the tasks that build those screens.
 export function Sidebar({ project }: { project?: Project }) {
   return (
     <aside className={styles.sidebar}>
@@ -42,26 +43,14 @@ export function Sidebar({ project }: { project?: Project }) {
             </div>
           </nav>
         )}
+
+        <nav className={`${styles.nav} ${styles.bottom}`} aria-label="Settings">
+          <NavLink to="/settings" className={navClass}>
+            <SettingsIcon className={styles.icon} />
+            Settings
+          </NavLink>
+        </nav>
       </div>
     </aside>
-  )
-}
-
-// Logo is a three by three grid of squares: grey, one light orange in the
-// middle and a dark orange corner, like the errors-per-hour bars.
-function Logo() {
-  const squares = []
-  for (let row = 0; row < 3; row++) {
-    for (let col = 0; col < 3; col++) {
-      let className = styles.logoSquare
-      if (row === 1 && col === 1) className = styles.logoMiddle
-      if (row === 2 && col === 2) className = styles.logoCorner
-      squares.push(<rect key={`${row}-${col}`} x={col * 7} y={row * 7} width={6} height={6} rx={1.5} className={className} />)
-    }
-  }
-  return (
-    <svg className={styles.logo} viewBox="0 0 20 20" aria-hidden="true">
-      {squares}
-    </svg>
   )
 }

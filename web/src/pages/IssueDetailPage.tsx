@@ -18,6 +18,7 @@ import {
   timeAgo,
   urlPath,
 } from '../lib/format'
+import { copyText } from '../lib/clipboard'
 import { usePolling } from '../lib/usePolling'
 import styles from './IssueDetailPage.module.css'
 import { NotFoundPage } from './NotFoundPage'
@@ -178,19 +179,7 @@ function CopyLinkButton({ path }: { path: string }) {
   }, [copied])
 
   const copy = async () => {
-    const url = new URL(path, window.location.origin).href
-    try {
-      await navigator.clipboard.writeText(url)
-    } catch {
-      // No clipboard API (plain HTTP from elsewhere than localhost): copy
-      // through a selected text field instead.
-      const field = document.createElement('textarea')
-      field.value = url
-      document.body.appendChild(field)
-      field.select()
-      document.execCommand('copy')
-      field.remove()
-    }
+    await copyText(new URL(path, window.location.origin).href)
     setCopied(true)
   }
 

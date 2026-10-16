@@ -1,0 +1,112 @@
+/* Settings.png. The New project card and Your projects, 24px apart. */
+
+.formCard {
+  margin-bottom: var(--space-6);
+}
+
+.tracking {
+  margin-top: 18px;
+}
+
+.note {
+  margin-top: 29px;
+}
+
+.buttons {
+  margin-top: 20px;
+}
+
+/* Keys and Delete project, under the form when editing. */
+.extra {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-top: var(--space-6);
+  padding-top: var(--space-5);
+  border-top: var(--border-width) solid var(--color-divider);
+}
+
+.extra h3 {
+  margin: 0;
+}
+
+.confirm {
+  max-width: 360px;
+}
+
+.listTitle {
+  padding: var(--card-padding-top) var(--space-4) 14px;
+}
+
+/* The column names sit a pixel above the middle of their row, as in the design. */
+.table th {
+  padding-bottom: 2px;
+}
+
+/* Column widths of the design (cells include their padding); Tracks takes the rest. */
+.projectColumn {
+  width: 220px;
+}
+
+.keepsColumn {
+  width: 215px;
+}
+
+/* Rows 69.5px high as in the design: a little less than the usual row padding. */
+.table td {
+  padding-top: 13.5px;
+  padding-bottom: 13px;
+  white-space: nowrap;
+}
+
+.name {
+  color: var(--color-text);
+  font-size: var(--font-size-name);
+  font-weight: var(--font-weight-semibold);
+  line-height: normal;
+}
+
+.created {
+  margin-top: 3px;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-body);
+  line-height: normal;
+}
+
+.tracks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+/* "Add page views": a dashed pill that turns page views on. */
+.addChip {
+  display: inline-flex;
+  align-items: center;
+  height: var(--chip-height);
+  padding: 0 10px;
+  border: var(--border-width) dashed var(--color-input-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  color: var(--color-link);
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold);
+  line-height: normal;
+  cursor: pointer;
+}
+
+.addChip:hover {
+  background: var(--color-bg);
+}
+
+.keeps {
+  font-size: var(--font-size-body);
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+

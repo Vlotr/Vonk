@@ -135,20 +135,52 @@ export interface IssueDetail {
 /** ApiError is a response that was not 2xx; status 404 means "not found or not yours". */
 export class ApiError extends Error {
   readonly status: number
+  /** retryAfter is the Retry-After header in seconds, for a 429. */
+  readonly retryAfter?: number
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, retryAfter?: number) {
     super(message)
     this.name = 'ApiError'
     this.status = status
+    this.retryAfter = retryAfter
   }
+}
+
+/** The CSRF token of the session, from GET /ui/api/me; every change sends it back. */
+let csrfToken = ''
+
+/** setCsrfToken keeps the token of the signed-in session for the changes that follow. */
+export function setCsrfToken(token: string) {
+  csrfToken = token
+}
+
+/** onSignedOut is called when the API says the session is gone (it expired, or the user was removed). */
+let onSignedOut: () => void = () => {}
+
+export function setSignedOutHandler(handler: () => void) {
+  onSignedOut = handler
 }
 
 async function getJSON<T>(path: string, signal?: AbortSignal): Promise<T> {
   return readJSON(await fetch(path, { signal, headers: { Accept: 'application/json' } }))
 }
 
-/** readJSON returns the body of a 2xx response, or throws an ApiError with the API's message. */
-async function readJSON<T>(response: Response): Promise<T> {
+/** send makes a change: a JSON body, with the session's CSRF token. */
+async function send<T>(method: 'POST' | 'PATCH' | 'DELETE', path: string, body?: unknown): Promise<T> {
+  const response = await fetch(path, {
+    method,
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+  return readJSON(response)
+}
+
+/**
+ * readJSON returns the body of a 2xx response, or throws an ApiError with
+ * the API's message. A 401 means the session is gone, except for the
+ * sign-in endpoints (signedIn false), which have none yet.
+ */
+async function readJSON<T>(response: Response, signedIn = true): Promise<T> {
   if (!response.ok) {
     let message = response.statusText
     try {
@@ -157,7 +189,9 @@ async function readJSON<T>(response: Response): Promise<T> {
     } catch {
       // Not JSON; keep the status text.
     }
-    throw new ApiError(response.status, message)
+    const retry = Number(response.headers.get('Retry-After'))
+    if (response.status === 401 && signedIn) onSignedOut()
+    throw new ApiError(response.status, message, Number.isFinite(retry) && retry > 0 ? retry : undefined)
   }
   return (await response.json()) as T
 }
@@ -180,18 +214,197 @@ export function getIssue(issueId: number, signal?: AbortSignal): Promise<IssueDe
 }
 
 /** setIssueStatus opens, resolves or ignores an issue. */
-export async function setIssueStatus(
-  issueId: number,
-  status: IssueStatus,
-): Promise<{ id: number; projectId: number; status: IssueStatus }> {
-  const response = await fetch(`/ui/api/issues/${issueId}/status`, {
-    method: 'POST',
-    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-    body: JSON.stringify({ status }),
-  })
-  return readJSON(response)
+export function setIssueStatus(issueId: number, status: IssueStatus): Promise<{ id: number; projectId: number; status: IssueStatus }> {
+  return send('POST', `/ui/api/issues/${issueId}/status`, { status })
 }
 
 export function getOverview(signal?: AbortSignal): Promise<Overview> {
   return getJSON('/ui/api/overview', signal)
+}
+
+// Accounts. The sign-in endpoints work without a session; they answer with
+// the signed-in user (Me) and set the session cookie.
+
+export type Role = 'admin' | 'member'
+
+/** Me is the signed-in user. */
+export interface Me {
+  id: number
+  email: string
+  role: Role
+  /** csrfToken goes along with every change; setCsrfToken keeps it. */
+  csrfToken: string
+  /** mailEnabled is true when the server mails invites and reset links (MAIL_URL is set). */
+  mailEnabled: boolean
+}
+
+export interface AuthStatus {
+  /** setupNeeded is true until the first account exists. */
+  setupNeeded: boolean
+  mailEnabled: boolean
+}
+
+export function getMe(signal?: AbortSignal): Promise<Me> {
+  return getJSON('/ui/api/me', signal)
+}
+
+export function getAuthStatus(signal?: AbortSignal): Promise<AuthStatus> {
+  return getJSON('/ui/api/auth/status', signal)
+}
+
+/** signInRequest posts to a sign-in endpoint, which needs no session and no CSRF token. */
+async function signInRequest<T>(path: string, body: unknown): Promise<T> {
+  const response = await fetch(path, {
+    method: 'POST',
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  return readJSON(response, false)
+}
+
+/** setup creates the first account, an admin. 404 once one exists. */
+export function setup(email: string, password: string): Promise<Me> {
+  return signInRequest('/ui/api/setup', { email, password })
+}
+
+/** login signs in. 401 for a wrong address or password, 429 after too many attempts. */
+export function login(email: string, password: string): Promise<Me> {
+  return signInRequest('/ui/api/login', { email, password })
+}
+
+export function logout(): Promise<object> {
+  return send('POST', '/ui/api/logout', {})
+}
+
+export function changePassword(currentPassword: string, newPassword: string): Promise<object> {
+  return send('POST', '/ui/api/me/password', { currentPassword, newPassword })
+}
+
+/** checkInvite reads an invite: 404 for an unknown link, 410 for one that expired or was used. */
+export function checkInvite(token: string): Promise<{ email: string; role: Role }> {
+  return signInRequest('/ui/api/invite/check', { token })
+}
+
+export function acceptInvite(token: string, password: string): Promise<Me> {
+  return signInRequest('/ui/api/invite/accept', { token, password })
+}
+
+/** forgotPassword mails a reset link when the address has an account; it answers the same either way. */
+export function forgotPassword(email: string): Promise<object> {
+  return signInRequest('/ui/api/password/forgot', { email })
+}
+
+export function checkReset(token: string): Promise<{ email: string }> {
+  return signInRequest('/ui/api/password/reset/check', { token })
+}
+
+export function resetPassword(token: string, password: string): Promise<Me> {
+  return signInRequest('/ui/api/password/reset', { token, password })
+}
+
+// Settings, for admins.
+
+/** SettingsProject is a row of "Your projects". */
+export interface SettingsProject {
+  id: number
+  name: string
+  createdAt: string
+  /** null keeps data indefinitely. */
+  retentionDays: number | null
+  tracksLaravel: boolean
+  tracksBrowser: boolean
+  tracksPageviews: boolean
+}
+
+/** ProjectKeys is a project with what its Setup and keys page shows. */
+export interface ProjectKeys extends SettingsProject {
+  dsn: string
+  posthogToken: string
+  /** posthogHost is where the PostHog SDK sends to: this server. */
+  posthogHost: string
+}
+
+export type ProjectSettings = Pick<SettingsProject, 'name' | 'retentionDays' | 'tracksLaravel' | 'tracksBrowser' | 'tracksPageviews'>
+
+export function getSettingsProjects(signal?: AbortSignal): Promise<SettingsProject[]> {
+  return getJSON('/ui/api/settings/projects', signal)
+}
+
+export function createProject(settings: ProjectSettings): Promise<ProjectKeys> {
+  return send('POST', '/ui/api/settings/projects', settings)
+}
+
+export function getProjectKeys(projectId: number, signal?: AbortSignal): Promise<ProjectKeys> {
+  return getJSON(`/ui/api/settings/projects/${projectId}`, signal)
+}
+
+/** updateProject changes the settings that are given; the others stay. */
+export function updateProject(projectId: number, change: Partial<ProjectSettings>): Promise<ProjectKeys> {
+  return send('PATCH', `/ui/api/settings/projects/${projectId}`, change)
+}
+
+/** rotateKeys gives the project a new DSN key and PostHog token; the old ones stop working at once. */
+export function rotateKeys(projectId: number): Promise<ProjectKeys> {
+  return send('POST', `/ui/api/settings/projects/${projectId}/rotate-keys`, {})
+}
+
+export function deleteProject(projectId: number): Promise<object> {
+  return send('DELETE', `/ui/api/settings/projects/${projectId}`)
+}
+
+export interface SettingsUser {
+  id: number
+  email: string
+  role: Role
+  createdAt: string
+  /** A member's projects; empty for admins, who see every project. */
+  projectIds: number[]
+}
+
+export interface Invite {
+  id: number
+  email: string
+  role: Role
+  projectIds: number[]
+  createdAt: string
+  expiresAt: string
+}
+
+export interface UsersAndInvites {
+  users: SettingsUser[]
+  /** Invites that were neither used nor expired, newest first. */
+  invites: Invite[]
+}
+
+/** A link to hand over. It is shown once; the server keeps only a hash of its token. */
+export interface NewLink {
+  link: string
+  /** mailed is true when the server also mailed it. */
+  mailed: boolean
+}
+
+export function getSettingsUsers(signal?: AbortSignal): Promise<UsersAndInvites> {
+  return getJSON('/ui/api/settings/users', signal)
+}
+
+export function createInvite(email: string, role: Role, projectIds: number[]): Promise<NewLink & { invite: Invite }> {
+  return send('POST', '/ui/api/settings/invites', { email, role, projectIds })
+}
+
+export function revokeInvite(inviteId: number): Promise<object> {
+  return send('DELETE', `/ui/api/settings/invites/${inviteId}`)
+}
+
+/** updateUser changes a role, a member's projects, or both. 409 for the last admin. */
+export function updateUser(userId: number, change: { role?: Role; projectIds?: number[] }): Promise<SettingsUser> {
+  return send('PATCH', `/ui/api/settings/users/${userId}`, change)
+}
+
+export function deleteUser(userId: number): Promise<object> {
+  return send('DELETE', `/ui/api/settings/users/${userId}`)
+}
+
+/** createResetLink makes a one-time link for a member to choose a new password, valid for an hour. */
+export function createResetLink(userId: number): Promise<NewLink & { expiresAt: string }> {
+  return send('POST', `/ui/api/settings/users/${userId}/reset-link`, {})
 }
