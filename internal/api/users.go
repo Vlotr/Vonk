@@ -108,6 +108,8 @@ func (h *Handler) createInvite(w http.ResponseWriter, r *http.Request) {
 		httpjson.Error(w, http.StatusConflict, "This address already has an account.")
 	case errors.Is(err, store.ErrUnknownProject):
 		httpjson.Error(w, http.StatusBadRequest, "One of the projects does not exist any more. Reload the page.")
+	case errors.Is(err, store.ErrNotAdmin):
+		notFound(w) // made a member (or removed) while the request was on its way, as adminOnly answers members
 	case err != nil:
 		h.internalError(w, r, err)
 	default:

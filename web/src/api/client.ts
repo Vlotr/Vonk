@@ -146,12 +146,31 @@ export class ApiError extends Error {
   }
 }
 
-/** The CSRF token of the session, from GET /ui/api/me; every change sends it back. */
+/** The CSRF token of the session, from GET /ui/api/me or a sign-in answer; every change sends it back. */
 let csrfToken = ''
+/** The /ui/api/me request a change waits for when the token is not known yet. */
+let csrfLoading: Promise<void> | undefined
 
 /** setCsrfToken keeps the token of the signed-in session for the changes that follow. */
 export function setCsrfToken(token: string) {
   csrfToken = token
+}
+
+/**
+ * sessionCsrfToken returns the session's token. Right after the page loads
+ * the shell's GET /ui/api/me may not have answered yet; then the change
+ * asks for it itself (once, however many changes wait), instead of being
+ * refused with 403.
+ */
+async function sessionCsrfToken(): Promise<string> {
+  if (csrfToken) return csrfToken
+  csrfLoading ??= getMe()
+    .then((me) => setCsrfToken(me.csrfToken))
+    .finally(() => {
+      csrfLoading = undefined
+    })
+  await csrfLoading
+  return csrfToken
 }
 
 /** onSignedOut is called when the API says the session is gone (it expired, or the user was removed). */
@@ -166,10 +185,11 @@ async function getJSON<T>(path: string, signal?: AbortSignal): Promise<T> {
 }
 
 /** send makes a change: a JSON body, with the session's CSRF token. */
-async function send<T>(method: 'POST' | 'PATCH' | 'DELETE', path: string, body?: unknown): Promise<T> {
+async function send<T>(method: 'POST' | 'PATCH' | 'PUT' | 'DELETE', path: string, body?: unknown): Promise<T> {
+  const token = await sessionCsrfToken()
   const response = await fetch(path, {
     method,
-    headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'X-CSRF-Token': token },
     body: body === undefined ? undefined : JSON.stringify(body),
   })
   return readJSON(response)
@@ -252,14 +272,21 @@ export function getAuthStatus(signal?: AbortSignal): Promise<AuthStatus> {
   return getJSON('/ui/api/auth/status', signal)
 }
 
-/** signInRequest posts to a sign-in endpoint, which needs no session and no CSRF token. */
+/**
+ * signInRequest posts to a sign-in endpoint, which needs no session and no
+ * CSRF token. The endpoints that sign in answer like /ui/api/me; their
+ * token is kept at once, so a change made right after signing in has it.
+ */
 async function signInRequest<T>(path: string, body: unknown): Promise<T> {
   const response = await fetch(path, {
     method: 'POST',
     headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
-  return readJSON(response, false)
+  const answer = await readJSON<T>(response, false)
+  const token = (answer as { csrfToken?: unknown } | null)?.csrfToken
+  if (typeof token === 'string' && token) setCsrfToken(token)
+  return answer
 }
 
 /** setup creates the first account, an admin. 404 once one exists. */

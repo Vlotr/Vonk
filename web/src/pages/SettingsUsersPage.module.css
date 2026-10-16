@@ -1,18 +1,4 @@
 /* Settings → Users, in the style of Settings → Projects. */
-.formCard {
-  margin-bottom: var(--space-6);
-}
-
-.form {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-5);
-}
-
-.projectChecks {
-  gap: var(--space-3);
-}
-
 .failed {
   margin-bottom: var(--space-4);
 }

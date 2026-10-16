@@ -127,9 +127,9 @@ func parseHash(hash string) (argonParams, []byte, []byte, error) {
 	return p, salt, key, nil
 }
 
-// dummyHash is checked against when a login names an unknown address, so
-// the answer takes as long as for a known one and does not tell which
-// addresses have an account.
+// dummyHash is checked against when a login names an unknown address or a
+// locked account, so the answer takes as long as a real check and does not
+// tell which addresses have an account, or which accounts are locked.
 var dummyHash = sync.OnceValue(func() string {
 	hash, err := HashPassword(context.Background(), "no account has this password")
 	if err != nil {

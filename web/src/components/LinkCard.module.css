@@ -1,0 +1,4 @@
+/* The card that shows an invite or reset link once. */
+.card {
+  margin-bottom: var(--space-6);
+}

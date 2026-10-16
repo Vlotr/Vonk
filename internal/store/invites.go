@@ -35,7 +35,10 @@ type NewInvite struct {
 // CreateInvite stores an invite. An address that has an account gets
 // ErrEmailTaken; a project id that does not exist gives ErrUnknownProject.
 // Earlier invites for the same address that were not used yet are removed,
-// so only the newest link works.
+// so only the newest link works. CreatedBy must still be an admin when the
+// invite is written (ErrNotAdmin otherwise), so a request that was on its
+// way while that admin was removed or made a member leaves no link behind;
+// CreatedBy 0 (tests) skips the check.
 func (db *DB) CreateInvite(ctx context.Context, ni NewInvite) (Invite, error) {
 	inv := Invite{
 		Email:     NormalizeEmail(ni.Email),
@@ -53,6 +56,17 @@ func (db *DB) CreateInvite(ctx context.Context, ni NewInvite) (Invite, error) {
 		return Invite{}, err
 	}
 	defer tx.Rollback() // no-op after Commit
+
+	if inv.CreatedBy != 0 {
+		var role string
+		err := tx.QueryRowContext(ctx, "SELECT role FROM users WHERE id = ?", inv.CreatedBy).Scan(&role)
+		if errors.Is(err, sql.ErrNoRows) || (err == nil && role != RoleAdmin) {
+			return Invite{}, ErrNotAdmin
+		}
+		if err != nil {
+			return Invite{}, err
+		}
+	}
 
 	var taken int
 	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM users WHERE email = ?", inv.Email).Scan(&taken); err != nil {

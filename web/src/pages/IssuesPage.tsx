@@ -1,21 +1,11 @@
 import { type MouseEvent, useEffect, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
-import {
-  ApiError,
-  getIssues,
-  type Issue,
-  type IssueList,
-  type IssueSort,
-  type IssueSourceFilter,
-  type IssueStatus,
-  setIssueStatus,
-} from '../api/client'
+import { ApiError, type Issue, type IssueSort, type IssueSourceFilter, type IssueStatus } from '../api/client'
 import button from '../components/Button.module.css'
 import { HourBars } from '../components/HourBars'
 import { ChevronDownIcon } from '../components/Icons'
-import { LoadError } from '../components/LoadError'
+import { LoadError, OlderData } from '../components/LoadError'
 import { Tag } from '../components/Tag'
-import { useProjects } from '../layout/ProjectsContext'
 import {
   emptyIssuesSentence,
   issuesHeadline,
@@ -26,7 +16,9 @@ import {
   timeAgo,
 } from '../lib/format'
 import { filtersToParams, hasFilters, type IssueFilters, parseIssueFilters } from '../lib/issueFilters'
+import { type LoadedIssues, loadIssues, withIssueMoved } from '../lib/issueList'
 import { usePolling } from '../lib/usePolling'
+import { useStatusChange } from '../lib/useStatusChange'
 import styles from './IssuesPage.module.css'
 import { NotFoundPage } from './NotFoundPage'
 import page from './Page.module.css'
@@ -37,52 +29,11 @@ const PAGE_SIZE = 25
 /** SEARCH_DELAY_MS is how long typing has to pause before the search runs. */
 const SEARCH_DELAY_MS = 300
 
-/** The API sends at most this many issues per request. */
-const API_MAX_LIMIT = 100
-
 const TABS: { status: IssueStatus; label: string }[] = [
   { status: 'open', label: 'Open' },
   { status: 'resolved', label: 'Resolved' },
   { status: 'ignored', label: 'Ignored' },
 ]
-
-/**
- * loadIssues loads the first `count` issues that match the filters, in
- * requests of at most 100, and joins them: the list a poll refreshes is
- * everything "Show more" has opened so far.
- */
-async function loadIssues(projectId: number, filters: IssueFilters, count: number, signal: AbortSignal): Promise<IssueList> {
-  const query = { status: filters.status, source: filters.source, sort: filters.sort, q: filters.q.trim(), route: filters.route }
-  const first = await getIssues(projectId, { ...query, limit: Math.min(count, API_MAX_LIMIT) }, signal)
-  const rest = []
-  for (let offset = API_MAX_LIMIT; offset < Math.min(count, first.total); offset += API_MAX_LIMIT) {
-    rest.push(getIssues(projectId, { ...query, limit: Math.min(API_MAX_LIMIT, count - offset), offset }, signal))
-  }
-  // An issue seen between two requests can move to the next page; show it once.
-  const issues: Issue[] = []
-  const seen = new Set<number>()
-  for (const list of [first, ...(await Promise.all(rest))]) {
-    for (const issue of list.issues) {
-      if (seen.has(issue.id)) continue
-      seen.add(issue.id)
-      issues.push(issue)
-    }
-  }
-  return { ...first, issues }
-}
-
-/** withIssueMoved is the list after an issue moved from status `from` to `to`, before the server confirms it. */
-function withIssueMoved(list: IssueList, issue: Issue, from: IssueStatus, to: IssueStatus): IssueList {
-  const openChange = (to === 'open' ? 1 : 0) - (from === 'open' ? 1 : 0)
-  return {
-    ...list,
-    issues: list.issues.filter((i) => i.id !== issue.id),
-    counts: { ...list.counts, [from]: list.counts[from] - 1, [to]: list.counts[to] + 1 },
-    total: list.total - 1,
-    openIssues: list.openIssues + openChange,
-    new24h: list.new24h + (issue.isNew ? openChange : 0),
-  }
-}
 
 // IssuesPage lists a project's issues: the status tabs, source and order,
 // a search, and the issues with a button to resolve (or reopen) each. Tab,
@@ -103,29 +54,20 @@ export function IssuesPage() {
     `issues-${projectId}`,
     `${filterKey}|${count}`,
   )
-  const projects = useProjects()
-  const [failed, setFailed] = useState('')
+  const status = useStatusChange(polled)
 
   // Built on the URL as it is when the change lands, not as it was when this
   // render happened: a search that runs 300 ms later must not undo a tab
   // clicked in between.
   const setFilters = (change: Partial<IssueFilters>, replace = false) => {
-    setFailed('')
+    status.clearFailed()
     setParams((current) => filtersToParams({ ...parseIssueFilters(current), ...change }, current), { replace })
   }
 
-  const changeStatus = async (issue: Issue, to: IssueStatus) => {
-    setFailed('')
-    const settle = polled.mutate((list) => withIssueMoved(list, issue, filters.status, to))
-    try {
-      await setIssueStatus(issue.id, to)
-      projects.reload()
-    } catch {
-      setFailed(`${shortType(issue.type)} could not be ${to === 'open' ? 'reopened' : to}. Try again.`)
-    } finally {
-      settle() // reloads the list, which also undoes the change when it failed
-    }
-  }
+  // The rows' tab is the one they were loaded for, which differs from the
+  // URL's while (or after failing) to load another tab.
+  const changeStatus = (issue: Issue, to: IssueStatus) =>
+    status.change(issue.id, to, (list) => withIssueMoved(list, issue, list.status, to), shortType(issue.type))
 
   const { data, error } = polled
   if (error instanceof ApiError && error.status === 404) return <NotFoundPage what="Project" />
@@ -195,17 +137,17 @@ export function IssuesPage() {
           </button>
         </p>
       )}
-      {failed && (
+      {status.failed && (
         <p className={styles.failed} role="alert">
-          {failed}
+          {status.failed}
         </p>
       )}
+      {polled.error !== undefined && <OlderData className={styles.route} />}
 
       <div className={`${page.card} ${styles.card}`} aria-busy={polled.stale}>
         {data.issues.length > 0 ? (
           <IssueTable
             list={data}
-            filters={filters}
             stale={polled.stale}
             onStatus={changeStatus}
             onShowMore={() => setMore({ filterKey, pages: pages + 1 })}
@@ -257,14 +199,13 @@ function SearchBox({ value, onSearch }: { value: string; onSearch: (q: string) =
 }
 
 interface IssueTableProps {
-  list: IssueList
-  filters: IssueFilters
+  list: LoadedIssues
   stale: boolean
   onStatus: (issue: Issue, to: IssueStatus) => void
   onShowMore: () => void
 }
 
-function IssueTable({ list, filters, stale, onStatus, onShowMore }: IssueTableProps) {
+function IssueTable({ list, stale, onStatus, onShowMore }: IssueTableProps) {
   const now = new Date()
   return (
     <>
@@ -296,7 +237,7 @@ function IssueTable({ list, filters, stale, onStatus, onShowMore }: IssueTablePr
                 key={issue.id}
                 issue={issue}
                 projectId={list.project.id}
-                status={filters.status}
+                status={list.status}
                 now={now}
                 disabled={stale}
                 onStatus={onStatus}
@@ -306,7 +247,7 @@ function IssueTable({ list, filters, stale, onStatus, onShowMore }: IssueTablePr
         </table>
       </div>
       <div className={styles.footer}>
-        <span>{showingSentence(list.issues.length, list.total, filters.status)}</span>
+        <span>{showingSentence(list.issues.length, list.total, list.status)}</span>
         {list.issues.length < list.total && (
           <button type="button" className={`${button.button} ${button.large}`} disabled={stale} onClick={onShowMore}>
             Show more
@@ -377,7 +318,7 @@ function IssueRow({ issue, projectId, status, now, disabled, onStatus }: IssueRo
   )
 }
 
-function EmptyIssues({ list, filters }: { list: IssueList; filters: IssueFilters }) {
+function EmptyIssues({ list, filters }: { list: LoadedIssues; filters: IssueFilters }) {
   const everSeen = list.counts.open + list.counts.resolved + list.counts.ignored > 0
   if (!everSeen && !hasFilters(filters)) {
     return (
@@ -387,5 +328,5 @@ function EmptyIssues({ list, filters }: { list: IssueList; filters: IssueFilters
       </p>
     )
   }
-  return <p className={page.empty}>{emptyIssuesSentence(filters.status, hasFilters(filters), filters.q.trim())}</p>
+  return <p className={page.empty}>{emptyIssuesSentence(list.status, hasFilters(filters), filters.q.trim())}</p>
 }

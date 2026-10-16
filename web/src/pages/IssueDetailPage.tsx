@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router'
-import { ApiError, type EventDetail, getIssue, type IssueStatus, setIssueStatus } from '../api/client'
+import { ApiError, type EventDetail, getIssue, type IssueStatus } from '../api/client'
 import button from '../components/Button.module.css'
 import { HourBars } from '../components/HourBars'
 import { CheckIcon, LinkIcon } from '../components/Icons'
@@ -20,6 +20,7 @@ import {
 } from '../lib/format'
 import { copyText } from '../lib/clipboard'
 import { usePolling } from '../lib/usePolling'
+import { useStatusChange } from '../lib/useStatusChange'
 import styles from './IssueDetailPage.module.css'
 import { NotFoundPage } from './NotFoundPage'
 import page from './Page.module.css'
@@ -36,21 +37,11 @@ export function IssueDetailPage() {
   const { data, error } = polled
   const projects = useProjects()
   const project = projects.data?.find((p) => p.id === projectId)
-  const [failed, setFailed] = useState('')
+  const status = useStatusChange(polled)
 
   // The new status shows at once; the next load brings what the server says.
-  const changeStatus = async (to: IssueStatus) => {
-    setFailed('')
-    const settle = polled.mutate((d) => ({ ...d, issue: { ...d.issue, status: to } }))
-    try {
-      await setIssueStatus(issueId, to)
-      projects.reload()
-    } catch {
-      setFailed(`The issue could not be ${to === 'open' ? 'reopened' : to}. Try again.`)
-    } finally {
-      settle()
-    }
-  }
+  const changeStatus = (to: IssueStatus) =>
+    status.change(issueId, to, (d) => ({ ...d, issue: { ...d.issue, status: to } }), 'The issue')
 
   const notFound = (error instanceof ApiError && error.status === 404) || (data && data.issue.projectId !== projectId)
   if (notFound) return <NotFoundPage what="Issue" />
@@ -89,9 +80,9 @@ export function IssueDetailPage() {
         </div>
         <StatusActions status={issue.status} onChange={changeStatus} path={`/projects/${projectId}/issues/${issueId}`} />
       </header>
-      {failed && (
+      {status.failed && (
         <p className={styles.failed} role="alert">
-          {failed}
+          {status.failed}
         </p>
       )}
 
@@ -172,18 +163,21 @@ const COPIED_MS = 2000
 /** CopyLinkButton copies the address of this issue's page. */
 function CopyLinkButton({ path }: { path: string }) {
   const [copied, setCopied] = useState(false)
+  const [failed, setFailed] = useState(false)
   useEffect(() => {
     if (!copied) return
     const timer = setTimeout(() => setCopied(false), COPIED_MS)
     return () => clearTimeout(timer)
   }, [copied])
 
+  // The tick shows only when the browser says the copy worked.
   const copy = async () => {
-    await copyText(new URL(path, window.location.origin).href)
-    setCopied(true)
+    const ok = await copyText(new URL(path, window.location.origin).href)
+    setCopied(ok)
+    setFailed(!ok)
   }
 
-  const label = copied ? 'Link copied' : 'Copy link'
+  const label = copied ? 'Link copied' : failed ? 'The link could not be copied' : 'Copy link'
   return (
     <button type="button" className={`${button.button} ${button.large} ${button.icon}`} onClick={copy} aria-label={label} title={label}>
       {copied ? <CheckIcon /> : <LinkIcon />}

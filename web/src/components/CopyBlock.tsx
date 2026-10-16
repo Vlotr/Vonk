@@ -27,10 +27,7 @@ export function CopyBlock({ value, label }: { value: string; label: string }) {
       <button
         type="button"
         className={`${button.button} ${styles.copy}`}
-        onClick={async () => {
-          await copyText(value)
-          setCopied(true)
-        }}
+        onClick={async () => setCopied(await copyText(value))}
         aria-label={copied ? `${label} copied` : `Copy ${label.toLowerCase()}`}
       >
         {copied ? <CheckIcon /> : <CopyIcon />}

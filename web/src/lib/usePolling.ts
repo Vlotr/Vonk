@@ -5,6 +5,10 @@ export const POLL_INTERVAL_MS = 60_000
 
 export interface Polled<T> {
   data?: T
+  /**
+   * error is set when the last load failed. With data present, that data is
+   * older than what was asked for: show it with a notice.
+   */
   error?: unknown
   /** loadedAt is when data last arrived. */
   loadedAt?: Date
@@ -36,8 +40,9 @@ interface State<T> {
  * issue) the old data is dropped at once instead of showing under the new
  * URL. refreshKey names how it is loaded (filters, page size): when only it
  * changes, the data is loaded again but the old data stays, marked stale,
- * until the new data arrives. A failed refresh keeps the data that was
- * already there.
+ * until the new data arrives. A failed load keeps the data that was already
+ * there and sets error; it also ends stale (nothing is on its way any more),
+ * so the page shows the older data with a notice instead of waiting.
  */
 export function usePolling<T>(load: (signal: AbortSignal) => Promise<T>, key: string, refreshKey = ''): Polled<T> {
   const [state, setState] = useState<State<T>>({ key, refreshKey })
@@ -45,15 +50,24 @@ export function usePolling<T>(load: (signal: AbortSignal) => Promise<T>, key: st
   const controller = useRef<AbortController | null>(null)
   const pending = useRef(0) // mutations whose request is not done yet
   const run = useRef<() => void>(() => {})
+  const mounted = useRef(false)
 
   // The latest load closure (with the latest filters), for reload and the timer.
   useEffect(() => {
     loadRef.current = load
   })
 
+  // A request that settles after the page is gone must not start a load.
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+    }
+  }, [])
+
   useEffect(() => {
     run.current = () => {
-      if (pending.current > 0) return
+      if (pending.current > 0 || !mounted.current) return
       controller.current?.abort()
       const current = new AbortController()
       controller.current = current
@@ -62,7 +76,8 @@ export function usePolling<T>(load: (signal: AbortSignal) => Promise<T>, key: st
           if (!current.signal.aborted) setState({ key, refreshKey, data, loadedAt: new Date() })
         },
         (error: unknown) => {
-          if (!current.signal.aborted) setState((prev) => (prev.key === key ? { ...prev, error } : { key, refreshKey, error }))
+          // The older data stays, no longer stale: nothing newer is coming.
+          if (!current.signal.aborted) setState((prev) => (prev.key === key ? { ...prev, refreshKey, error } : { key, refreshKey, error }))
         },
       )
     }

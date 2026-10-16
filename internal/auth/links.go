@@ -43,7 +43,8 @@ type InviteLink struct {
 // Invite makes a link with which email can create an account with role (and,
 // for a member, access to projectIDs). It works once, for 7 days. When mail
 // is on it is also mailed. Earlier invites for the address stop working.
-// Errors: an InputError, store.ErrEmailTaken or store.ErrUnknownProject.
+// Errors: an InputError, store.ErrEmailTaken, store.ErrUnknownProject or
+// store.ErrNotAdmin (byUserID is no longer an admin).
 func (s *Service) Invite(ctx context.Context, byUserID int64, email, role string, projectIDs []int64) (InviteLink, error) {
 	email = store.NormalizeEmail(email)
 	if err := CheckEmail(email); err != nil {

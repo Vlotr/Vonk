@@ -178,7 +178,7 @@ func newThrottle(perAccount, perClient int, window time.Duration) *throttle {
 // attempt is one try of an address from a client.
 type attempt struct {
 	emailKey, clientKey string
-	account             bool // the address has an account, and the try counts for it
+	account             bool // the address has an account; the try counts for it unless locked
 	at                  time.Time
 	// locked: the account used up its tries. The caller answers as for a
 	// wrong password, without checking the real one.

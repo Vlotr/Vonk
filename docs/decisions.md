@@ -156,7 +156,7 @@ API (Step 2):
 
 - `GET /ui/api/projects` also returns `openIssues` (beyond the plan's shape), so the sidebar badge needs no second request. `sources` follow the project's tracking choices, Laravel first.
 - Hourly buckets are clock hours in UTC: the current, unfinished hour is the last of 24, so an event 3 h ago is in bucket 20. Events up to an hour ahead (a client clock that is off) count in the current hour.
-- `isNew` and `new24h` mean first seen at most 24 h ago; `new24h` and `total` count the requested status.
+- `isNew` and `new24h` mean first seen at most 24 h ago; `new24h` and `total` count the requested status. (Changed in Task 4: `new24h` counts the whole project's open issues on every tab, and `total` counts the requested status within the filters; see the Task 4 issue list lines.)
 - Query parameters are checked before the project lookup, so a bad request gets 400 whether or not the project exists. `limit` is 1 to 100 (default 25), `offset` 0 or more. Missing, non-numeric and unknown ids get 404.
 - Wrong methods on the API routes fall through to the method-less `/ui/api/` catch-all and get its JSON 404 (`{"error":"not found"}`), not Go's plain-text 405; the dashboard never sends them. (Corrected in Task 4; the first version of this line said 405.)
 - `users` is `COUNT(DISTINCT user_id)` over the issue's events at query time; a counter can replace it if it gets slow.
@@ -238,7 +238,7 @@ All projects overview:
 
 - `newIssues24h` counts open issues first seen in the last 24 hours, the rule of the "New" tag and the issue list headline; a new issue that was resolved or ignored is not counted. `errors24h` counts every event of the last 24 hours whatever its issue's status (ignored issues keep counting). The bars cover the 24 clock hours that end now, so events from the oldest partial hour count in `errors24h` but not in a bar.
 - Projects are ordered by new issues, then errors, then name (the design's order fits: 6 new / 399, 1 new / 42, none / 3, none / 0).
-- Newest issues are the open issues first seen in the last 24 hours across projects, most recently seen first, at most five; with the Issues.png data that gives the design's rows (QueryException 4 min ago, TypeError 12 min ago, then Customer portal's ValidationException 2 h ago). None: "No new issues in the last 24 hours." and no "See all issues" link, which otherwise opens the issue list of the first row's project.
+- Newest issues are the open issues first seen in the last 24 hours across projects, most recently seen first, at most five (controller ruling 28: the times in the design are last-seen times, so the order is by last seen; an older new issue that is still busy can sit above a newer one). None: "No new issues in the last 24 hours." and no "See all issues" link, which otherwise opens the issue list of the first row's project. (Corrected in Task 6: the first version of this line claimed the rule reproduces the design's rows; the design's data does not say when its issues were first seen.)
 - The overview queries take a list of project ids, so Task 5 can pass only the projects a member may see.
 - The bars of all rows share one scale, the busiest hour of the whole table: in the design a project with 3 errors stays light next to one with 399.
 - "Add page tracking" spans both page-view columns and is text styled like the design's link: neither Settings (Task 5) nor page tracking (Task 8) exists yet. `formatDuration` ("1m 12s", "2m 05s") is ready for the average time column.
@@ -348,3 +348,19 @@ Fix round 3 (re-review of Task 5):
 - Forgot password: at most 5 links per account in 15 minutes; after that the request is answered the same and sends nothing. The per-client limit answers 429 as for sign-ins.
 - On the account page (signed in, your own account) a locked account answers 429 with the wait: it tells nothing the user does not know. A right current password gives the try back (`succeeded`) and starts the count over.
 - Tests count the real password checks through `Service.verify` (VerifyPassword by default).
+
+## Task 6: Alerts, retention, health and pre-migration backups
+
+Follow-ups from the Task 4 and Task 5 reviews:
+
+- A failed load (new filters, or a poll) keeps the data on screen, sets `error` and ends `stale`, since nothing newer is on its way; the issue list then says "Could not load; showing older results." above the rows. The list remembers the tab it was loaded for (`LoadedIssues.status`), so rows from an older tab keep their own buttons and the optimistic counts move the right tab.
+- `usePolling` starts no load once its page is gone (a status change that settles after leaving the page).
+- `loadIssues` and `withIssueMoved` moved to `web/src/lib/issueList.ts` (tested with a fake API: requests of at most 100, stopping at the total, duplicates shown once); the shared optimistic status change is `lib/useStatusChange.ts`.
+- `usePolling` and `copyText` are tested in a DOM: dev dependency `happy-dom` 20.14.5 (released mid-September), per test file with `// @vitest-environment happy-dom`, rendering with React's own `createRoot` and `act`; no Testing Library.
+- `copyText` reports whether the copy worked (the clipboard promise, or `execCommand`'s answer); the copy-link button shows its tick only then, and otherwise says "The link could not be copied" as its label. The Copy buttons of code boxes do the same.
+- The CSRF token: the sign-in answers (setup, login, invite, reset), which already carry `csrfToken`, set it at once; a change made before any token is known (right after a page load) first asks `GET /ui/api/me` itself, once for all changes waiting.
+- Scrubbing: when a URL's host part (up to the first `/`) has no `@` but a `:` that is not followed by a port, the password holds an unencoded `/` (`postgres://app:pa/ss@db/x`) and the user info runs to the last `@` before whitespace. A password whose part before the `/` is digits only (`app:12/ab@db`) still looks like a port and is missed.
+- `CreateInvite` checks inside its write transaction that the admin who makes the invite is still an admin (`store.ErrNotAdmin`, answered 404 like any admin route for a member); a creator id of 0, which only tests use, skips the check.
+- `sanitize.mjs` compares the real paths of `process.argv[1]` and itself, so it runs through a symlinked path (macOS `/tmp`).
+- Setup and keys (Task 5) shows the Laravel steps only when the project tracks Laravel errors, the browser steps only when it tracks browser errors, and the PostHog token and host only when page views are on (otherwise a "Turn on page views" button); the kinds it does not track are named in one line linking to Edit project. A page full of steps for things the project does not collect would suggest it does.
+- `SettingsUsersPage.tsx` keeps the page and its tables; the invite and edit forms (with the role select and project checkboxes) are `pages/UserForms.tsx`, the card that shows a new link once is `components/LinkCard.tsx`.

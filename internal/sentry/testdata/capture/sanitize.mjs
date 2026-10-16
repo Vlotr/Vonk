@@ -9,7 +9,7 @@
 //
 // writes <out>.envelope (or <out>.envelope.gz) and <out>.headers.json.
 // `node --test` in this directory runs sanitize.test.mjs.
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { hostname, userInfo } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { gunzipSync, gzipSync } from 'node:zlib';
@@ -77,4 +77,6 @@ writeFileSync(`${out}.headers.json`, `${JSON.stringify(meta, null, 2)}\n`);
 console.log(`sanitize: wrote ${bodyOut} (${body.length} bytes) and ${out}.headers.json`);
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) main();
+// Run as a script (not imported by the test). Both sides are resolved, so a
+// symlinked path (macOS /tmp is /private/tmp) still counts as this file.
+if (process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) main();

@@ -201,6 +201,29 @@ func TestScrub_URLUserInfo(t *testing.T) {
 	}
 }
 
+// A password with an unencoded "/" ends the host part early; the user info
+// then runs to the last "@" before whitespace. A port before the first "/"
+// is no password, so an "@" later in the URL leaves it alone.
+func TestScrub_URLUserInfoPasswordWithSlash(t *testing.T) {
+	ev, data := scrubbed(t, `{
+		"extra":{
+			"database":"postgres://app:pa/ss-secret-1@db/x",
+			"log":"cannot reach redis://cache:se/cret-2@cache:6379/0 now",
+			"port":"https://shop.example.com:8080/orders?email=jan@example.com"}}`)
+
+	assertNotContains(t, data, "ss-secret-1", "cret-2")
+	want := map[string]string{
+		"database": "postgres://app:[Filtered]@db/x",
+		"log":      "cannot reach redis://cache:[Filtered]@cache:6379/0 now",
+		"port":     "https://shop.example.com:8080/orders?email=jan@example.com",
+	}
+	for key, value := range want {
+		if got := at(ev.Raw, "extra", key); got != value {
+			t.Errorf("extra.%s = %q, want %q", key, got, value)
+		}
+	}
+}
+
 func TestScrub_RequestBody(t *testing.T) {
 	cases := map[string]string{
 		"object":       `{"request":{"data":{"email":"jan@example.com","password":"pw-123","cart":{"cvv":"cvv-123"}}}}`,

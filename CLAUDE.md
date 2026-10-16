@@ -149,7 +149,7 @@ The look comes from the PNGs: Instrument Sans and JetBrains Mono (bundled with `
 ## Conventions
 
 - Simple, idiomatic Go; stdlib first (`net/http` routing, `log/slog`, `embed`, `database/sql`). The team is new to Go: clarity over cleverness. New dependencies need a line in `docs/decisions.md`. Approved: `modernc.org/sqlite`, `golang.org/x/crypto` (argon2id).
-- Subcommands: `serve` (default), `healthcheck`, `project create`, later `admin reset-password`, `restore`, `delete-user-data`. One file per subcommand in `cmd/monitor/`. `run(args, getenv, stdout, stderr) int` keeps them testable.
+- Subcommands: `serve` (default), `healthcheck`, `project create`, `admin reset-password`; later `restore`, `delete-user-data`. One file per subcommand in `cmd/monitor/`. `run(args, getenv, stdout, stderr) int` keeps them testable.
 - Times in the DB are unix milliseconds (`BIGINT`); JSON uses RFC 3339. JSON payloads are `TEXT`. Booleans are `BOOLEAN` with `TRUE`/`FALSE`.
 - SQL stays in the subset SQLite and Postgres share: use `INSERT ... RETURNING id`, not `LastInsertId`. Placeholders are `?` for now (Task 11 adds a dialect helper).
 - Migrations are append-only: never edit a committed file, add `NNNN_name.sql`. Every SQLite migration needs a Postgres twin from Task 11 on. Tracked in `schema_migrations`.

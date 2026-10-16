@@ -461,3 +461,32 @@ func TestInvites_GoWithTheAdminWhoMadeThem(t *testing.T) {
 		t.Errorf("invite of an admin who stays: %v", err)
 	}
 }
+
+// An invite request that is still on its way while its admin is removed or
+// made a member must not leave a working admin link behind: the role of
+// the admin who makes it is checked inside the write transaction.
+func TestCreateInvite_OnlyByACurrentAdmin(t *testing.T) {
+	db := openTestDB(t)
+	ctx := context.Background()
+	addUser(t, db, "first@example.com", RoleAdmin)
+	demoted := addUser(t, db, "demoted@example.com", RoleAdmin)
+	removed := addUser(t, db, "removed@example.com", RoleAdmin)
+	member := RoleMember
+	if _, err := db.UpdateUser(ctx, demoted.ID, UserChange{Role: &member}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.DeleteUser(ctx, removed.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, by := range []User{demoted, removed} {
+		_, err := db.CreateInvite(ctx, NewInvite{Email: "late-" + by.Email, Role: RoleAdmin, TokenHash: "late-" + by.Email,
+			CreatedBy: by.ID, Now: userTestNow, ExpiresAt: userTestNow.Add(time.Hour)})
+		if !errors.Is(err, ErrNotAdmin) {
+			t.Errorf("invite by %s: err = %v, want ErrNotAdmin", by.Email, err)
+		}
+		if _, err := db.InviteByTokenHash(ctx, "late-"+by.Email); !errors.Is(err, ErrNotFound) {
+			t.Errorf("invite by %s was stored: %v", by.Email, err)
+		}
+	}
+}

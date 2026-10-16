@@ -241,7 +241,10 @@ func scrubURL(s string) string {
 // in s with Filtered, keeping the user name ("https://key@host", a DSN, has
 // no password and stays). The host part runs to the next "/" or whitespace
 // and the last "@" in it ends the user info, so a password with an
-// unencoded "#", "?" or "@" is filtered whole.
+// unencoded "#", "?" or "@" is filtered whole. When the host part has no
+// "@" but a ":" followed by something other than a port, the password
+// holds an unencoded "/" ("postgres://app:pa/ss@db/x"), and the last "@"
+// before whitespace ends it.
 func scrubUserInfo(s string) string {
 	if !strings.Contains(s, "://") || !strings.Contains(s, "@") {
 		return s
@@ -261,6 +264,13 @@ func scrubUserInfo(s string) string {
 			end = len(s)
 		}
 		at := strings.LastIndex(s[:end], "@")
+		if colon := strings.IndexByte(s[:end], ':'); at < 0 && colon >= 0 && !isPort(s[colon+1:end]) {
+			token := strings.IndexAny(s, " \t\r\n")
+			if token < 0 {
+				token = len(s)
+			}
+			at = strings.LastIndex(s[:token], "@")
+		}
 		user, _, hasPassword := strings.Cut(s[:max(at, 0)], ":")
 		if at < 0 || !hasPassword {
 			continue
@@ -270,6 +280,17 @@ func scrubUserInfo(s string) string {
 	}
 	b.WriteString(s)
 	return b.String()
+}
+
+// isPort reports whether s is what follows "host:" in a URL with a port:
+// digits only (or nothing).
+func isPort(s string) bool {
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // scrubQuery filters the values of sensitive parameters in "a=1&b=2". Keys

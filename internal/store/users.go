@@ -33,6 +33,9 @@ var (
 	ErrGone = errors.New("expired or already used")
 	// ErrUnknownProject is returned when a list of project ids names a project that does not exist.
 	ErrUnknownProject = errors.New("unknown project")
+	// ErrNotAdmin is returned by CreateInvite when the user making the
+	// invite is no longer an admin (or no longer exists).
+	ErrNotAdmin = errors.New("only an admin can do this")
 )
 
 // User is an account that can sign in to the dashboard.
