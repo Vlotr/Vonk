@@ -18,9 +18,10 @@ type projectJSON struct {
 	OpenIssues int `json:"openIssues"`
 }
 
-// listProjects answers GET /ui/api/projects: every project, sorted by name.
+// listProjects answers GET /ui/api/projects: the projects the signed-in
+// user may see, sorted by name.
 func (h *Handler) listProjects(w http.ResponseWriter, r *http.Request) {
-	projects, err := h.db.ListProjects(r.Context())
+	projects, err := h.visibleProjects(r)
 	if err != nil {
 		h.internalError(w, r, err)
 		return
@@ -42,6 +43,21 @@ func (h *Handler) listProjects(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	httpjson.Write(w, http.StatusOK, list)
+}
+
+// visibleProjects returns the projects the signed-in user may see, sorted by name.
+func (h *Handler) visibleProjects(r *http.Request) ([]store.Project, error) {
+	all, err := h.db.ListProjects(r.Context())
+	if err != nil {
+		return nil, err
+	}
+	visible := make([]store.Project, 0, len(all))
+	for _, p := range all {
+		if canSee(r, p.ID) {
+			visible = append(visible, p)
+		}
+	}
+	return visible, nil
 }
 
 // sources lists what a project tracks, Laravel first, as the designs show the tags.

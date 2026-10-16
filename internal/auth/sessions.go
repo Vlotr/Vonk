@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/url"
@@ -11,40 +12,48 @@ import (
 	"monitor/internal/store"
 )
 
-// signIn starts a session for u: a new token in the cookie, its hash and a
-// fresh CSRF token in the database. It answers with the user, as GET
-// /ui/api/me does.
+// signIn starts a session for u, sets its cookie and answers with the
+// user, as GET /ui/api/me does.
 func (s *Service) signIn(w http.ResponseWriter, r *http.Request, u store.User) {
-	ctx := r.Context()
-	token, err := newToken()
+	cookie, session, err := s.NewSession(r.Context(), u.ID)
 	if err != nil {
 		s.internalError(w, r, err)
 		return
+	}
+	http.SetCookie(w, cookie)
+	httpjson.Write(w, http.StatusOK, s.meJSON(User{ID: u.ID, Email: u.Email, Role: u.Role}, session))
+}
+
+// NewSession signs userID in without asking for a password: it stores a
+// session (the token's hash and a fresh CSRF token) and returns the cookie
+// to set. The sign-in endpoints call it once the password or link checked
+// out; tests use it to act as a user.
+func (s *Service) NewSession(ctx context.Context, userID int64) (*http.Cookie, store.Session, error) {
+	token, err := newToken()
+	if err != nil {
+		return nil, store.Session{}, err
 	}
 	csrf, err := newToken()
 	if err != nil {
-		s.internalError(w, r, err)
-		return
+		return nil, store.Session{}, err
 	}
 	now := s.now()
-	session, err := s.db.CreateSession(ctx, u.ID, s.hashToken(token), csrf, now, now.Add(sessionTTL))
+	session, err := s.db.CreateSession(ctx, userID, s.hashToken(token), csrf, now, now.Add(sessionTTL))
 	if err != nil {
-		s.internalError(w, r, err)
-		return
+		return nil, store.Session{}, err
 	}
 	// A good moment to clear out sessions nobody uses any more.
 	if _, err := s.db.DeleteExpiredSessions(ctx, now); err != nil {
 		s.log.Warn("auth: delete expired sessions", "err", err)
 	}
-	s.setCookie(w, token, session.ExpiresAt)
-	httpjson.Write(w, http.StatusOK, s.meJSON(User{ID: u.ID, Email: u.Email, Role: u.Role}, session))
+	return s.cookie(token, session.ExpiresAt), session, nil
 }
 
-// setCookie sets the session cookie: HttpOnly (scripts cannot read it),
+// cookie is the session cookie: HttpOnly (scripts cannot read it),
 // SameSite=Lax (other sites' requests do not carry it, except plain links),
 // and Secure when BASE_URL is https.
-func (s *Service) setCookie(w http.ResponseWriter, token string, expires time.Time) {
-	http.SetCookie(w, &http.Cookie{
+func (s *Service) cookie(token string, expires time.Time) *http.Cookie {
+	return &http.Cookie{
 		Name:     s.cookieName,
 		Value:    token,
 		Path:     "/",
@@ -53,7 +62,7 @@ func (s *Service) setCookie(w http.ResponseWriter, token string, expires time.Ti
 		HttpOnly: true,
 		Secure:   s.secure,
 		SameSite: http.SameSiteLaxMode,
-	})
+	}
 }
 
 // clearCookie tells the browser to drop the session cookie.
@@ -124,7 +133,7 @@ func (s *Service) RequireUser(next http.Handler) http.Handler {
 				s.internalError(w, r, err)
 				return
 			}
-			s.setCookie(w, token, session.ExpiresAt)
+			http.SetCookie(w, s.cookie(token, session.ExpiresAt))
 		}
 
 		user, err := s.loadUser(r.Context(), u)

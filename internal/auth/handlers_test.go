@@ -327,7 +327,7 @@ func TestInvite_AcceptCreatesUserWithRoleAndAccess(t *testing.T) {
 	token := tokenFrom(t, link.URL, "/invite")
 
 	anon := newBrowser()
-	rec := env.do(anon, "GET", "/ui/api/invite?token="+token, "")
+	rec := env.do(anon, "POST", "/ui/api/invite/check", jsonBody(map[string]string{"token": token}))
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"email":"piet@example.com"`) || !strings.Contains(rec.Body.String(), `"role":"member"`) {
 		t.Errorf("invite details = %d %s", rec.Code, rec.Body)
 	}
@@ -382,7 +382,7 @@ func TestInvite_ExpiredOrUsed410(t *testing.T) {
 		return env.do(newBrowser(), "POST", "/ui/api/invite/accept", jsonBody(map[string]string{"token": token, "password": "a good password"})).Code
 	}
 	details := func(token string) int {
-		return env.do(newBrowser(), "GET", "/ui/api/invite?token="+url.QueryEscape(token), "").Code
+		return env.do(newBrowser(), "POST", "/ui/api/invite/check", jsonBody(map[string]string{"token": token})).Code
 	}
 
 	link, err := env.svc.Invite(ctx, admin.ID, "piet@example.com", store.RoleMember, nil)
@@ -451,7 +451,7 @@ func TestReset_ByMail(t *testing.T) {
 	token := tokenFrom(t, sent[0].Text, "/reset-password")
 
 	anon := newBrowser()
-	if rec := env.do(anon, "GET", "/ui/api/password/reset?token="+token, ""); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "jan@example.com") {
+	if rec := env.do(anon, "POST", "/ui/api/password/reset/check", jsonBody(map[string]string{"token": token})); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "jan@example.com") {
 		t.Errorf("reset details = %d %s", rec.Code, rec.Body)
 	}
 	me := signedIn(t, anon, env.do(anon, "POST", "/ui/api/password/reset", jsonBody(map[string]string{"token": token, "password": "my new password"})))
@@ -480,7 +480,7 @@ func TestReset_ByMail(t *testing.T) {
 	if rec := env.do(newBrowser(), "POST", "/ui/api/password/reset", jsonBody(map[string]string{"token": late, "password": "another password"})); rec.Code != http.StatusGone {
 		t.Errorf("link after an hour = %d, want 410", rec.Code)
 	}
-	if rec := env.do(newBrowser(), "GET", "/ui/api/password/reset?token=made-up", ""); rec.Code != http.StatusNotFound {
+	if rec := env.do(newBrowser(), "POST", "/ui/api/password/reset/check", `{"token":"made-up"}`); rec.Code != http.StatusNotFound {
 		t.Errorf("made-up token = %d, want 404", rec.Code)
 	}
 

@@ -52,7 +52,8 @@ type newestIssueJSON struct {
 // Projects with new issues come first, then the busiest, then by name.
 func (h *Handler) overview(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	projects, err := h.db.ListProjects(ctx)
+	// Only the projects this user may see: every count below is limited to them.
+	projects, err := h.visibleProjects(r)
 	if err != nil {
 		h.internalError(w, r, err)
 		return

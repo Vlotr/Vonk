@@ -31,7 +31,8 @@ func CheckEmail(email string) error {
 const mailTimeout = 20 * time.Second
 
 // InviteLink is a new invite and the link that accepts it. The link holds
-// the only copy of the token, so it can be shown once only.
+// the only copy of the token, so it can be shown once only. The token
+// follows "#token=" in the link, the part browsers never send to a server.
 type InviteLink struct {
 	Invite store.Invite
 	URL    string
@@ -63,7 +64,7 @@ func (s *Service) Invite(ctx context.Context, byUserID int64, email, role string
 	if err != nil {
 		return InviteLink{}, err
 	}
-	link := InviteLink{Invite: inv, URL: s.baseURL + "/invite?token=" + token}
+	link := InviteLink{Invite: inv, URL: s.baseURL + "/invite#token=" + token}
 	if s.mailer != nil {
 		inviter := "An admin"
 		if by, err := s.db.UserByID(ctx, byUserID); err == nil {
@@ -107,7 +108,7 @@ func (s *Service) newResetLink(ctx context.Context, u store.User) (ResetLink, er
 		return ResetLink{}, err
 	}
 	now := s.now()
-	link := ResetLink{URL: s.baseURL + "/reset-password?token=" + token, ExpiresAt: now.Add(resetTTL)}
+	link := ResetLink{URL: s.baseURL + "/reset-password#token=" + token, ExpiresAt: now.Add(resetTTL)}
 	if err := s.db.CreatePasswordReset(ctx, u.ID, s.hashToken(token), now, link.ExpiresAt); err != nil {
 		return ResetLink{}, err
 	}

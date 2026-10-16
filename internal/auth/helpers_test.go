@@ -223,10 +223,10 @@ func errorOf(rec *httptest.ResponseRecorder) string {
 	return body.Error
 }
 
-// tokenFrom returns the token= value of the first link to path in text.
+// tokenFrom returns the token of the first link to path in text.
 func tokenFrom(t *testing.T, text, path string) string {
 	t.Helper()
-	prefix := "https://monitor.example.com" + path + "?token="
+	prefix := "https://monitor.example.com" + path + "#token="
 	i := strings.Index(text, prefix)
 	if i < 0 {
 		t.Fatalf("no %s link in %q", prefix, text)

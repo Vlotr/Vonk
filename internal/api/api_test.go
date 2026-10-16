@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"monitor/internal/auth"
 	"monitor/internal/config"
 	"monitor/internal/ingest"
 	"monitor/internal/issues"
@@ -24,13 +25,28 @@ import (
 // current hour (index 23 of the hourly buckets) started 30 minutes ago.
 var testNow = time.Date(2026, 10, 16, 12, 30, 0, 0, time.UTC)
 
-// testEnv is a migrated database and the API on a mux, with a fixed clock.
+// testEnv is a migrated database and the API behind auth.RequireUser, as
+// the server mounts it, with a fixed clock. Requests go out as a signed-in
+// admin unless a test picks another user.
 type testEnv struct {
-	db  *store.DB
-	mux *http.ServeMux
+	db      *store.DB
+	auth    *auth.Service
+	handler http.Handler
+	// admin is the first account, signed in.
+	admin *session
 }
 
-func newTestEnv(t *testing.T) *testEnv {
+// session is a signed-in browser: its cookie and CSRF token.
+type session struct {
+	userID int64
+	cookie *http.Cookie
+	csrf   string
+}
+
+// envOption changes the auth service of a test environment.
+type envOption func(*auth.Options)
+
+func newTestEnv(t *testing.T, opts ...envOption) *testEnv {
 	t.Helper()
 	dir := t.TempDir()
 	cfg := config.Config{DataDir: dir, SQLitePath: filepath.Join(dir, "monitor.db")}
@@ -43,11 +59,69 @@ func newTestEnv(t *testing.T) *testEnv {
 		t.Fatal(err)
 	}
 
-	h := New(db, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	o := auth.Options{
+		DB:        db,
+		SecretKey: "a-long-random-secret-for-tests",
+		BaseURL:   "https://monitor.example.com",
+		Logger:    logger,
+		Now:       func() time.Time { return testNow },
+	}
+	for _, opt := range opts {
+		opt(&o)
+	}
+	svc := auth.New(o)
+
+	h := New(db, svc, "https://monitor.example.com", logger)
 	h.now = func() time.Time { return testNow }
-	mux := http.NewServeMux()
-	h.Register(mux)
-	return &testEnv{db: db, mux: mux}
+	guarded := http.NewServeMux()
+	svc.Register(guarded)
+	h.Register(guarded)
+	guarded.HandleFunc("/ui/api/", func(w http.ResponseWriter, r *http.Request) { notFound(w) })
+	public := http.NewServeMux()
+	svc.RegisterPublic(public)
+	public.Handle("/", svc.RequireUser(guarded))
+
+	env := &testEnv{db: db, auth: svc, handler: public}
+	admin, err := db.CreateFirstAdmin(context.Background(), "admin@example.com", "not-a-real-hash", testNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env.admin = env.signIn(t, admin.ID)
+	return env
+}
+
+// signIn starts a session for a user, as signing in does.
+func (e *testEnv) signIn(t *testing.T, userID int64) *session {
+	t.Helper()
+	cookie, s, err := e.auth.NewSession(context.Background(), userID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &session{userID: userID, cookie: cookie, csrf: s.CSRFToken}
+}
+
+// user makes an account with a role (and, for a member, projects) the way
+// accepting an invite does, and signs it in.
+func (e *testEnv) user(t *testing.T, email, role string, projectIDs ...int64) *session {
+	t.Helper()
+	ctx := context.Background()
+	_, err := e.db.CreateInvite(ctx, store.NewInvite{Email: email, Role: role, ProjectIDs: projectIDs,
+		TokenHash: "test-" + email, Now: testNow, ExpiresAt: testNow.Add(time.Hour)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, err := e.db.AcceptInvite(ctx, "test-"+email, "not-a-real-hash", testNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return e.signIn(t, u.ID)
+}
+
+// member makes a member who sees projectIDs, signed in.
+func (e *testEnv) member(t *testing.T, email string, projectIDs ...int64) *session {
+	t.Helper()
+	return e.user(t, email, store.RoleMember, projectIDs...)
 }
 
 func (e *testEnv) project(t *testing.T, name string) store.Project {
@@ -82,23 +156,45 @@ func (e *testEnv) setStatus(t *testing.T, issueID int64, status string) {
 	}
 }
 
-// post calls the API with a JSON body and returns the response.
+// post calls the API as the admin with a body and returns the response.
 func (e *testEnv) post(t *testing.T, path, contentType, body string) *httptest.ResponseRecorder {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+	return e.send(t, e.admin, http.MethodPost, path, contentType, body)
+}
+
+// get calls the API as the admin and returns the response.
+func (e *testEnv) get(t *testing.T, path string) *httptest.ResponseRecorder {
+	t.Helper()
+	return e.send(t, e.admin, http.MethodGet, path, "", "")
+}
+
+// as calls the API as someone, with a JSON body when body is not empty.
+func (e *testEnv) as(t *testing.T, who *session, method, path, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	contentType := ""
+	if body != "" {
+		contentType = "application/json"
+	}
+	return e.send(t, who, method, path, contentType, body)
+}
+
+// send makes one request with who's cookie and CSRF token.
+func (e *testEnv) send(t *testing.T, who *session, method, path, contentType, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	var r io.Reader
+	if body != "" {
+		r = strings.NewReader(body)
+	}
+	req := httptest.NewRequest(method, path, r)
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
 	}
+	if who != nil {
+		req.AddCookie(who.cookie)
+		req.Header.Set(auth.CSRFHeader, who.csrf)
+	}
 	rec := httptest.NewRecorder()
-	e.mux.ServeHTTP(rec, req)
-	return rec
-}
-
-// get calls the API and returns the response.
-func (e *testEnv) get(t *testing.T, path string) *httptest.ResponseRecorder {
-	t.Helper()
-	rec := httptest.NewRecorder()
-	e.mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+	e.handler.ServeHTTP(rec, req)
 	return rec
 }
 

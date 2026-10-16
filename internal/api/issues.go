@@ -102,6 +102,10 @@ func (h *Handler) listIssues(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	filter.ProjectID = projectID
+	if !canSee(r, projectID) {
+		notFound(w)
+		return
+	}
 
 	ctx := r.Context()
 	project, err := h.db.ProjectByID(ctx, projectID)
@@ -225,7 +229,7 @@ func (h *Handler) issueDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 	row, err := h.db.IssueRowByID(ctx, id)
-	if errors.Is(err, store.ErrNotFound) {
+	if errors.Is(err, store.ErrNotFound) || (err == nil && !canSee(r, row.ProjectID)) {
 		notFound(w)
 		return
 	}

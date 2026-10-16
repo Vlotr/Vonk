@@ -24,23 +24,24 @@ var PublicPages = []string{"/setup", "/login", "/invite", "/forgot-password", "/
 //	GET  /ui/api/auth/status     {setupNeeded, mailEnabled}
 //	POST /ui/api/setup           {email, password}: the first account, an admin; 404 once one exists
 //	POST /ui/api/login           {email, password}
-//	GET  /ui/api/invite          ?token=: {email, role} of an invite
-//	POST /ui/api/invite/accept   {token, password}
-//	POST /ui/api/password/forgot {email}: mails a reset link when the account exists
-//	GET  /ui/api/password/reset  ?token=: {email} of a reset link
-//	POST /ui/api/password/reset  {token, password}
+//	POST /ui/api/invite/check         {token}: {email, role} of an invite
+//	POST /ui/api/invite/accept        {token, password}
+//	POST /ui/api/password/forgot      {email}: mails a reset link when the account exists
+//	POST /ui/api/password/reset/check {token}: {email} of a reset link
+//	POST /ui/api/password/reset       {token, password}
 //
 // Each one that signs someone in answers like GET /ui/api/me and sets the
-// session cookie. Tokens travel in the query or the body, never in the
-// path, so the request log (which leaves out queries) never shows them.
+// session cookie. Links carry their token after "#", which browsers never
+// send, and the pages post it in a body: tokens appear in no URL a server
+// or proxy logs.
 func (s *Service) RegisterPublic(mux *http.ServeMux) {
 	mux.HandleFunc("GET /ui/api/auth/status", s.authStatus)
 	mux.HandleFunc("POST /ui/api/setup", s.setup)
 	mux.HandleFunc("POST /ui/api/login", s.login)
-	mux.HandleFunc("GET /ui/api/invite", s.inviteDetails)
+	mux.HandleFunc("POST /ui/api/invite/check", s.inviteDetails)
 	mux.HandleFunc("POST /ui/api/invite/accept", s.acceptInvite)
 	mux.HandleFunc("POST /ui/api/password/forgot", s.forgotPassword)
-	mux.HandleFunc("GET /ui/api/password/reset", s.resetDetails)
+	mux.HandleFunc("POST /ui/api/password/reset/check", s.resetDetails)
 	mux.HandleFunc("POST /ui/api/password/reset", s.resetPassword)
 }
 
@@ -265,8 +266,17 @@ func (s *Service) findInvite(w http.ResponseWriter, r *http.Request, token strin
 	return store.Invite{}, false
 }
 
+// tokenBody is the body of the check endpoints.
+type tokenBody struct {
+	Token string `json:"token"`
+}
+
 func (s *Service) inviteDetails(w http.ResponseWriter, r *http.Request) {
-	inv, ok := s.findInvite(w, r, r.URL.Query().Get("token"))
+	var req tokenBody
+	if !httpjson.Read(w, r, maxAuthBody, &req) {
+		return
+	}
+	inv, ok := s.findInvite(w, r, req.Token)
 	if !ok {
 		return
 	}
@@ -363,7 +373,11 @@ func (s *Service) findReset(w http.ResponseWriter, r *http.Request, token string
 }
 
 func (s *Service) resetDetails(w http.ResponseWriter, r *http.Request) {
-	u, ok := s.findReset(w, r, r.URL.Query().Get("token"))
+	var req tokenBody
+	if !httpjson.Read(w, r, maxAuthBody, &req) {
+		return
+	}
+	u, ok := s.findReset(w, r, req.Token)
 	if !ok {
 		return
 	}

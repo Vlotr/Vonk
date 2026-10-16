@@ -29,10 +29,10 @@ type statusResponse struct {
 // setIssueStatus answers POST /ui/api/issues/{id}/status with a body
 // {"status":"open|resolved|ignored"}.
 //
-// Only application/json is accepted. Until logins arrive (Task 5) that is
-// what keeps other sites out: a page elsewhere can make a browser send a form
-// or text/plain POST here unasked, but a JSON one needs a CORS preflight,
-// which this API never answers.
+// Like every change, it needs the session's X-CSRF-Token (auth.RequireUser).
+// Only application/json is accepted as well: a page elsewhere can make a
+// browser send a form or text/plain POST here unasked, but a JSON one needs
+// a CORS preflight, which this API never answers.
 func (h *Handler) setIssueStatus(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(r, "id")
 	if !ok {
@@ -50,8 +50,21 @@ func (h *Handler) setIssueStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// SetStatus checks the status before it looks for the issue, so a bad
-	// request answers the same whether the issue exists or not.
+	// The status is checked before the issue is looked up, so a bad request
+	// answers the same whether the issue exists (or may be seen) or not.
+	if !store.ValidIssueStatus(req.Status) {
+		httpjson.Error(w, http.StatusBadRequest, issues.ErrInvalidStatus.Error())
+		return
+	}
+	current, err := h.db.IssueByID(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) || (err == nil && !canSee(r, current.ProjectID)) {
+		notFound(w)
+		return
+	}
+	if err != nil {
+		h.internalError(w, r, err)
+		return
+	}
 	issue, err := h.issues.SetStatus(r.Context(), id, req.Status)
 	switch {
 	case errors.Is(err, issues.ErrInvalidStatus):
