@@ -80,6 +80,8 @@ type Service struct {
 
 	// maxBundle is MaxBundleBytes; tests lower it.
 	maxBundle int64
+	// readAll reads a stored file: os.ReadFile; tests count the reads.
+	readAll func(name string) ([]byte, error)
 
 	mu         sync.Mutex
 	assembling map[string]bool // bundles being put together, by checksum
@@ -88,7 +90,7 @@ type Service struct {
 // New returns a Service. Its directories are made when the first upload comes in.
 func New(o Options) *Service {
 	s := &Service{db: o.DB, dir: o.Dir, baseURL: o.BaseURL, hashToken: o.HashToken, log: o.Logger, now: o.Now,
-		maxBundle: MaxBundleBytes, assembling: map[string]bool{}}
+		maxBundle: MaxBundleBytes, assembling: map[string]bool{}, readAll: os.ReadFile}
 	if s.now == nil {
 		s.now = time.Now
 	}
@@ -425,7 +427,7 @@ func removeFiles(dir string, files []store.SourceMapFile) {
 
 // readFile returns a stored file's content.
 func (s *Service) readFile(f store.SourceMapFile) ([]byte, error) {
-	return os.ReadFile(filepath.Join(s.dir, filepath.FromSlash(f.Path)))
+	return s.readAll(filepath.Join(s.dir, filepath.FromSlash(f.Path)))
 }
 
 // DeleteUploadedBefore deletes at most limit of a project's files uploaded
@@ -489,5 +491,13 @@ func (s *Service) CleanUp(ctx context.Context, now time.Time) {
 			os.Remove(filepath.Join(dir, f.Name()))
 		}
 		os.Remove(dir) // only when empty
+	}
+}
+
+// RemoveTokenChunks deletes the chunks a token had waiting, when it is
+// revoked: nobody can put them together any more.
+func (s *Service) RemoveTokenChunks(tokenID int64) {
+	if err := os.RemoveAll(s.chunkDir(tokenID)); err != nil {
+		s.log.Warn("sourcemaps: remove a revoked token's chunks", "token", tokenID, "err", err)
 	}
 }

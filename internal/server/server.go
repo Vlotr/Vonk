@@ -97,7 +97,7 @@ func New(deps Deps) http.Handler {
 		Started:           deps.Started,
 		StoredLastHour:    deps.StoredLastHour,
 		AllowHTTPWebhooks: deps.Config.AllowHTTPWebhooks,
-		Symbolicate:       maps.Symbolicate,
+		SourceMaps:        maps,
 	}).Register(dashboard)
 	dashboard.HandleFunc("/ui/api/", notFoundJSON)
 	// "/" rather than "GET /": Go's mux refuses a method-only catch-all next to

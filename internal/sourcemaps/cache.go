@@ -10,21 +10,22 @@ import (
 // files may take (ruling 15): the ones used least recently go first.
 const DefaultCacheBytes = 64 << 20
 
-// cache keeps parsed files by their source_maps row id, the ones used
-// least recently dropped first once they take more than max bytes. A file
-// is loaded once even when several requests ask for it at the same time.
+// cache keeps parsed files by their path on disk (a random name that is
+// never used again, unlike a row id), the ones used least recently dropped
+// first once they take more than max bytes. A file is loaded once even
+// when several requests ask for it at the same time.
 type cache struct {
 	max int64
 
 	mu      sync.Mutex
 	size    int64
 	order   *list.List // front: used most recently
-	items   map[int64]*list.Element
-	loading map[int64]*load
+	items   map[string]*list.Element
+	loading map[string]*load
 }
 
 type cacheEntry struct {
-	key   int64
+	key   string
 	value any
 	size  int64
 }
@@ -37,13 +38,14 @@ type load struct {
 }
 
 func newCache(max int64) *cache {
-	return &cache{max: max, order: list.New(), items: map[int64]*list.Element{}, loading: map[int64]*load{}}
+	return &cache{max: max, order: list.New(), items: map[string]*list.Element{}, loading: map[string]*load{}}
 }
 
 // get returns the value for key, calling fill to make it when it is not
 // cached. fill returns the value and its size in bytes; a value larger
-// than the whole cache is returned without being kept. Errors are not cached.
-func (c *cache) get(key int64, fill func() (any, int64, error)) (any, error) {
+// than the whole cache is returned without being kept (callers keep a
+// small marker instead, so it is not made again). Errors are not cached.
+func (c *cache) get(key string, fill func() (any, int64, error)) (any, error) {
 	c.mu.Lock()
 	if el, ok := c.items[key]; ok {
 		c.order.MoveToFront(el)

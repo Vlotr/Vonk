@@ -25,7 +25,7 @@ func TestIssueDetail_SymbolicatesEventsStoredBeforeTheirMap(t *testing.T) {
 	p := env.project(t, "Webshop")
 	svc := sourcemaps.New(sourcemaps.Options{DB: env.db, Dir: filepath.Join(env.dir, "sourcemaps"), BaseURL: "https://monitor.example.com",
 		HashToken: env.auth.HashToken, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), Now: func() time.Time { return testNow }})
-	env.api.symbolicate = svc.Symbolicate
+	env.api.maps = svc
 
 	// The fixture build's TypeError (internal/sourcemaps/testdata/build-a), sent before the upload.
 	const debugID = "a157b193-d5a9-5480-b001-80dc5d43e6b4"

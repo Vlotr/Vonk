@@ -282,8 +282,8 @@ func (h *Handler) issueDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	default:
 		var symbolicate func(*sentry.Event)
-		if h.symbolicate != nil {
-			symbolicate = func(ev *sentry.Event) { h.symbolicate(ctx, row.ProjectID, ev) }
+		if h.maps != nil {
+			symbolicate = func(ev *sentry.Event) { h.maps.Symbolicate(ctx, row.ProjectID, ev) }
 		}
 		ev, err := eventDetail(stored, symbolicate)
 		if err != nil {

@@ -63,32 +63,32 @@ func TestParseSourceMap_RefusesBrokenMaps(t *testing.T) {
 
 func TestCache_KeepsWhatWasUsedLast(t *testing.T) {
 	c := newCache(100)
-	loads := map[int64]int{}
-	get := func(key, size int64) {
+	loads := map[string]int{}
+	get := func(key string, size int64) {
 		t.Helper()
 		v, err := c.get(key, func() (any, int64, error) {
 			loads[key]++
-			return fmt.Sprint("value ", key), size, nil
+			return "value " + key, size, nil
 		})
-		if err != nil || v != fmt.Sprint("value ", key) {
-			t.Fatalf("get(%d) = %v, %v", key, v, err)
+		if err != nil || v != "value "+key {
+			t.Fatalf("get(%s) = %v, %v", key, v, err)
 		}
 	}
-	get(1, 40)
-	get(2, 40)
-	get(1, 40) // 1 was used last
-	get(3, 40) // over 100: 2 goes
-	get(1, 40)
-	get(2, 40)
-	if loads[1] != 1 || loads[2] != 2 || loads[3] != 1 {
+	get("1/a", 40)
+	get("1/b", 40)
+	get("1/a", 40) // a was used last
+	get("1/c", 40) // over 100: b goes
+	get("1/a", 40)
+	get("1/b", 40)
+	if loads["1/a"] != 1 || loads["1/b"] != 2 || loads["1/c"] != 1 {
 		t.Errorf("loads = %v, want 1 once, 2 again after it was dropped", loads)
 	}
 	if c.bytes() > 100 {
 		t.Errorf("cache holds %d bytes, more than its 100", c.bytes())
 	}
-	get(4, 500) // larger than the cache: returned, not kept
-	get(4, 500)
-	if loads[4] != 2 {
+	get("1/d", 500) // larger than the cache: returned, not kept
+	get("1/d", 500)
+	if loads["1/d"] != 2 {
 		t.Errorf("a value larger than the cache was kept")
 	}
 }
@@ -105,7 +105,7 @@ func TestCache_LoadsOnceForManyRequests(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			c.get(7, func() (any, int64, error) {
+			c.get("1/map", func() (any, int64, error) {
 				mu.Lock()
 				loads++
 				mu.Unlock()
@@ -120,7 +120,7 @@ func TestCache_LoadsOnceForManyRequests(t *testing.T) {
 		t.Errorf("parsed %d times for 20 requests at once, want 1", loads)
 	}
 	// A load that panics is an error for everyone waiting, not a hang.
-	if _, err := c.get(8, func() (any, int64, error) { panic("broken map") }); err == nil {
+	if _, err := c.get("1/broken", func() (any, int64, error) { panic("broken map") }); err == nil {
 		t.Error("a panicking load gave no error")
 	}
 }

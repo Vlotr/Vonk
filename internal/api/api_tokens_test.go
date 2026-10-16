@@ -5,10 +5,15 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"monitor/internal/sourcemaps"
 	"monitor/internal/store"
 )
 
@@ -101,5 +106,36 @@ func TestAPITokens_BadRequests(t *testing.T) {
 	}
 	if list, _ := env.db.ListAPITokens(context.Background()); len(list) != 0 {
 		t.Errorf("refused requests stored tokens: %+v", list)
+	}
+}
+
+// Revoking a token removes the chunks it had waiting for an upload: no
+// token can put them together any more.
+func TestAPITokens_RevokeRemovesWaitingChunks(t *testing.T) {
+	env := newTestEnv(t)
+	shop := env.project(t, "Webshop")
+	dir := filepath.Join(env.dir, "sourcemaps")
+	env.api.maps = sourcemaps.New(sourcemaps.Options{DB: env.db, Dir: dir, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+
+	rec := env.as(t, env.admin, "POST", "/ui/api/settings/api-tokens", fmt.Sprintf(`{"name":"CI","projectIds":[%d]}`, shop.ID))
+	var created struct {
+		Token apiTokenResponse `json:"token"`
+	}
+	if rec.Code != http.StatusCreated || json.Unmarshal(rec.Body.Bytes(), &created) != nil {
+		t.Fatalf("create = %d %s", rec.Code, rec.Body)
+	}
+	chunks := filepath.Join(dir, "chunks", fmt.Sprint(created.Token.ID))
+	if err := os.MkdirAll(chunks, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(chunks, "0123456789abcdef0123456789abcdef01234567"), []byte("chunk"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+
+	if rec := env.as(t, env.admin, "DELETE", fmt.Sprintf("/ui/api/settings/api-tokens/%d", created.Token.ID), ""); rec.Code != http.StatusOK {
+		t.Fatalf("revoke = %d %s", rec.Code, rec.Body)
+	}
+	if _, err := os.Stat(chunks); !os.IsNotExist(err) {
+		t.Errorf("the revoked token's chunks are still on disk: %v", err)
 	}
 }

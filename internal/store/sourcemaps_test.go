@@ -3,9 +3,12 @@ package store
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
+
+	"monitor/internal/config"
 )
 
 func TestAPITokens_CreateFindTouchDelete(t *testing.T) {
@@ -140,5 +143,111 @@ func TestSourceMapFiles_SaveFindAndExpire(t *testing.T) {
 
 	if _, err := db.SaveSourceMapFiles(ctx, []SourceMapFile{{ProjectID: 999, File: "x", Kind: SourceMapKind, Bundle: "b3", Path: "p"}}); !errors.Is(err, ErrUnknownProject) {
 		t.Errorf("unknown project: %v, want ErrUnknownProject", err)
+	}
+}
+
+// Ids of API tokens and source map files are never used again: a cache or
+// a directory named after one never meets a newer row with that id.
+func TestSourceMapsAndTokens_IDsNeverReused(t *testing.T) {
+	db := openTestDB(t)
+	ctx := context.Background()
+	admin := addUser(t, db, "admin@example.com", RoleAdmin)
+	shop := addProject(t, db, "Webshop")
+
+	tok, err := db.CreateAPIToken(ctx, NewAPIToken{Name: "a", TokenHash: "h1", ProjectIDs: []int64{shop.ID}, CreatedBy: admin.ID, Now: userTestNow})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.DeleteAPIToken(ctx, tok.ID); err != nil {
+		t.Fatal(err)
+	}
+	next, err := db.CreateAPIToken(ctx, NewAPIToken{Name: "b", TokenHash: "h2", ProjectIDs: []int64{shop.ID}, CreatedBy: admin.ID, Now: userTestNow})
+	if err != nil || next.ID <= tok.ID {
+		t.Errorf("token after a deleted one has id %d (deleted %d), %v", next.ID, tok.ID, err)
+	}
+	if found, err := db.APITokenByHash(ctx, "h2"); err != nil || len(found.ProjectIDs) != 1 {
+		t.Errorf("token's projects = %+v, %v", found, err)
+	}
+	// Deleting a token still deletes its projects (the foreign key survived the new table).
+	if err := db.DeleteAPIToken(ctx, next.ID); err != nil {
+		t.Fatal(err)
+	}
+	var left int
+	db.read.QueryRowContext(ctx, "SELECT COUNT(*) FROM api_token_projects").Scan(&left)
+	if left != 0 {
+		t.Errorf("%d api_token_projects rows outlived their token", left)
+	}
+
+	file := func(bundle string) SourceMapFile {
+		return SourceMapFile{ProjectID: shop.ID, File: "~/a.js.map", Kind: SourceMapKind, Bundle: bundle, Path: "1/" + bundle, UploadedAt: userTestNow}
+	}
+	first, err := db.SaveSourceMapFiles(ctx, []SourceMapFile{file("b1")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.DeleteSourceMapFiles(ctx, []int64{first[0].ID}); err != nil {
+		t.Fatal(err)
+	}
+	second, err := db.SaveSourceMapFiles(ctx, []SourceMapFile{file("b2")})
+	if err != nil || second[0].ID <= first[0].ID {
+		t.Errorf("file after a deleted one has id %d (deleted %d), %v", second[0].ID, first[0].ID, err)
+	}
+	// Deleting the project still deletes its files.
+	if err := db.DeleteProject(ctx, shop.ID); err != nil {
+		t.Fatal(err)
+	}
+	if paths, _ := db.SourceMapPaths(ctx); len(paths) != 0 {
+		t.Errorf("files outlived their project: %v", paths)
+	}
+}
+
+// Migration 0008 makes the tables again with AUTOINCREMENT: tokens, their
+// projects and source map files uploaded before it keep their ids and rows.
+func TestMigrate_SourceMapIDsKeepTheRows(t *testing.T) {
+	dir := t.TempDir()
+	db, err := Open(context.Background(), config.Config{DataDir: dir, SQLitePath: filepath.Join(dir, "monitor.db")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	ctx := context.Background()
+	files, err := migrationFiles()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var before []migration
+	for _, f := range files {
+		if f.version < 8 {
+			before = append(before, f)
+		}
+	}
+	if err := db.migrate(ctx, before); err != nil {
+		t.Fatal(err)
+	}
+	admin, err := db.CreateFirstAdmin(ctx, "admin@example.com", "hash", userTestNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	shop := addProject(t, db, "Webshop")
+	tok, err := db.CreateAPIToken(ctx, NewAPIToken{Name: "CI", TokenHash: "h", Hint: "abcd", ProjectIDs: []int64{shop.ID}, CreatedBy: admin.ID, Now: userTestNow})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored, err := db.SaveSourceMapFiles(ctx, []SourceMapFile{{ProjectID: shop.ID, Release: "v1", File: "~/a.js.map", Kind: SourceMapKind,
+		DebugID: "c5bc0f5b-2a6f-50f4-aafe-19e667444d31", Bundle: "b", Path: "1/x", Size: 9, UploadedAt: userTestNow}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := db.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	got, err := db.APITokenByHash(ctx, "h")
+	if err != nil || got.ID != tok.ID || got.Hint != "abcd" || !reflect.DeepEqual(got.ProjectIDs, []int64{shop.ID}) {
+		t.Errorf("token after the migration = %+v, %v", got, err)
+	}
+	m, err := db.SourceMapByDebugID(ctx, shop.ID, "c5bc0f5b-2a6f-50f4-aafe-19e667444d31", SourceMapKind)
+	if err != nil || m.ID != stored[0].ID || m.Path != "1/x" || m.Release != "v1" || !m.UploadedAt.Equal(userTestNow) {
+		t.Errorf("file after the migration = %+v, %v", m, err)
 	}
 }

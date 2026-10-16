@@ -19,7 +19,7 @@ import (
 //	GET    /ui/api/settings/api-tokens       {tokens}: name, last four characters, projects, made, last used
 //	POST   /ui/api/settings/api-tokens       {name, projectIds} → 201 {token, secret, url}: the token, this once,
 //	                                         and the address the tools upload to (BASE_URL, which the token names)
-//	DELETE /ui/api/settings/api-tokens/{id}  the token stops working at once
+//	DELETE /ui/api/settings/api-tokens/{id}  the token stops working at once; its waiting chunks go
 //
 // Only an HMAC of a token is stored (as for sessions), so it cannot be shown again.
 
@@ -117,6 +117,9 @@ func (h *Handler) deleteAPIToken(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		h.internalError(w, r, err)
 		return
+	}
+	if h.maps != nil {
+		h.maps.RemoveTokenChunks(id) // an upload under way with it cannot finish now
 	}
 	h.log.Info("API token revoked", "token", id)
 	httpjson.Write(w, http.StatusOK, struct{}{})

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/url"
 	"path"
 	"strconv"
@@ -22,9 +23,9 @@ const (
 	// maxContextLine is the longest source line kept in a frame; longer
 	// lines (minified code in node_modules) are cut.
 	maxContextLine = 300
-	// maxParseBytes is the largest file that is parsed: larger ones could
-	// never stay in the cache, and parsing them for every event costs too much.
-	maxParseBytes = DefaultCacheBytes
+	// unusableBytes is what the cache counts for the marker of a file that
+	// cannot be used.
+	unusableBytes = 64
 	// nameSearchSegments is how many mappings the search for a function's
 	// definition looks back at most.
 	nameSearchSegments = 20000
@@ -182,7 +183,7 @@ func (f *finder) lookup(file string) *resolved {
 		return r
 	}
 	r, err := f.find(file)
-	if err != nil && !errors.Is(err, store.ErrNotFound) {
+	if err != nil && !errors.Is(err, store.ErrNotFound) && !errors.Is(err, errUnusable) {
 		f.s.log.Warn("sourcemaps: look up a source map", "project", f.projectID, "file", file, "err", err)
 	}
 	f.found[file] = r
@@ -280,21 +281,39 @@ func (s *Service) load(row store.SourceMapFile, min store.SourceMapFile, minErr 
 	if minErr == nil {
 		if lines, err := s.minifiedLines(min); err == nil {
 			r.minified = lines
-		} else {
+		} else if !errors.Is(err, errUnusable) {
 			s.log.Warn("sourcemaps: read a minified file", "file", min.File, "err", err)
 		}
 	}
 	return r, nil
 }
 
-// unusable is cached for a file that cannot be parsed, so a broken map is
-// not read again for every event.
+// unusable is cached for a file that cannot be used (it does not parse,
+// or it is too large for the cache), so it is not read again for every
+// event on the ingest path. It was logged when it was found out.
 type unusable struct{ err error }
 
+// errUnusable is what looking up an unusable file returns; it is not
+// logged again.
+var errUnusable = errors.New("source map file cannot be used")
+
+// tooLarge reports, once per file, that a file is too large to keep parsed
+// and returns its marker. A file over a quarter of the cache is not even
+// read: parsed, a map takes about twice its size, or several times that
+// without sourcesContent.
+func (s *Service) tooLarge(row store.SourceMapFile, parsedBytes int64) (any, int64, error) {
+	s.log.Warn("sourcemaps: file too large to symbolicate with", "file", row.File, "project", row.ProjectID,
+		"bytes", row.Size, "parsed_bytes", parsedBytes, "cache_bytes", s.cache.max)
+	return unusable{errors.New("file too large to symbolicate with")}, unusableBytes, nil
+}
+
+// parsedMap returns a stored source map parsed, from the cache, which
+// knows it by its path on disk: a random name never used again, so a newer
+// file (another project's) can never get an older file's entry.
 func (s *Service) parsedMap(row store.SourceMapFile) (*sourceMap, error) {
-	v, err := s.cache.get(row.ID, func() (any, int64, error) {
-		if row.Size > maxParseBytes {
-			return unusable{errors.New("source map too large to use")}, 64, nil
+	v, err := s.cache.get(row.Path, func() (any, int64, error) {
+		if row.Size > s.cache.max/4 {
+			return s.tooLarge(row, 0)
 		}
 		data, err := s.readFile(row)
 		if err != nil {
@@ -303,38 +322,53 @@ func (s *Service) parsedMap(row store.SourceMapFile) (*sourceMap, error) {
 		m, err := parseSourceMap(data)
 		if err != nil {
 			s.log.Warn("sourcemaps: source map cannot be used", "file", row.File, "err", err)
-			return unusable{err}, 64, nil
+			return unusable{err}, unusableBytes, nil
+		}
+		if m.size > s.cache.max {
+			return s.tooLarge(row, m.size)
 		}
 		return m, m.size, nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	if bad, ok := v.(unusable); ok {
-		return nil, bad.err
+	switch v := v.(type) {
+	case *sourceMap:
+		return v, nil
+	case unusable:
+		return nil, fmt.Errorf("%w: %v", errUnusable, v.err)
 	}
-	return v.(*sourceMap), nil
+	return nil, errors.New("the cache holds something else for this source map")
 }
 
+// minifiedLines returns a stored minified file split in lines, from the
+// cache, as parsedMap does.
 func (s *Service) minifiedLines(row store.SourceMapFile) ([]codeLine, error) {
-	v, err := s.cache.get(row.ID, func() (any, int64, error) {
-		if row.Size > maxParseBytes {
-			return unusable{errors.New("minified file too large to use")}, 64, nil
+	v, err := s.cache.get(row.Path, func() (any, int64, error) {
+		if row.Size > s.cache.max/4 {
+			return s.tooLarge(row, 0)
 		}
 		data, err := s.readFile(row)
 		if err != nil {
 			return nil, 0, err
 		}
 		lines := splitCode(string(data))
-		return lines, int64(len(data)) + int64(len(lines))*32, nil
+		size := int64(len(data)) + int64(len(lines))*32
+		if size > s.cache.max {
+			return s.tooLarge(row, size)
+		}
+		return lines, size, nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	if bad, ok := v.(unusable); ok {
-		return nil, bad.err
+	switch v := v.(type) {
+	case []codeLine:
+		return v, nil
+	case unusable:
+		return nil, fmt.Errorf("%w: %v", errUnusable, v.err)
 	}
-	return v.([]codeLine), nil
+	return nil, errors.New("the cache holds something else for this minified file")
 }
 
 // mapFrame returns the frame mapped to its original file, or nil when it
