@@ -129,7 +129,10 @@ test('alerts go to Slack, and Settings shows the status of the tool', async ({ p
     await expect(server).toContainText('Database')
     await expect(server).toContainText('Disk free')
     await expect(server).toContainText('of at most 10,000')
-    await expect(ui.getByRole('region', { name: 'Backups' })).toContainText('No backup yet.')
+    // E2E_DATABASE_URL runs the suite on Postgres, which the tool does not back up.
+    await expect(ui.getByRole('region', { name: 'Backups' })).toContainText(
+      process.env.E2E_DATABASE_URL ? 'the tool makes no backups of it' : 'No backup yet.',
+    )
     await expect(ui.getByRole('region', { name: 'Alerts for admins' })).toContainText('Email is off. Set MAIL_URL to send email.')
     await ui.screenshot({ path: join(screenshots, 'phase2-status.png'), fullPage: true })
   } finally {

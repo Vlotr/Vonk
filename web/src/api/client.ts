@@ -677,6 +677,8 @@ export interface ToolStatus {
   db: 'ok' | 'error'
   /** low: under 10 % or 1 GiB free; critical: under 1 % or 256 MiB; error: it cannot be read. */
   disk: 'ok' | 'low' | 'critical' | 'error'
+  /** databaseKind is SQLite (the default) or Postgres (DATABASE_URL); the tool backs up only SQLite. */
+  databaseKind: 'sqlite' | 'postgres'
   databaseBytes: number
   diskFreeBytes: number
   diskTotalBytes: number
@@ -684,7 +686,7 @@ export interface ToolStatus {
   eventsLastHour: number
   queueDepth: number
   queueCapacity: number
-  /** lastBackup is the newest backup made before a database update. */
+  /** lastBackup is the newest backup made before a database update; always null on Postgres. */
   lastBackup: { name: string; createdAt: string; sizeBytes: number } | null
   /** adminAlerts are the last alert of each kind about the tool, newest first. */
   adminAlerts: { kind: string; message: string; sentAt: string }[]

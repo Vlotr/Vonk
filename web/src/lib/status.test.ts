@@ -11,6 +11,7 @@ function status(over: Partial<ToolStatus> = {}): ToolStatus {
     failing: [],
     db: 'ok',
     disk: 'ok',
+    databaseKind: 'sqlite',
     databaseBytes: 1_500_000,
     diskFreeBytes: 40 * 2 ** 30,
     diskTotalBytes: 100 * 2 ** 30,

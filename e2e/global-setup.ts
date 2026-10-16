@@ -134,6 +134,8 @@ export default async function globalSetup() {
       DATA_DIR: join(tmp, 'data'),
       // The fake Slack of phase2-status.spec.ts speaks plain http; never set this in production.
       DEV_ALLOW_HTTP_WEBHOOKS: 'true',
+      // E2E_DATABASE_URL (an empty Postgres database) runs everything on Postgres instead of SQLite.
+      ...(process.env.E2E_DATABASE_URL ? { DATABASE_URL: process.env.E2E_DATABASE_URL } : {}),
     }
     const monitor = start('monitor', join(root, 'bin/monitor'), ['serve'], root, monitorEnv)
     children.push(monitor)

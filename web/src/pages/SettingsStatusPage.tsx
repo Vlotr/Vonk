@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { getToolStatus, setAdminSlack, testAdminSlack, type ToolStatus } from '../api/client'
 import { AdminOnly } from '../components/AdminOnly'
+import { CopyBlock } from '../components/CopyBlock'
 import form from '../components/Form.module.css'
 import { LoadError } from '../components/LoadError'
 import { SettingsHeader } from '../components/SettingsHeader'
@@ -115,7 +116,21 @@ function Stat({ label, problem, detail, children }: { label: string; problem?: b
   )
 }
 
+/** PG_DUMP is the backup command the page offers for a Postgres database. */
+export const PG_DUMP = 'pg_dump --format=custom --file=monitor.dump "$DATABASE_URL"'
+
 function BackupLine({ status, now }: { status: ToolStatus; now: Date }) {
+  if (status.databaseKind === 'postgres') {
+    return (
+      <>
+        <p className={styles.none}>The database is Postgres, so the tool makes no backups of it. Back it up with pg_dump, also before each update:</p>
+        <CopyBlock label="Backup command" value={PG_DUMP} />
+        <p className={form.note}>
+          pg_restore --clean --dbname="$DATABASE_URL" monitor.dump puts it back. Your database host may make backups too.
+        </p>
+      </>
+    )
+  }
   const b = status.lastBackup
   if (!b) {
     return <p className={styles.none}>No backup yet. One is made automatically before each database update, when the tool starts.</p>
