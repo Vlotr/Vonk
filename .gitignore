@@ -3,3 +3,8 @@
 bin/
 node_modules/
 .superpowers/
+
+# Vite build output. The committed placeholder web/dist/.keep lets `go build`
+# embed web/dist before the dashboard has been built (see web/embed.go).
+/web/dist/*
+!/web/dist/.keep
