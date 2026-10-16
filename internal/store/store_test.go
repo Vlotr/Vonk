@@ -2,28 +2,20 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"errors"
-	"path/filepath"
 	"reflect"
 	"regexp"
+	"strings"
 	"testing"
 
 	"monitor/internal/config"
+	"monitor/internal/store/storetest"
 )
 
-// openTestDB opens and migrates a fresh SQLite database in a temp directory.
+// openTestDB opens and migrates a fresh database (see openUnmigrated).
 func openTestDB(t *testing.T) *DB {
 	t.Helper()
-	dir := t.TempDir()
-	cfg := config.Config{DataDir: dir, SQLitePath: filepath.Join(dir, "monitor.db")}
-
-	db, err := Open(context.Background(), cfg)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	t.Cleanup(func() { db.Close() })
-
+	db, _ := openUnmigrated(t)
 	if err := db.Migrate(context.Background()); err != nil {
 		t.Fatalf("Migrate: %v", err)
 	}
@@ -31,10 +23,13 @@ func openTestDB(t *testing.T) *DB {
 }
 
 func TestOpen_SQLitePragmas(t *testing.T) {
+	if storetest.Postgres() {
+		t.Skip("SQLite only")
+	}
 	db := openTestDB(t)
 	ctx := context.Background()
 
-	pools := map[string]*sql.DB{"write": db.write, "read": db.read}
+	pools := map[string]*pool{"write": db.write, "read": db.read}
 	for name, pool := range pools {
 		t.Run(name, func(t *testing.T) {
 			var journalMode string
@@ -107,12 +102,47 @@ func TestOpen_ReadPoolCannotWrite(t *testing.T) {
 	}
 }
 
-func TestOpen_RejectsPostgresForNow(t *testing.T) {
-	cfg := config.Config{DatabaseURL: "postgres://monitor@db/monitor"}
+// A DATABASE_URL of another kind is refused before anything is opened
+// (config.Load refuses it too), and a Postgres URL that cannot be parsed
+// or reached gives an error without its password.
+func TestOpen_RejectsOtherURLs(t *testing.T) {
+	ctx := context.Background()
+	for _, raw := range []string{"mysql://monitor:secret@db/monitor", "sqlite:///data/monitor.db"} {
+		if _, err := Open(ctx, config.Config{DatabaseURL: raw}); err == nil || !strings.Contains(err.Error(), "postgres://") {
+			t.Errorf("Open(%q) = %v, want the postgres:// hint", raw, err)
+		}
+	}
+	for _, raw := range []string{"postgres://monitor:s3cret-pw@127.0.0.1:1/monitor?connect_timeout=1", "postgres://monitor:s3cret-pw@[::1/monitor"} {
+		_, err := Open(ctx, config.Config{DatabaseURL: raw})
+		if err == nil || strings.Contains(err.Error(), "s3cret-pw") {
+			t.Errorf("Open(%q) = %v, want an error without the password", raw, err)
+		}
+	}
+}
 
-	_, err := Open(context.Background(), cfg)
-	if err == nil {
-		t.Fatal("Open with DATABASE_URL: want error until Postgres support lands, got nil")
+// On Postgres the write pool has a few connections (writers lock what they
+// read, see dialect.go) and the read pool's sessions are read-only.
+func TestOpen_PostgresPools(t *testing.T) {
+	if !storetest.Postgres() {
+		t.Skip("needs Postgres: make test-postgres")
+	}
+	db := openTestDB(t)
+	ctx := context.Background()
+	if !db.Postgres() || db.d != postgresDialect {
+		t.Fatal("Postgres() = false for a Postgres DATABASE_URL")
+	}
+	if got := db.write.Stats().MaxOpenConnections; got != postgresWriteConns {
+		t.Errorf("write pool MaxOpenConnections = %d, want %d", got, postgresWriteConns)
+	}
+	var readOnly string
+	if err := db.read.QueryRowContext(ctx, "SHOW default_transaction_read_only").Scan(&readOnly); err != nil || readOnly != "on" {
+		t.Errorf("read pool default_transaction_read_only = %q, %v; want on", readOnly, err)
+	}
+	if err := db.write.QueryRowContext(ctx, "SHOW default_transaction_read_only").Scan(&readOnly); err != nil || readOnly != "off" {
+		t.Errorf("write pool default_transaction_read_only = %q, %v; want off", readOnly, err)
+	}
+	if db.SizeBytes(ctx) <= 0 {
+		t.Error("SizeBytes = 0 for a Postgres database")
 	}
 }
 
@@ -124,7 +154,7 @@ func TestMigrate_Idempotent(t *testing.T) {
 		t.Fatalf("second Migrate: %v", err)
 	}
 
-	files, err := migrationFiles()
+	files, err := db.migrationFiles()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,10 +172,12 @@ func TestMigrate_Idempotent(t *testing.T) {
 
 	for _, table := range []string{"projects", "issues", "error_events", "users", "project_access", "sessions", "invites", "invite_projects", "password_resets",
 		"alerts", "alert_state", "settings", "pageviews", "pageleaves", "hourly_stats", "stats_dirty_hours", "custom_events", "event_hourly"} {
+		query := "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?"
+		if db.Postgres() {
+			query = "SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = ?"
+		}
 		var name string
-		err := db.read.QueryRowContext(ctx,
-			"SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?", table).Scan(&name)
-		if err != nil {
+		if err := db.read.QueryRowContext(ctx, query, table).Scan(&name); err != nil {
 			t.Errorf("table %s missing after migrate: %v", table, err)
 		}
 	}

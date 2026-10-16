@@ -38,7 +38,7 @@ func addUser(t *testing.T, db *DB, email, role string, projectIDs ...int64) User
 func firstAdmin(t *testing.T, db *DB) int64 {
 	t.Helper()
 	var id int64
-	if err := db.read.QueryRow("SELECT id FROM users WHERE role = ? ORDER BY id LIMIT 1", RoleAdmin).Scan(&id); err != nil {
+	if err := db.read.QueryRowContext(context.Background(), "SELECT id FROM users WHERE role = ? ORDER BY id LIMIT 1", RoleAdmin).Scan(&id); err != nil {
 		t.Fatalf("no admin to make the invite (add one first): %v", err)
 	}
 	return id

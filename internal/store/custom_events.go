@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"sort"
 	"time"
@@ -46,7 +45,7 @@ func (db *DB) SaveCustomEvents(ctx context.Context, events []CustomEvent) (Custo
 	if len(events) == 0 {
 		return result, nil
 	}
-	tx, err := db.write.BeginTx(ctx, nil)
+	tx, err := db.write.BeginTx(ctx)
 	if err != nil {
 		return result, err
 	}
@@ -104,7 +103,7 @@ type eventAgg struct {
 // [start, end) from its custom events, inside RecomputeHour's transaction:
 // per name, the events sent by people, a sketch of their user ids, and the
 // events sent by bots.
-func recomputeEventHour(ctx context.Context, tx *sql.Tx, projectID, start, end int64) error {
+func recomputeEventHour(ctx context.Context, tx *writeTx, projectID, start, end int64) error {
 	names := map[string]*eventAgg{}
 	rows, err := tx.QueryContext(ctx, `SELECT name, user_id, is_bot FROM custom_events
 		WHERE project_id = ? AND at >= ? AND at < ?`, projectID, start, end)

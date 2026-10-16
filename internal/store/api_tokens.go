@@ -51,11 +51,15 @@ func (db *DB) CreateAPIToken(ctx context.Context, nt NewAPIToken) (APIToken, err
 		return APIToken{}, fmt.Errorf("API token needs a name and a token hash")
 	}
 
-	tx, err := db.write.BeginTx(ctx, nil)
+	tx, err := db.write.BeginTx(ctx)
 	if err != nil {
 		return APIToken{}, err
 	}
 	defer tx.Rollback() // no-op after Commit
+	// The maker stays an admin until the commit, as for invites.
+	if err := tx.lock(ctx, lockAccounts); err != nil {
+		return APIToken{}, err
+	}
 
 	var role string
 	err = tx.QueryRowContext(ctx, "SELECT role FROM users WHERE id = ?", tok.CreatedBy).Scan(&role)

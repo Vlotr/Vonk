@@ -2,16 +2,12 @@ package api
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"net/http"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"monitor/internal/store"
-
-	_ "modernc.org/sqlite"
 )
 
 type pagesResponse struct {
@@ -128,19 +124,15 @@ func TestPages_TotalsFromHourlyOnly(t *testing.T) {
 	before := env.get(t, pagesPath(shop, "?range=24h")).Body.String()
 
 	// The raw page views and leaves go; the screen stays the same.
-	raw, err := sql.Open("sqlite", filepath.Join(env.dir, "monitor.db"))
-	if err != nil {
+	future := testNow.Add(24 * time.Hour)
+	if _, err := env.db.DeletePageviewsBefore(ctx, shop.ID, future, 1000); err != nil {
 		t.Fatal(err)
 	}
-	defer raw.Close()
-	for _, table := range []string{"pageviews", "pageleaves"} {
-		if _, err := raw.Exec("DELETE FROM " + table); err != nil {
-			t.Fatal(err)
-		}
+	if _, err := env.db.DeletePageleavesBefore(ctx, shop.ID, future, 1000); err != nil {
+		t.Fatal(err)
 	}
-	var left int
-	if err := raw.QueryRow("SELECT COUNT(*) FROM pageviews").Scan(&left); err != nil || left != 0 {
-		t.Fatalf("%d page views left, %v", left, err)
+	if left, err := env.db.CountPageRows(ctx, shop.ID); err != nil || left != 0 {
+		t.Fatalf("%d page views and leaves left, %v", left, err)
 	}
 	if after := env.get(t, pagesPath(shop, "?range=24h")).Body.String(); after != before {
 		t.Errorf("without raw page views:\n%s\nwant\n%s", after, before)

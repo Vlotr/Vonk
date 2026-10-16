@@ -23,6 +23,7 @@ import (
 	"monitor/internal/mail"
 	"monitor/internal/sentry"
 	"monitor/internal/store"
+	"monitor/internal/store/storetest"
 	"monitor/internal/testutil"
 )
 
@@ -100,7 +101,7 @@ func newEnv(t *testing.T, opts ...func(*envOptions)) *testEnv {
 	}
 	ctx := context.Background()
 	dir := t.TempDir()
-	db, err := store.Open(ctx, config.Config{DataDir: dir, SQLitePath: filepath.Join(dir, "monitor.db")})
+	db, err := store.Open(ctx, config.Config{DataDir: dir, SQLitePath: filepath.Join(dir, "monitor.db"), DatabaseURL: storetest.DatabaseURL(t)})
 	if err != nil {
 		t.Fatal(err)
 	}

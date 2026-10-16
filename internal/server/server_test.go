@@ -20,6 +20,7 @@ import (
 	"monitor/internal/health"
 	"monitor/internal/ingest"
 	"monitor/internal/store"
+	"monitor/internal/store/storetest"
 	"monitor/internal/web"
 )
 
@@ -52,6 +53,8 @@ func newTestDeps(t *testing.T, logOutput io.Writer) Deps {
 		BaseURL:    "https://monitor.example.com",
 		DataDir:    dir,
 		SQLitePath: filepath.Join(dir, "monitor.db"),
+		// SQLite, or a Postgres schema of its own under make test-postgres.
+		DatabaseURL: storetest.DatabaseURL(t),
 	}
 	db, err := store.Open(context.Background(), cfg)
 	if err != nil {

@@ -89,12 +89,17 @@ type issueKey struct {
 // the moment it was resolved; an event that was already waiting in the queue
 // when someone clicked Resolve does not undo the click. Ignored issues stay
 // ignored. Either way the event counts.
-func upsertIssue(ctx context.Context, tx *sql.Tx, issues map[issueKey]*Issue, ev NewErrorEvent) (issue *Issue, created, regressed bool, err error) {
+//
+// The issue is read locked (forUpdate) and stays locked until the batch
+// commits: a status change made meanwhile (SetIssueStatus) waits, and one
+// made just before is what this reads, so the status written back is never
+// one that was already changed.
+func upsertIssue(ctx context.Context, tx *writeTx, issues map[issueKey]*Issue, ev NewErrorEvent) (issue *Issue, created, regressed bool, err error) {
 	key := issueKey{ev.ProjectID, ev.Fingerprint}
 	issue, ok := issues[key]
 	if !ok {
 		found, err := scanIssue(tx.QueryRowContext(ctx,
-			"SELECT "+issueColumns+" FROM issues WHERE project_id = ? AND fingerprint = ?", ev.ProjectID, ev.Fingerprint))
+			"SELECT "+issueColumns+" FROM issues WHERE project_id = ? AND fingerprint = ?"+tx.forUpdate(), ev.ProjectID, ev.Fingerprint))
 		switch {
 		case errors.Is(err, ErrNotFound):
 			issue, err := insertIssue(ctx, tx, ev)
@@ -144,18 +149,19 @@ func upsertIssue(ctx context.Context, tx *sql.Tx, issues map[issueKey]*Issue, ev
 // SetIssueStatus changes an issue's status and returns the issue as it is
 // afterwards, or ErrNotFound. Resolving records now as resolved_at; opening
 // or ignoring clears it. Setting the status an issue already has changes
-// nothing, so a second click on Resolve keeps the first time.
+// nothing, so a second click on Resolve keeps the first time. The issue is
+// read locked, as the ingest writer reads it (upsertIssue).
 func (db *DB) SetIssueStatus(ctx context.Context, id int64, status string, now time.Time) (Issue, error) {
 	if !ValidIssueStatus(status) {
 		return Issue{}, fmt.Errorf("unknown issue status %q", status)
 	}
-	tx, err := db.write.BeginTx(ctx, nil)
+	tx, err := db.write.BeginTx(ctx)
 	if err != nil {
 		return Issue{}, err
 	}
 	defer tx.Rollback() // no-op after Commit
 
-	issue, err := scanIssue(tx.QueryRowContext(ctx, "SELECT "+issueColumns+" FROM issues WHERE id = ?", id))
+	issue, err := scanIssue(tx.QueryRowContext(ctx, "SELECT "+issueColumns+" FROM issues WHERE id = ?"+tx.forUpdate(), id))
 	if err != nil {
 		return Issue{}, err
 	}
@@ -175,7 +181,7 @@ func (db *DB) SetIssueStatus(ctx context.Context, id int64, status string, now t
 	return issue, tx.Commit()
 }
 
-func insertIssue(ctx context.Context, tx *sql.Tx, ev NewErrorEvent) (*Issue, error) {
+func insertIssue(ctx context.Context, tx *writeTx, ev NewErrorEvent) (*Issue, error) {
 	ts := msTime(ev.Timestamp)
 	issue := &Issue{
 		ProjectID:    ev.ProjectID,

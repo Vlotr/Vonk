@@ -16,6 +16,7 @@ import (
 	"monitor/internal/issues"
 	"monitor/internal/sentry"
 	"monitor/internal/store"
+	"monitor/internal/store/storetest"
 )
 
 // t0 is when the first event of every test arrives.
@@ -60,7 +61,7 @@ type env struct {
 func newEnv(t *testing.T) *env {
 	t.Helper()
 	dir := t.TempDir()
-	db, err := store.Open(context.Background(), config.Config{DataDir: dir, SQLitePath: filepath.Join(dir, "monitor.db")})
+	db, err := store.Open(context.Background(), config.Config{DataDir: dir, SQLitePath: filepath.Join(dir, "monitor.db"), DatabaseURL: storetest.DatabaseURL(t)})
 	if err != nil {
 		t.Fatal(err)
 	}

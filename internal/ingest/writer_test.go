@@ -13,6 +13,7 @@ import (
 
 	"monitor/internal/sentry"
 	"monitor/internal/store"
+	"monitor/internal/store/storetest"
 )
 
 // recordingHooks remembers the hook calls.
@@ -343,6 +344,9 @@ func TestWriter_CallsHooks(t *testing.T) {
 }
 
 func TestWriter_WaitsForBusyDatabase(t *testing.T) {
+	if storetest.Postgres() {
+		t.Skip("SQLite only: Postgres has no database-wide write lock")
+	}
 	env := newTestEnv(t, 100)
 	p := env.project(t, "Webshop", 0)
 

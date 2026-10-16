@@ -3,6 +3,7 @@ package ingest
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 
 	"monitor/internal/config"
 	"monitor/internal/store"
+	"monitor/internal/store/storetest"
 )
 
 // fakeClock is a settable clock for the handler and the rate limiter.
@@ -61,7 +63,8 @@ func (b *syncBuffer) String() string {
 // testEnv is a database, a queue, rate limiters and the Sentry and PostHog handlers.
 type testEnv struct {
 	db      *store.DB
-	dbPath  string
+	dbPath  string // the SQLite file; "" on Postgres
+	dbURL   string // the Postgres schema (storetest); "" on SQLite
 	queue   *Queue
 	limiter *RateLimiter
 	clock   *fakeClock
@@ -71,10 +74,30 @@ type testEnv struct {
 	sentry  *SentryHandler
 }
 
+// rawDB opens the test's database directly, for rows no store function
+// returns. Write its queries with $1, $2: Postgres needs them, and SQLite
+// takes them too.
+func (env *testEnv) rawDB(t *testing.T) *sql.DB {
+	t.Helper()
+	driver, source := "sqlite", env.dbPath
+	if env.dbURL != "" {
+		driver, source = "pgx", env.dbURL
+	}
+	db, err := sql.Open(driver, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	return db
+}
+
 func newTestEnv(t *testing.T, queueCapacity int) *testEnv {
 	t.Helper()
 	dir := t.TempDir()
-	cfg := config.Config{DataDir: dir, SQLitePath: filepath.Join(dir, "monitor.db")}
+	cfg := config.Config{DataDir: dir, SQLitePath: filepath.Join(dir, "monitor.db"), DatabaseURL: storetest.DatabaseURL(t)}
+	if cfg.DatabaseURL != "" {
+		cfg.SQLitePath = ""
+	}
 	db, err := store.Open(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -92,6 +115,7 @@ func newTestEnv(t *testing.T, queueCapacity int) *testEnv {
 	env := &testEnv{
 		db:      db,
 		dbPath:  cfg.SQLitePath,
+		dbURL:   cfg.DatabaseURL,
 		queue:   NewQueue(queueCapacity),
 		limiter: NewRateLimiter(),
 		clock:   clock,

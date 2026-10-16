@@ -43,8 +43,11 @@ type statusJSON struct {
 	Status  string   `json:"status"`
 	Failing []string `json:"failing"`
 	// DB is "ok" or "error"; Disk "ok", "low", "critical" or "error".
-	DB             string `json:"db"`
-	Disk           string `json:"disk"`
+	DB   string `json:"db"`
+	Disk string `json:"disk"`
+	// DatabaseKind is "sqlite" or "postgres" (DATABASE_URL); the tool
+	// backs up only SQLite, so for Postgres the page shows how to use pg_dump.
+	DatabaseKind   string `json:"databaseKind"`
 	DatabaseBytes  int64  `json:"databaseBytes"`
 	DiskFreeBytes  uint64 `json:"diskFreeBytes"`
 	DiskTotalBytes uint64 `json:"diskTotalBytes"`
@@ -53,7 +56,8 @@ type statusJSON struct {
 	EventsLastHour int `json:"eventsLastHour"`
 	QueueDepth     int `json:"queueDepth"`
 	QueueCapacity  int `json:"queueCapacity"`
-	// LastBackup is the newest backup made before a database update; null when none was needed yet.
+	// LastBackup is the newest backup made before a database update; null
+	// when none was needed yet, and always on Postgres.
 	LastBackup *backupJSON `json:"lastBackup"`
 	// AdminAlerts are the last alert of each kind about the tool, newest first.
 	AdminAlerts []adminAlertJSON `json:"adminAlerts"`
@@ -77,12 +81,16 @@ func (h *Handler) status(w http.ResponseWriter, r *http.Request) {
 		Failing:        report.Failing,
 		DB:             report.DB,
 		Disk:           report.Disk,
-		DatabaseBytes:  h.db.SizeBytes(),
+		DatabaseKind:   "sqlite",
+		DatabaseBytes:  h.db.SizeBytes(ctx),
 		DiskFreeBytes:  report.DiskFreeBytes,
 		DiskTotalBytes: report.DiskTotalBytes,
 		QueueDepth:     report.QueueDepth,
 		AdminAlerts:    []adminAlertJSON{},
 		MailEnabled:    h.auth.MailEnabled(),
+	}
+	if h.db.Postgres() {
+		out.DatabaseKind = "postgres"
 	}
 	if out.Failing == nil {
 		out.Failing = []string{}

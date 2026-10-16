@@ -51,7 +51,7 @@ type IssueFilter struct {
 
 // conditions returns the WHERE clause of f and its arguments, with or
 // without the status (the status tabs count across statuses).
-func (f IssueFilter) conditions(withStatus bool) (string, []any) {
+func (f IssueFilter) conditions(d dialect, withStatus bool) (string, []any) {
 	where := []string{"project_id = ?"}
 	args := []any{f.ProjectID}
 	if withStatus {
@@ -64,8 +64,9 @@ func (f IssueFilter) conditions(withStatus bool) (string, []any) {
 	}
 	if f.Search != "" {
 		pattern := likePattern(f.Search)
-		where = append(where, `(LOWER(title) LIKE ? ESCAPE '\' OR LOWER(message) LIKE ? ESCAPE '\' OR LOWER(culprit) LIKE ? ESCAPE '\'
-			OR EXISTS (SELECT 1 FROM error_events e WHERE e.issue_id = issues.id AND LOWER(e.url) LIKE ? ESCAPE '\'))`)
+		like := func(column string) string { return d.asciiLower(column) + ` LIKE ? ESCAPE '\'` }
+		where = append(where, `(`+like("title")+` OR `+like("message")+` OR `+like("culprit")+`
+			OR EXISTS (SELECT 1 FROM error_events e WHERE e.issue_id = issues.id AND `+like("e.url")+`))`)
 		args = append(args, pattern, pattern, pattern, pattern)
 	}
 	if f.Route != "" {
@@ -81,7 +82,8 @@ func (f IssueFilter) conditions(withStatus bool) (string, []any) {
 
 // likePattern turns a search into a LIKE pattern that matches it anywhere:
 // "%", "_" and "\" in the search are literal. Only ASCII letters are
-// lowercased, the same as SQLite's LOWER, so "É" still finds "É".
+// lowercased, the same as SQLite's LOWER (and the dialect's asciiLower on
+// Postgres), so "É" still finds "É".
 func likePattern(search string) string {
 	escaped := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(asciiLower(search))
 	return "%" + escaped + "%"
@@ -135,7 +137,7 @@ func (db *DB) ListIssuePage(ctx context.Context, f IssueFilter) ([]IssueRow, err
 	if !ok {
 		return nil, fmt.Errorf("unknown issue sort %q", f.Sort)
 	}
-	where, args := f.conditions(true)
+	where, args := f.conditions(db.d, true)
 	rows, err := db.read.QueryContext(ctx, `
 		SELECT `+issueColumns+`, `+usersColumn+`
 		FROM issues
@@ -177,7 +179,7 @@ func scanIssueRow(s scanner, row *IssueRow) error {
 // CountIssueStatuses counts the issues f selects per status; f's status,
 // order and page are ignored. IssueFilter{ProjectID: id} counts a whole project.
 func (db *DB) CountIssueStatuses(ctx context.Context, f IssueFilter) (StatusCounts, error) {
-	where, args := f.conditions(false)
+	where, args := f.conditions(db.d, false)
 	rows, err := db.read.QueryContext(ctx,
 		"SELECT status, COUNT(*) FROM issues WHERE "+where+" GROUP BY status", args...)
 	if err != nil {

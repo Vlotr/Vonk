@@ -12,13 +12,13 @@ import (
 	"time"
 )
 
-// Migrations live per dialect in migrations/<dialect>/NNNN_name.sql. They are
-// embedded in the binary and applied in order of their number.
+// Migrations live per dialect in migrations/<dialect>/NNNN_name.sql
+// (migrations/sqlite, migrations/postgres; every file has a twin of the
+// same name in the other directory). They are embedded in the binary and
+// applied in order of their number.
 //
 //go:embed migrations
 var migrationsFS embed.FS
-
-const migrationsDir = "migrations/sqlite"
 
 // migration is one SQL file.
 type migration struct {
@@ -31,7 +31,7 @@ type migration struct {
 // every start and from several processes at once: each migration runs in its
 // own write transaction together with its schema_migrations row.
 func (db *DB) Migrate(ctx context.Context) error {
-	files, err := migrationFiles()
+	files, err := db.migrationFiles()
 	if err != nil {
 		return err
 	}
@@ -41,12 +41,7 @@ func (db *DB) Migrate(ctx context.Context) error {
 // migrate applies files; tests pass fewer files than are embedded to make
 // an older database.
 func (db *DB) migrate(ctx context.Context, files []migration) error {
-	_, err := db.write.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (
-		version    INTEGER PRIMARY KEY,
-		name       TEXT    NOT NULL,
-		applied_at BIGINT  NOT NULL
-	)`)
-	if err != nil {
+	if err := db.createSchemaMigrations(ctx); err != nil {
 		return fmt.Errorf("create schema_migrations: %w", err)
 	}
 
@@ -58,15 +53,42 @@ func (db *DB) migrate(ctx context.Context, files []migration) error {
 	return nil
 }
 
+// createSchemaMigrations makes the table that records the migrations, once.
+// Under the migrations lock: Postgres can fail two CREATE TABLE IF NOT
+// EXISTS of one table at the same moment.
+func (db *DB) createSchemaMigrations(ctx context.Context) error {
+	tx, err := db.write.BeginTx(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() // no-op after Commit
+	if err := tx.lock(ctx, lockMigrations); err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (
+		version    INTEGER PRIMARY KEY,
+		name       TEXT    NOT NULL,
+		applied_at BIGINT  NOT NULL
+	)`)
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 func (db *DB) applyMigration(ctx context.Context, m migration) error {
-	tx, err := db.write.BeginTx(ctx, nil)
+	tx, err := db.write.BeginTx(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback() // no-op after Commit
 
-	// Checked inside the transaction, so a second process that waited for the
-	// write lock sees the row the first one committed.
+	// Checked inside the transaction, after the lock (SQLite: the write
+	// lock; Postgres: the migrations lock), so a second process that waited
+	// sees the row the first one committed.
+	if err := tx.lock(ctx, lockMigrations); err != nil {
+		return err
+	}
 	var applied int
 	err = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM schema_migrations WHERE version = ?", m.version).Scan(&applied)
 	if err != nil {
@@ -76,7 +98,8 @@ func (db *DB) applyMigration(ctx context.Context, m migration) error {
 		return nil
 	}
 
-	if _, err := tx.ExecContext(ctx, m.sql); err != nil {
+	// The file as it is (several statements, no arguments): not rebound.
+	if _, err := tx.tx.ExecContext(ctx, m.sql); err != nil {
 		return err
 	}
 	_, err = tx.ExecContext(ctx,
@@ -88,8 +111,10 @@ func (db *DB) applyMigration(ctx context.Context, m migration) error {
 	return tx.Commit()
 }
 
-// migrationFiles returns the embedded migrations, sorted by version.
-func migrationFiles() ([]migration, error) {
+// migrationFiles returns the embedded migrations of the database's
+// dialect, sorted by version.
+func (db *DB) migrationFiles() ([]migration, error) {
+	migrationsDir := "migrations/" + string(db.d)
 	entries, err := fs.ReadDir(migrationsFS, migrationsDir)
 	if err != nil {
 		return nil, fmt.Errorf("read migrations: %w", err)

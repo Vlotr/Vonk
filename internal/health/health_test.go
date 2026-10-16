@@ -14,6 +14,7 @@ import (
 	"monitor/internal/config"
 	"monitor/internal/ingest"
 	"monitor/internal/store"
+	"monitor/internal/store/storetest"
 )
 
 const gib = 1 << 30
@@ -21,7 +22,7 @@ const gib = 1 << 30
 func testChecker(t *testing.T, free, total uint64, diskErr error) *Checker {
 	t.Helper()
 	dir := t.TempDir()
-	db, err := store.Open(context.Background(), config.Config{DataDir: dir, SQLitePath: filepath.Join(dir, "monitor.db")})
+	db, err := store.Open(context.Background(), config.Config{DataDir: dir, SQLitePath: filepath.Join(dir, "monitor.db"), DatabaseURL: storetest.DatabaseURL(t)})
 	if err != nil {
 		t.Fatal(err)
 	}

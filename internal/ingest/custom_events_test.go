@@ -2,7 +2,6 @@ package ingest
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -19,13 +18,8 @@ type customEventRow struct {
 
 func customEventRows(t *testing.T, env *testEnv, projectID int64) []customEventRow {
 	t.Helper()
-	db, err := sql.Open("sqlite", env.dbPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	rows, err := db.Query(`SELECT name, user_id, path, route, at, is_bot, properties FROM custom_events
-		WHERE project_id = ? ORDER BY at, id`, projectID)
+	rows, err := env.rawDB(t).Query(`SELECT name, user_id, path, route, at, is_bot, properties FROM custom_events
+		WHERE project_id = $1 ORDER BY at, id`, projectID)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -58,7 +58,7 @@ func (db *DB) SavePageEvents(ctx context.Context, events []PageEvent) (PageSaveR
 	if len(events) == 0 {
 		return result, nil
 	}
-	tx, err := db.write.BeginTx(ctx, nil)
+	tx, err := db.write.BeginTx(ctx)
 	if err != nil {
 		return result, err
 	}
@@ -120,10 +120,28 @@ func hourOfMillis(ms int64) int64 {
 }
 
 // markDirty records hours whose summaries the aggregation job must rebuild.
-func markDirty(ctx context.Context, tx *sql.Tx, hours map[projectHour]bool) error {
+//
+// A mark that is there already is updated (to itself), not left alone: the
+// update locks it until this transaction commits, so a rebuild of that
+// hour, which removes the mark first (RecomputeHour), waits for this
+// transaction and then reads its rows. Left alone (DO NOTHING), the mark
+// could be removed by a rebuild that does not see this transaction's rows
+// yet, and they would never be counted. The hours go in order, so two
+// writers never wait for each other's marks in a circle.
+func markDirty(ctx context.Context, tx *writeTx, hours map[projectHour]bool) error {
+	list := make([]projectHour, 0, len(hours))
 	for ph := range hours {
-		if _, err := tx.ExecContext(ctx,
-			"INSERT INTO stats_dirty_hours (project_id, hour) VALUES (?, ?) ON CONFLICT DO NOTHING", ph.projectID, ph.hour); err != nil {
+		list = append(list, ph)
+	}
+	sort.Slice(list, func(i, j int) bool {
+		if list[i].projectID != list[j].projectID {
+			return list[i].projectID < list[j].projectID
+		}
+		return list[i].hour < list[j].hour
+	})
+	for _, ph := range list {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO stats_dirty_hours (project_id, hour) VALUES (?, ?)
+			ON CONFLICT (project_id, hour) DO UPDATE SET hour = excluded.hour`, ph.projectID, ph.hour); err != nil {
 			return err
 		}
 	}
@@ -137,7 +155,7 @@ type pageStatements struct {
 	viewByID, updateView, insertLeave, latestInTab                    *sql.Stmt
 }
 
-func preparePageStatements(ctx context.Context, tx *sql.Tx) (*pageStatements, error) {
+func preparePageStatements(ctx context.Context, tx *writeTx) (*pageStatements, error) {
 	s := &pageStatements{}
 	queries := []struct {
 		stmt  **sql.Stmt

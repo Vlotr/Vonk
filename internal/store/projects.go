@@ -101,12 +101,17 @@ func (db *DB) CreateProject(ctx context.Context, np NewProject) (Project, error)
 		p.RateLimitPerMinute = DefaultRateLimitPerMinute
 	}
 
-	tx, err := db.write.BeginTx(ctx, nil)
+	tx, err := db.write.BeginTx(ctx)
 	if err != nil {
 		return Project{}, err
 	}
 	defer tx.Rollback() // no-op after Commit
 
+	// A project with the same name made at the same moment waits here, then
+	// sees this one's slug.
+	if err := tx.lock(ctx, lockProjectSlugs); err != nil {
+		return Project{}, err
+	}
 	p.Slug, err = uniqueSlug(ctx, tx, slugify(name))
 	if err != nil {
 		return Project{}, err
@@ -259,7 +264,7 @@ func slugify(name string) string {
 }
 
 // uniqueSlug returns base, or base-2, base-3 and so on when base is taken.
-func uniqueSlug(ctx context.Context, tx *sql.Tx, base string) (string, error) {
+func uniqueSlug(ctx context.Context, tx *writeTx, base string) (string, error) {
 	for n := 1; ; n++ {
 		candidate := base
 		if n > 1 {
@@ -334,7 +339,7 @@ func (db *DB) UpdateProject(ctx context.Context, id int64, s ProjectSettings) (P
 		}
 	}
 
-	tx, err := db.write.BeginTx(ctx, nil)
+	tx, err := db.write.BeginTx(ctx)
 	if err != nil {
 		return Project{}, err
 	}

@@ -13,7 +13,9 @@ import (
 
 // Backups made before a database update live in <DATA_DIR>/backups as
 // pre-migrate-<version>-<time>.db: a complete SQLite copy of the database
-// as it was at that version. The five newest are kept.
+// as it was at that version. The five newest are kept. They are made of
+// SQLite only: a Postgres database is backed up with pg_dump, by whoever
+// runs it (ErrNoBackups).
 
 const (
 	backupDir        = "backups"
@@ -25,6 +27,11 @@ const (
 // ErrOldBackupsKept means the new backup was made, but some of the old
 // ones beyond the five newest could not be removed. The update may go on.
 var ErrOldBackupsKept = errors.New("old backups could not be removed")
+
+// ErrNoBackups means an update is about to run on a Postgres database that
+// has data, without a backup: the tool makes backups of SQLite only. Back
+// Postgres up with pg_dump.
+var ErrNoBackups = errors.New("the tool makes no backups of a Postgres database, also not before this database update; back it up with pg_dump")
 
 // removeBackup removes one old backup; tests make it fail.
 var removeBackup = os.Remove
@@ -43,9 +50,11 @@ type BackupFile struct {
 // "" when no backup was needed. Old pre-migration backups beyond the five
 // newest are removed. Run it before Migrate and stop when it fails: the
 // update should not run without its backup. The one error to go on after
-// is ErrOldBackupsKept (the backup is there; only old ones stay).
+// is ErrOldBackupsKept (the backup is there; only old ones stay). On
+// Postgres no backup is made: it returns ErrNoBackups when one would have
+// been, which is a warning, not a reason to stop.
 func (db *DB) BackupBeforeMigrate(ctx context.Context) (string, error) {
-	files, err := migrationFiles()
+	files, err := db.migrationFiles()
 	if err != nil {
 		return "", err
 	}
@@ -69,6 +78,9 @@ func (db *DB) backupBeforeMigrate(ctx context.Context, files []migration, now ti
 	}
 	if !pending {
 		return "", nil
+	}
+	if db.Postgres() {
+		return "", ErrNoBackups
 	}
 	current := 0
 	for v := range applied {
@@ -97,9 +109,12 @@ func (db *DB) backupBeforeMigrate(ctx context.Context, files []migration, now ti
 
 // appliedVersions returns the migrations that ran; none for a new database.
 func (db *DB) appliedVersions(ctx context.Context) (map[int]bool, error) {
+	query := "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'"
+	if db.Postgres() {
+		query = "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'schema_migrations'"
+	}
 	var tables int
-	err := db.write.QueryRowContext(ctx,
-		"SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'").Scan(&tables)
+	err := db.write.QueryRowContext(ctx, query).Scan(&tables)
 	if err != nil || tables == 0 {
 		return nil, err
 	}
@@ -153,8 +168,12 @@ func prunePreMigrate(dir string) error {
 	return errors.Join(errs...)
 }
 
-// Backups returns the pre-migration backups, the newest first.
+// Backups returns the pre-migration backups, the newest first; none on
+// Postgres, which the tool does not back up.
 func (db *DB) Backups() ([]BackupFile, error) {
+	if db.Postgres() {
+		return []BackupFile{}, nil
+	}
 	backups, err := listBackups(filepath.Join(db.dataDir, backupDir))
 	if errors.Is(err, os.ErrNotExist) {
 		return []BackupFile{}, nil

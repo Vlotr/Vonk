@@ -9,7 +9,7 @@ DEV_DATA_DIR   ?= ./data
 DEV_SECRET_KEY ?= dev-only-secret-not-for-production
 DEV_BASE_URL   ?= http://localhost:8000
 
-.PHONY: dev test perf e2e build web-build docker clean
+.PHONY: dev test test-postgres perf e2e build web-build docker clean
 
 # Install the web dependencies when package.json or the lockfile changes.
 web/node_modules: web/package.json web/package-lock.json
@@ -33,6 +33,26 @@ test: web/node_modules
 	go test -race ./...
 	cd web && npm run typecheck && npm test
 	node --test internal/sentry/testdata/capture/sanitize.test.mjs tools/capture/leaks.test.mjs tools/capture/fixtures.test.mjs
+
+# The tests that use the database (store, API, jobs and the others that
+# open one) against Postgres 17: a throwaway container with its data in
+# memory (no volume), removed when the tests end, also when they fail or
+# are stopped. Each test gets a schema of its own (internal/store/storetest).
+# POSTGRES_IMAGE=postgres:17 runs them on the Debian image instead.
+POSTGRES_IMAGE ?= postgres:17-alpine
+POSTGRES_TESTS ?= ./internal/store/... ./internal/api/ ./internal/jobs/ ./internal/ingest/ ./internal/auth/ ./internal/alerts/ \
+	./internal/issues/ ./internal/sourcemaps/ ./internal/health/ ./internal/server/ ./cmd/...
+test-postgres:
+	@name=monitor-test-postgres-$$$$; \
+	docker run --rm --detach --name $$name --tmpfs /var/lib/postgresql/data --publish 127.0.0.1::5432 \
+		--env POSTGRES_USER=monitor --env POSTGRES_PASSWORD=monitor --env POSTGRES_DB=monitor \
+		$(POSTGRES_IMAGE) -c fsync=off -c synchronous_commit=off -c full_page_writes=off >/dev/null || exit 1; \
+	trap 'docker stop $$name >/dev/null' EXIT; trap 'exit 130' INT TERM; \
+	for i in $$(seq 60); do docker exec $$name pg_isready --quiet --host 127.0.0.1 --username monitor && break; sleep 0.5; done; \
+	docker exec $$name pg_isready --quiet --host 127.0.0.1 --username monitor || { echo "Postgres did not start"; exit 1; }; \
+	port=$$(docker port $$name 5432/tcp | head -n 1 | sed 's/.*://'); \
+	echo "Postgres ($(POSTGRES_IMAGE)) on 127.0.0.1:$$port"; \
+	TEST_DATABASE_URL="postgres://monitor:monitor@127.0.0.1:$$port/monitor?sslmode=disable" go test -race $(POSTGRES_TESTS)
 
 # The page statistics' performance check (docs/perf.md): 1 000 000 page
 # views in a temp database, deleted afterwards.

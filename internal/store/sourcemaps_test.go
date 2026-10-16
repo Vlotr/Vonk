@@ -3,12 +3,9 @@ package store
 import (
 	"context"
 	"errors"
-	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
-
-	"monitor/internal/config"
 )
 
 func TestAPITokens_CreateFindTouchDelete(t *testing.T) {
@@ -204,14 +201,9 @@ func TestSourceMapsAndTokens_IDsNeverReused(t *testing.T) {
 // Migration 0008 makes the tables again with AUTOINCREMENT: tokens, their
 // projects and source map files uploaded before it keep their ids and rows.
 func TestMigrate_SourceMapIDsKeepTheRows(t *testing.T) {
-	dir := t.TempDir()
-	db, err := Open(context.Background(), config.Config{DataDir: dir, SQLitePath: filepath.Join(dir, "monitor.db")})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
+	db, _ := openUnmigrated(t)
 	ctx := context.Background()
-	files, err := migrationFiles()
+	files, err := db.migrationFiles()
 	if err != nil {
 		t.Fatal(err)
 	}

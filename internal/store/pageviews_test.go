@@ -36,7 +36,7 @@ func savePages(t *testing.T, db *DB, events ...PageEvent) PageSaveResult {
 // whether it is marked as left without a page leave.
 func durations(t *testing.T, db *DB, p Project) map[string]string {
 	t.Helper()
-	rows, err := db.read.Query("SELECT pageview_id, duration_ms, left_without_pageleave FROM pageviews WHERE project_id = ?", p.ID)
+	rows, err := db.read.QueryContext(context.Background(), "SELECT pageview_id, duration_ms, left_without_pageleave FROM pageviews WHERE project_id = ?", p.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

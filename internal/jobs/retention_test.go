@@ -11,6 +11,7 @@ import (
 	"monitor/internal/config"
 	"monitor/internal/sourcemaps"
 	"monitor/internal/store"
+	"monitor/internal/store/storetest"
 )
 
 var testNow = time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
@@ -18,7 +19,8 @@ var testNow = time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
 func openDB(t *testing.T) *store.DB {
 	t.Helper()
 	dir := t.TempDir()
-	db, err := store.Open(context.Background(), config.Config{DataDir: dir, SQLitePath: filepath.Join(dir, "monitor.db")})
+	db, err := store.Open(context.Background(), config.Config{DataDir: dir, SQLitePath: filepath.Join(dir, "monitor.db"),
+		DatabaseURL: storetest.DatabaseURL(t)})
 	if err != nil {
 		t.Fatal(err)
 	}

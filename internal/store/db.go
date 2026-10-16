@@ -1,8 +1,11 @@
 // Package store owns the database: opening it, migrating it and every query.
 //
-// SQLite allows one writer at a time, so a DB holds two pools on the same file:
-// a single write connection and a pool of read-only connections. WAL mode lets
-// the readers run while the writer commits.
+// The database is SQLite (the default, a file in DATA_DIR) or Postgres
+// (DATABASE_URL). Either way a DB holds two pools: one for writes and one
+// of read-only connections for queries. SQLite allows one writer at a
+// time, so its write pool is a single connection and WAL mode lets the
+// readers run while it commits. Postgres takes several writers at once;
+// the code that reads and then writes locks what it read (see dialect.go).
 package store
 
 import (
@@ -14,7 +17,11 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
+	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/stdlib"
 	_ "modernc.org/sqlite" // registers the pure Go "sqlite" driver
 
 	"monitor/internal/config"
@@ -26,26 +33,47 @@ var ErrNotFound = errors.New("not found")
 // busyTimeoutMillis is how long a connection waits for a lock before it gives up.
 const busyTimeoutMillis = 5000
 
+// Postgres pool sizes. The write pool is for the ingest writer, the jobs
+// and the dashboard's changes, which mostly wait on the network and the
+// disk, not on each other; queries get as many connections as SQLite's
+// read pool. Together they stay far below Postgres' default limit of 100
+// connections.
+const (
+	postgresWriteConns = 4
+	postgresIdleTime   = 5 * time.Minute
+)
+
 // DB is the database handle shared by the whole process.
 type DB struct {
-	write *sql.DB // exactly one connection: every INSERT, UPDATE and DELETE goes here
-	read  *sql.DB // read-only pool for queries
+	write *pool // every INSERT, UPDATE and DELETE goes here; one connection on SQLite
+	read  *pool // read-only pool for queries
 
-	path    string // the SQLite file
+	d       dialect
+	path    string // the SQLite file; "" for Postgres
 	dataDir string // DATA_DIR, where backups/ lives
 }
 
-// Open opens the database described by cfg. Run Migrate before using it.
+// Open opens the database described by cfg: Postgres when DatabaseURL is
+// set (it must start with postgres:// or postgresql://), else SQLite at
+// SQLitePath. Run Migrate before using it.
 func Open(ctx context.Context, cfg config.Config) (*DB, error) {
-	if cfg.DatabaseURL != "" {
-		return nil, errors.New("DATABASE_URL is set, but Postgres is not supported yet; unset it to use SQLite")
+	var (
+		db  *DB
+		err error
+	)
+	switch {
+	case cfg.DatabaseURL == "":
+		db, err = openSQLite(ctx, cfg.SQLitePath)
+	case strings.HasPrefix(cfg.DatabaseURL, "postgres://"), strings.HasPrefix(cfg.DatabaseURL, "postgresql://"):
+		db, err = openPostgres(ctx, cfg.DatabaseURL)
+	default:
+		return nil, errors.New("DATABASE_URL must start with postgres:// or postgresql://; leave it empty to use SQLite")
 	}
-	db, err := openSQLite(ctx, cfg.SQLitePath)
 	if err != nil {
 		return nil, err
 	}
 	db.dataDir = cfg.DataDir
-	if db.dataDir == "" {
+	if db.dataDir == "" && cfg.SQLitePath != "" {
 		db.dataDir = filepath.Dir(cfg.SQLitePath)
 	}
 	return db, nil
@@ -100,7 +128,46 @@ func openSQLite(ctx context.Context, path string) (*DB, error) {
 		return nil, fmt.Errorf("open sqlite %s: %w", path, err)
 	}
 
-	return &DB{write: write, read: read, path: path}, nil
+	return &DB{write: &pool{write, sqliteDialect}, read: &pool{read, sqliteDialect}, d: sqliteDialect, path: path}, nil
+}
+
+// openPostgres opens both pools on the database at rawURL through pgx's
+// database/sql driver (pure Go). The read pool's sessions are read-only
+// (default_transaction_read_only), as SQLite's are (_query_only). Errors
+// never repeat the URL, which holds the password.
+func openPostgres(ctx context.Context, rawURL string) (*DB, error) {
+	writeConfig, err := pgx.ParseConfig(rawURL)
+	if err != nil {
+		return nil, errors.New("DATABASE_URL is not a valid Postgres URL (postgres://user:password@host:5432/database)")
+	}
+	readConfig := writeConfig.Copy()
+	readConfig.RuntimeParams["default_transaction_read_only"] = "on"
+
+	write := stdlib.OpenDB(*writeConfig)
+	write.SetMaxOpenConns(postgresWriteConns)
+	write.SetMaxIdleConns(postgresWriteConns)
+	write.SetConnMaxIdleTime(postgresIdleTime)
+	if err := write.PingContext(ctx); err != nil {
+		write.Close()
+		return nil, fmt.Errorf("connect to Postgres (DATABASE_URL): %w", err)
+	}
+
+	readers := max(4, runtime.NumCPU())
+	read := stdlib.OpenDB(*readConfig)
+	read.SetMaxOpenConns(readers)
+	read.SetMaxIdleConns(readers)
+	read.SetConnMaxIdleTime(postgresIdleTime)
+	if err := read.PingContext(ctx); err != nil {
+		write.Close()
+		read.Close()
+		return nil, fmt.Errorf("connect to Postgres (DATABASE_URL): %w", err)
+	}
+	return &DB{write: &pool{write, postgresDialect}, read: &pool{read, postgresDialect}, d: postgresDialect}, nil
+}
+
+// Postgres reports whether the database is Postgres (DATABASE_URL) rather than SQLite.
+func (db *DB) Postgres() bool {
+	return db.d == postgresDialect
 }
 
 // Ping checks that both the write connection and the read pool answer a query.
@@ -116,8 +183,16 @@ func (db *DB) Ping(ctx context.Context) error {
 }
 
 // SizeBytes returns the size of the database on disk: the SQLite file and
-// its write-ahead log.
-func (db *DB) SizeBytes() int64 {
+// its write-ahead log, or what Postgres reports for the database. 0 when
+// it cannot be read.
+func (db *DB) SizeBytes(ctx context.Context) int64 {
+	if db.Postgres() {
+		var size int64
+		if err := db.read.QueryRowContext(ctx, "SELECT pg_database_size(current_database())").Scan(&size); err != nil {
+			return 0
+		}
+		return size
+	}
 	var total int64
 	for _, name := range []string{db.path, db.path + "-wal"} {
 		if info, err := os.Stat(name); err == nil {

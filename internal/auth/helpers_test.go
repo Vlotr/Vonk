@@ -18,6 +18,7 @@ import (
 	"monitor/internal/httpjson"
 	"monitor/internal/mail"
 	"monitor/internal/store"
+	"monitor/internal/store/storetest"
 )
 
 // TestMain makes new password hashes cheap: the tests hash many passwords
@@ -69,7 +70,7 @@ func withoutMail(o *Options) { o.Mailer = nil }
 func newAuthEnv(t *testing.T, opts ...envOption) *authEnv {
 	t.Helper()
 	dir := t.TempDir()
-	db, err := store.Open(context.Background(), config.Config{DataDir: dir, SQLitePath: filepath.Join(dir, "monitor.db")})
+	db, err := store.Open(context.Background(), config.Config{DataDir: dir, SQLitePath: filepath.Join(dir, "monitor.db"), DatabaseURL: storetest.DatabaseURL(t)})
 	if err != nil {
 		t.Fatal(err)
 	}

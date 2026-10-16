@@ -19,6 +19,7 @@ type toolStatusResponse struct {
 	Failing        []string `json:"failing"`
 	DB             string   `json:"db"`
 	Disk           string   `json:"disk"`
+	DatabaseKind   string   `json:"databaseKind"`
 	DatabaseBytes  int64    `json:"databaseBytes"`
 	DiskFreeBytes  uint64   `json:"diskFreeBytes"`
 	DiskTotalBytes uint64   `json:"diskTotalBytes"`
@@ -56,6 +57,9 @@ func TestStatus_ShowsHowTheToolIsDoing(t *testing.T) {
 	if got.EventsLastHour != 7 {
 		t.Errorf("events in the last hour = %d, want the writer's 7", got.EventsLastHour)
 	}
+	if kind := map[bool]string{false: "sqlite", true: "postgres"}[env.db.Postgres()]; got.DatabaseKind != kind {
+		t.Errorf("database kind = %q, want %q", got.DatabaseKind, kind)
+	}
 	if got.LastBackup != nil || len(got.AdminAlerts) != 0 || got.AdminSlackWebhook != nil {
 		t.Errorf("before any backup, alert or webhook = %+v", got)
 	}
@@ -84,8 +88,13 @@ func TestStatus_ShowsHowTheToolIsDoing(t *testing.T) {
 	if got.Status != "degraded" || len(got.Failing) != 1 || got.Failing[0] != "disk" || got.Disk != "low" {
 		t.Errorf("with a low disk = %+v, want degraded", got)
 	}
-	if got.LastBackup == nil || got.LastBackup.Name != "pre-migrate-0003-20261015T080000Z.db" || got.LastBackup.SizeBytes != 6 ||
-		!got.LastBackup.CreatedAt.Equal(time.Date(2026, 10, 15, 8, 0, 0, 0, time.UTC)) {
+	switch {
+	case env.db.Postgres(): // the tool backs up SQLite only; the page shows how to use pg_dump
+		if got.LastBackup != nil {
+			t.Errorf("last backup on Postgres = %+v, want null", got.LastBackup)
+		}
+	case got.LastBackup == nil || got.LastBackup.Name != "pre-migrate-0003-20261015T080000Z.db" || got.LastBackup.SizeBytes != 6 ||
+		!got.LastBackup.CreatedAt.Equal(time.Date(2026, 10, 15, 8, 0, 0, 0, time.UTC)):
 		t.Errorf("last backup = %+v", got.LastBackup)
 	}
 	if len(got.AdminAlerts) != 1 || got.AdminAlerts[0].Kind != "disk_low" || !strings.HasPrefix(got.AdminAlerts[0].Message, "Disk space is low") {

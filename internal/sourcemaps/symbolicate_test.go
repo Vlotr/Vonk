@@ -16,6 +16,7 @@ import (
 	"monitor/internal/config"
 	"monitor/internal/sentry"
 	"monitor/internal/store"
+	"monitor/internal/store/storetest"
 )
 
 // The builds in testdata/build-a and testdata/build-b are the recipe's
@@ -58,7 +59,7 @@ type testEnv struct {
 func newTestEnv(t *testing.T) *testEnv {
 	t.Helper()
 	dir := t.TempDir()
-	cfg := config.Config{DataDir: dir, SQLitePath: filepath.Join(dir, "monitor.db")}
+	cfg := config.Config{DataDir: dir, SQLitePath: filepath.Join(dir, "monitor.db"), DatabaseURL: storetest.DatabaseURL(t)}
 	db, err := store.Open(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)

@@ -72,12 +72,16 @@ func (db *DB) HasSourceMapBundle(ctx context.Context, projectID int64, bundle st
 // (an upload sent twice at once); the result says which files were stored.
 // Files of projects that no longer exist give ErrUnknownProject.
 func (db *DB) SaveSourceMapFiles(ctx context.Context, files []SourceMapFile) ([]SourceMapFile, error) {
-	tx, err := db.write.BeginTx(ctx, nil)
+	tx, err := db.write.BeginTx(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback() // no-op after Commit
 
+	// The same bundle saved at the same moment waits here, then finds it stored.
+	if err := tx.lock(ctx, lockSourceMapBundles); err != nil {
+		return nil, err
+	}
 	known := map[int64]bool{} // per project: the bundle was there before this call
 	var stored []SourceMapFile
 	for _, f := range files {
@@ -161,7 +165,7 @@ func (db *DB) DeleteSourceMapFiles(ctx context.Context, ids []int64) (int64, err
 	if len(ids) == 0 {
 		return 0, nil
 	}
-	tx, err := db.write.BeginTx(ctx, nil)
+	tx, err := db.write.BeginTx(ctx)
 	if err != nil {
 		return 0, err
 	}

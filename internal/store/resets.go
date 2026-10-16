@@ -26,11 +26,15 @@ func (pr PasswordReset) Usable(now time.Time) bool {
 // CreatePasswordReset stores a reset link for a user. Earlier links of that
 // user that were not used are removed, so only the newest works.
 func (db *DB) CreatePasswordReset(ctx context.Context, userID int64, tokenHash string, now, expiresAt time.Time) error {
-	tx, err := db.write.BeginTx(ctx, nil)
+	tx, err := db.write.BeginTx(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback() // no-op after Commit
+	// Two links made at once: the second waits, then removes the first.
+	if err := tx.lock(ctx, lockAccounts); err != nil {
+		return err
+	}
 
 	if _, err := tx.ExecContext(ctx, "DELETE FROM password_resets WHERE user_id = ? AND used_at IS NULL", userID); err != nil {
 		return err
@@ -90,11 +94,15 @@ func (db *DB) PasswordResetByTokenHash(ctx context.Context, tokenHash string) (P
 // afterwards, ErrNotFound for an unknown token, or ErrGone for a link that
 // expired or was used.
 func (db *DB) UsePasswordReset(ctx context.Context, tokenHash, passwordHash string, now time.Time) (User, error) {
-	tx, err := db.write.BeginTx(ctx, nil)
+	tx, err := db.write.BeginTx(ctx)
 	if err != nil {
 		return User{}, err
 	}
 	defer tx.Rollback() // no-op after Commit
+	// A link used twice at once: the second waits here and finds it used.
+	if err := tx.lock(ctx, lockAccounts); err != nil {
+		return User{}, err
+	}
 
 	pr, err := scanReset(tx.QueryRowContext(ctx, "SELECT "+resetColumns+" FROM password_resets r WHERE r.token_hash = ?", tokenHash))
 	if err != nil {

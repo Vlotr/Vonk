@@ -23,6 +23,7 @@ import (
 	"monitor/internal/mail"
 	"monitor/internal/server"
 	"monitor/internal/sourcemaps"
+	"monitor/internal/store"
 )
 
 // shutdownTimeout is how long running requests get to finish after SIGTERM.
@@ -65,18 +66,31 @@ func serve(args []string, getenv func(string) string, stderr io.Writer) int {
 
 func runServer(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	started := time.Now()
-	logger.Info("starting", "version", version, "addr", cfg.Addr, "base_url", cfg.BaseURL, "sqlite", cfg.SQLitePath, "tz", cfg.Location.String())
+	database := "sqlite " + cfg.SQLitePath
+	if cfg.DatabaseURL != "" {
+		database = "postgres" // never DATABASE_URL itself: it holds the password
+	}
+	logger.Info("starting", "version", version, "addr", cfg.Addr, "base_url", cfg.BaseURL, "database", database, "tz", cfg.Location.String())
 
-	db, err := openDatabase(ctx, cfg, func(path string, pruneErr error) {
-		logger.Info("database backed up before the update", "path", path)
-		if pruneErr != nil {
-			logger.Warn("backups: the update goes on, but old backups stay", "err", pruneErr)
+	db, err := openDatabase(ctx, cfg, func(path string, warning error) {
+		if path != "" {
+			logger.Info("database backed up before the update", "path", path)
+		}
+		switch {
+		case errors.Is(warning, store.ErrNoBackups):
+			logger.Warn("database update without a backup: " + warning.Error())
+		case warning != nil:
+			logger.Warn("backups: the update goes on, but old backups stay", "err", warning)
 		}
 	})
 	if err != nil {
 		return err
 	}
 	defer db.Close() // last, after everything below has stopped
+	if db.Postgres() {
+		logger.Warn("the database is Postgres (DATABASE_URL): the tool makes no backups of it; back it up with pg_dump, " +
+			"for example pg_dump --format=custom --file=monitor.dump \"$DATABASE_URL\", also before upgrading the tool")
+	}
 
 	// Mail for invites, reset links and notifications.
 	var mailer auth.Mailer

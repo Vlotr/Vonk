@@ -68,7 +68,7 @@ func (db *DB) SaveErrorEvents(ctx context.Context, events []NewErrorEvent) (Save
 		return result, nil
 	}
 
-	tx, err := db.write.BeginTx(ctx, nil)
+	tx, err := db.write.BeginTx(ctx)
 	if err != nil {
 		return SaveResult{}, err
 	}
@@ -144,10 +144,18 @@ func (db *DB) SaveErrorEvents(ctx context.Context, events []NewErrorEvent) (Save
 	return result, nil
 }
 
-func projectExists(ctx context.Context, tx *sql.Tx, id int64) (bool, error) {
-	var n int
-	err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM projects WHERE id = ?", id).Scan(&n)
-	return n > 0, err
+// projectExists reports whether the project exists, and keeps it from
+// being deleted until the batch commits (forKeyShare). A deletion that
+// comes in meanwhile waits for the batch; without this it could take the
+// project first and then wait for the batch's issues or page views while
+// the batch waits for the project.
+func projectExists(ctx context.Context, tx *writeTx, id int64) (bool, error) {
+	var one int
+	err := tx.QueryRowContext(ctx, "SELECT 1 FROM projects WHERE id = ?"+tx.forKeyShare(), id).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return err == nil, err
 }
 
 // errorEventColumns lists the columns scanErrorEvent expects, in order.

@@ -22,6 +22,7 @@ import (
 	"monitor/internal/scrub"
 	"monitor/internal/sentry"
 	"monitor/internal/store"
+	"monitor/internal/store/storetest"
 )
 
 // testNow is the fixed clock of every API test: half past noon, so the
@@ -87,7 +88,7 @@ type envOption func(*auth.Options)
 func newTestEnv(t *testing.T, opts ...envOption) *testEnv {
 	t.Helper()
 	dir := t.TempDir()
-	cfg := config.Config{DataDir: dir, SQLitePath: filepath.Join(dir, "monitor.db")}
+	cfg := config.Config{DataDir: dir, SQLitePath: filepath.Join(dir, "monitor.db"), DatabaseURL: storetest.DatabaseURL(t)}
 	db, err := store.Open(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)

@@ -50,11 +50,16 @@ func (db *DB) CreateInvite(ctx context.Context, ni NewInvite) (Invite, error) {
 		return Invite{}, fmt.Errorf("invite needs an email, a valid role and a token, got %q and %q", inv.Email, inv.Role)
 	}
 
-	tx, err := db.write.BeginTx(ctx, nil)
+	tx, err := db.write.BeginTx(ctx)
 	if err != nil {
 		return Invite{}, err
 	}
 	defer tx.Rollback() // no-op after Commit
+	// The checks below (the maker is an admin, the address has no account,
+	// earlier invites) hold until the commit: whoever changes accounts waits.
+	if err := tx.lock(ctx, lockAccounts); err != nil {
+		return Invite{}, err
+	}
 
 	var role string
 	err = tx.QueryRowContext(ctx, "SELECT role FROM users WHERE id = ?", inv.CreatedBy).Scan(&role)
@@ -185,11 +190,15 @@ func (db *DB) DeleteInvite(ctx context.Context, id int64) error {
 // token, ErrGone for one that expired or was used, and ErrEmailTaken when
 // the address got an account in the meantime.
 func (db *DB) AcceptInvite(ctx context.Context, tokenHash, passwordHash string, now time.Time) (User, error) {
-	tx, err := db.write.BeginTx(ctx, nil)
+	tx, err := db.write.BeginTx(ctx)
 	if err != nil {
 		return User{}, err
 	}
 	defer tx.Rollback() // no-op after Commit
+	// A link opened twice at once: the second waits here and finds it used.
+	if err := tx.lock(ctx, lockAccounts); err != nil {
+		return User{}, err
+	}
 
 	inv, err := scanInvite(tx.QueryRowContext(ctx, "SELECT "+inviteColumns+" FROM invites WHERE token_hash = ?", tokenHash))
 	if err != nil {

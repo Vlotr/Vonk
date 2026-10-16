@@ -12,15 +12,35 @@ import (
 	"time"
 
 	"monitor/internal/config"
+	"monitor/internal/store/storetest"
 )
 
-// openUnmigrated opens a fresh database in a temp directory without migrating it.
+// openUnmigrated opens a fresh database without migrating it, and returns
+// it with its DATA_DIR (a temp directory): SQLite in that directory, or a
+// Postgres schema of its own when TEST_DATABASE_URL is set (storetest).
 func openUnmigrated(t *testing.T) (*DB, string) {
+	t.Helper()
+	dir := t.TempDir()
+	cfg := config.Config{DataDir: dir, SQLitePath: filepath.Join(dir, "monitor.db"), DatabaseURL: storetest.DatabaseURL(t)}
+	if cfg.DatabaseURL != "" {
+		cfg.SQLitePath = ""
+	}
+	db, err := Open(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	return db, dir
+}
+
+// openSQLiteUnmigrated is openUnmigrated for tests of what only SQLite
+// does (backups): always SQLite, also under make test-postgres.
+func openSQLiteUnmigrated(t *testing.T) (*DB, string) {
 	t.Helper()
 	dir := t.TempDir()
 	db, err := Open(context.Background(), config.Config{DataDir: dir, SQLitePath: filepath.Join(dir, "monitor.db")})
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("Open: %v", err)
 	}
 	t.Cleanup(func() { db.Close() })
 	return db, dir
@@ -44,17 +64,17 @@ func backupFiles(t *testing.T, dir string) []string {
 
 func TestBackup_OnlyWhenMigrationsPending(t *testing.T) {
 	ctx := context.Background()
-	files, err := migrationFiles()
+	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+
+	// A fresh database has nothing to lose: no backup.
+	db, dir := openSQLiteUnmigrated(t)
+	files, err := db.migrationFiles()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(files) < 2 {
 		t.Fatal("this test needs at least two migrations")
 	}
-	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
-
-	// A fresh database has nothing to lose: no backup.
-	db, dir := openUnmigrated(t)
 	path, err := db.backupBeforeMigrate(ctx, files, now)
 	if err != nil || path != "" {
 		t.Fatalf("fresh database: backup %q, %v; want none", path, err)
@@ -110,11 +130,11 @@ func TestBackup_OnlyWhenMigrationsPending(t *testing.T) {
 
 func TestBackup_KeepsFive(t *testing.T) {
 	ctx := context.Background()
-	files, err := migrationFiles()
+	db, dir := openSQLiteUnmigrated(t)
+	files, err := db.migrationFiles()
 	if err != nil {
 		t.Fatal(err)
 	}
-	db, dir := openUnmigrated(t)
 	if err := db.migrate(ctx, files[:1]); err != nil {
 		t.Fatal(err)
 	}
@@ -152,11 +172,11 @@ func TestBackup_KeepsFive(t *testing.T) {
 
 func TestBackup_FailsClearly(t *testing.T) {
 	ctx := context.Background()
-	files, err := migrationFiles()
+	db, dir := openSQLiteUnmigrated(t)
+	files, err := db.migrationFiles()
 	if err != nil {
 		t.Fatal(err)
 	}
-	db, dir := openUnmigrated(t)
 	if err := db.migrate(ctx, files[:1]); err != nil {
 		t.Fatal(err)
 	}
@@ -171,11 +191,11 @@ func TestBackup_FailsClearly(t *testing.T) {
 
 func TestBackup_PruneFailureKeepsTheBackup(t *testing.T) {
 	ctx := context.Background()
-	files, err := migrationFiles()
+	db, dir := openSQLiteUnmigrated(t)
+	files, err := db.migrationFiles()
 	if err != nil {
 		t.Fatal(err)
 	}
-	db, dir := openUnmigrated(t)
 	if err := db.migrate(ctx, files[:1]); err != nil {
 		t.Fatal(err)
 	}
@@ -200,5 +220,41 @@ func TestBackup_PruneFailureKeepsTheBackup(t *testing.T) {
 	}
 	if n := len(backupFiles(t, dir)); n != 6 {
 		t.Errorf("%d backups, want 6 (the old one stays)", n)
+	}
+}
+
+// Postgres is not backed up by the tool: an update of a database with data
+// says so (ErrNoBackups, a warning for the caller) and writes no file, and
+// the status page lists no backups.
+func TestBackup_PostgresMakesNone(t *testing.T) {
+	if !storetest.Postgres() {
+		t.Skip("needs Postgres: make test-postgres")
+	}
+	ctx := context.Background()
+	db, dir := openUnmigrated(t)
+	files, err := db.migrationFiles()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path, err := db.backupBeforeMigrate(ctx, files, time.Now()); path != "" || err != nil {
+		t.Errorf("new database: %q, %v; want nothing to say", path, err)
+	}
+	if err := db.migrate(ctx, files[:1]); err != nil {
+		t.Fatal(err)
+	}
+	if path, err := db.BackupBeforeMigrate(ctx); path != "" || !errors.Is(err, ErrNoBackups) {
+		t.Errorf("update pending: %q, %v; want ErrNoBackups", path, err)
+	}
+	if err := db.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if path, err := db.BackupBeforeMigrate(ctx); path != "" || err != nil {
+		t.Errorf("up to date: %q, %v; want nothing to say", path, err)
+	}
+	if names := backupFiles(t, dir); len(names) != 0 {
+		t.Errorf("backup files %v on Postgres", names)
+	}
+	if list, err := db.Backups(); err != nil || len(list) != 0 {
+		t.Errorf("Backups() = %v, %v; want none", list, err)
 	}
 }

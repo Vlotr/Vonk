@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -214,13 +213,8 @@ type pageviewRow struct {
 
 func pageviewRows(t *testing.T, env *testEnv, p store.Project) []pageviewRow {
 	t.Helper()
-	db, err := sql.Open("sqlite", env.dbPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	rows, err := db.Query(`SELECT route, path, user_id, COALESCE(duration_ms, -1), left_without_pageleave, is_bot
-		FROM pageviews WHERE project_id = ? ORDER BY start, id`, p.ID)
+	rows, err := env.rawDB(t).Query(`SELECT route, path, user_id, COALESCE(duration_ms, -1), left_without_pageleave, is_bot
+		FROM pageviews WHERE project_id = $1 ORDER BY start, id`, p.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

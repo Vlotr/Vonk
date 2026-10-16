@@ -76,13 +76,17 @@ func (db *DB) CountUsers(ctx context.Context) (int, error) {
 // CreateFirstAdmin creates the first account, an admin. Once any account
 // exists it returns ErrUsersExist: registration closes after the first user.
 func (db *DB) CreateFirstAdmin(ctx context.Context, email, passwordHash string, now time.Time) (User, error) {
-	tx, err := db.write.BeginTx(ctx, nil)
+	tx, err := db.write.BeginTx(ctx)
 	if err != nil {
 		return User{}, err
 	}
 	defer tx.Rollback() // no-op after Commit
 
-	// Checked inside the write transaction, so two setups at once cannot both win.
+	// Checked inside the write transaction, after the accounts lock, so two
+	// setups at once cannot both win.
+	if err := tx.lock(ctx, lockAccounts); err != nil {
+		return User{}, err
+	}
 	var n int
 	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM users").Scan(&n); err != nil {
 		return User{}, err
@@ -97,7 +101,7 @@ func (db *DB) CreateFirstAdmin(ctx context.Context, email, passwordHash string, 
 	return u, tx.Commit()
 }
 
-func insertUser(ctx context.Context, tx *sql.Tx, email, passwordHash, role string, now time.Time) (User, error) {
+func insertUser(ctx context.Context, tx *writeTx, email, passwordHash, role string, now time.Time) (User, error) {
 	u := User{Email: NormalizeEmail(email), PasswordHash: passwordHash, Role: role, CreatedAt: msTime(now)}
 	if u.Email == "" || !ValidRole(role) {
 		return User{}, fmt.Errorf("insert user: need an email and a valid role, got %q and %q", u.Email, role)
@@ -185,11 +189,14 @@ type UserChange struct {
 // that were not used yet. It returns ErrNotFound, ErrLastAdmin when the
 // last admin would become a member, or ErrUnknownProject.
 func (db *DB) UpdateUser(ctx context.Context, id int64, change UserChange) (User, error) {
-	tx, err := db.write.BeginTx(ctx, nil)
+	tx, err := db.write.BeginTx(ctx)
 	if err != nil {
 		return User{}, err
 	}
 	defer tx.Rollback() // no-op after Commit
+	if err := tx.lock(ctx, lockAccounts); err != nil {
+		return User{}, err
+	}
 
 	u, err := scanUser(tx.QueryRowContext(ctx, "SELECT "+userColumns+" FROM users WHERE id = ?", id))
 	if err != nil {
@@ -232,11 +239,14 @@ func (db *DB) UpdateUser(ctx context.Context, id int64, change UserChange) (User
 // invites it made that were not used yet. It returns ErrNotFound, or
 // ErrLastAdmin for the last admin.
 func (db *DB) DeleteUser(ctx context.Context, id int64) error {
-	tx, err := db.write.BeginTx(ctx, nil)
+	tx, err := db.write.BeginTx(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback() // no-op after Commit
+	if err := tx.lock(ctx, lockAccounts); err != nil {
+		return err
+	}
 
 	u, err := scanUser(tx.QueryRowContext(ctx, "SELECT "+userColumns+" FROM users WHERE id = ?", id))
 	if err != nil {
@@ -257,9 +267,9 @@ func (db *DB) DeleteUser(ctx context.Context, id int64) error {
 }
 
 // checkOtherAdmin returns ErrLastAdmin unless an admin other than userID
-// exists. It runs inside the write transaction, so two admins demoting each
-// other at the same moment cannot both succeed.
-func checkOtherAdmin(ctx context.Context, tx *sql.Tx, userID int64) error {
+// exists. It runs inside the write transaction, after the accounts lock, so
+// two admins demoting each other at the same moment cannot both succeed.
+func checkOtherAdmin(ctx context.Context, tx *writeTx, userID int64) error {
 	var others int
 	err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM users WHERE role = ? AND id <> ?", RoleAdmin, userID).Scan(&others)
 	if err != nil {
@@ -274,13 +284,13 @@ func checkOtherAdmin(ctx context.Context, tx *sql.Tx, userID int64) error {
 // dropPendingInvites deletes the unused invites userID made. Whoever made an
 // invite has seen its link; once they lose their admin role (or their
 // account) the link must not let them, or anyone they gave it to, back in.
-func dropPendingInvites(ctx context.Context, tx *sql.Tx, userID int64) error {
+func dropPendingInvites(ctx context.Context, tx *writeTx, userID int64) error {
 	_, err := tx.ExecContext(ctx, "DELETE FROM invites WHERE created_by = ? AND used_at IS NULL", userID)
 	return err
 }
 
 // setProjectAccess replaces a user's projects with projectIDs, which must all exist.
-func setProjectAccess(ctx context.Context, tx *sql.Tx, userID int64, projectIDs []int64) error {
+func setProjectAccess(ctx context.Context, tx *writeTx, userID int64, projectIDs []int64) error {
 	ids, err := existingProjects(ctx, tx, projectIDs)
 	if err != nil {
 		return err
@@ -298,7 +308,7 @@ func setProjectAccess(ctx context.Context, tx *sql.Tx, userID int64, projectIDs 
 
 // existingProjects returns projectIDs sorted and without repeats, or
 // ErrUnknownProject when one of them does not exist.
-func existingProjects(ctx context.Context, tx *sql.Tx, projectIDs []int64) ([]int64, error) {
+func existingProjects(ctx context.Context, tx *writeTx, projectIDs []int64) ([]int64, error) {
 	ids := uniqueSorted(projectIDs)
 	for _, id := range ids {
 		var n int
@@ -328,7 +338,7 @@ func uniqueSorted(ids []int64) []int64 {
 // ChangePassword stores a new password hash and signs the user out
 // everywhere except the session keepSessionID (the one making the change).
 func (db *DB) ChangePassword(ctx context.Context, userID int64, passwordHash string, keepSessionID int64) error {
-	tx, err := db.write.BeginTx(ctx, nil)
+	tx, err := db.write.BeginTx(ctx)
 	if err != nil {
 		return err
 	}
@@ -347,7 +357,7 @@ func (db *DB) ChangePassword(ctx context.Context, userID int64, passwordHash str
 	return tx.Commit()
 }
 
-// querier is what *sql.DB and *sql.Tx share for queries.
+// querier is what pools and transactions share for queries.
 type querier interface {
 	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
 }

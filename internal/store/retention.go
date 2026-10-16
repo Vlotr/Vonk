@@ -23,12 +23,14 @@ func (db *DB) DeleteErrorEventsBefore(ctx context.Context, projectID int64, befo
 
 // DeleteIssuesLastSeenBefore deletes at most limit of a project's issues
 // last seen before before (with any events they still have), and returns
-// how many it deleted.
+// how many it deleted. last_seen is checked again outside the subquery:
+// Postgres rechecks that condition on a row that the writer changed while
+// the delete waited for it, so an issue that just got an event stays.
 func (db *DB) DeleteIssuesLastSeenBefore(ctx context.Context, projectID int64, before time.Time, limit int) (int64, error) {
 	res, err := db.write.ExecContext(ctx, `
 		DELETE FROM issues WHERE id IN (
-			SELECT id FROM issues WHERE project_id = ? AND last_seen < ? LIMIT ?)`,
-		projectID, before.UnixMilli(), limit)
+			SELECT id FROM issues WHERE project_id = ? AND last_seen < ? LIMIT ?) AND last_seen < ?`,
+		projectID, before.UnixMilli(), limit, before.UnixMilli())
 	if err != nil {
 		return 0, err
 	}

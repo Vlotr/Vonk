@@ -13,6 +13,7 @@ import (
 	_ "modernc.org/sqlite"
 
 	"monitor/internal/store"
+	"monitor/internal/store/storetest"
 )
 
 // olderDatabase writes a database that ran only the first migration (and
@@ -118,5 +119,55 @@ func TestStartup_WarnsAndContinuesWhenOldBackupsStay(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "Webshop") {
 		t.Errorf("the project was not created after the warning:\n%s", stdout.String())
+	}
+}
+
+// On Postgres the tool makes no backups: an update of a database that has
+// data says so (pg_dump) and goes on.
+func TestStartup_PostgresUpdateWarnsThatThereIsNoBackup(t *testing.T) {
+	if !storetest.Postgres() {
+		t.Skip("needs Postgres: make test-postgres")
+	}
+	dir := t.TempDir()
+	dbURL := storetest.DatabaseURL(t)
+	// A database that ran the first migration only.
+	first, err := os.ReadFile(filepath.Join("..", "..", "internal", "store", "migrations", "postgres", "0001_init.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := sql.Open("pgx", dbURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer raw.Close()
+	_, err = raw.Exec(string(first) + `; CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at BIGINT NOT NULL);
+		INSERT INTO schema_migrations VALUES (1, '0001_init.sql', 0)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	getenv := envFrom(map[string]string{
+		"SECRET_KEY":   "a-long-random-secret-for-tests",
+		"BASE_URL":     "https://monitor.example.com",
+		"DATA_DIR":     dir,
+		"DATABASE_URL": dbURL,
+	})
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"project", "create", "--name", "Webshop"}, getenv, &stdout, &stderr); code != 0 {
+		t.Fatalf("project create = %d; stderr:\n%s", code, stderr.String())
+	}
+	if out := stderr.String(); !strings.Contains(out, "warning: the tool makes no backups of a Postgres database") || !strings.Contains(out, "pg_dump") {
+		t.Errorf("stderr does not warn that there is no backup:\n%s", out)
+	}
+	if entries, _ := os.ReadDir(filepath.Join(dir, "backups")); len(entries) != 0 {
+		t.Errorf("backups = %v on Postgres", entries)
+	}
+	if !strings.Contains(stdout.String(), "Webshop") {
+		t.Errorf("the project was not created:\n%s", stdout.String())
+	}
+
+	// Up to date: nothing to say.
+	stderr.Reset()
+	if code := run([]string{"project", "create", "--name", "Portal"}, getenv, &stdout, &stderr); code != 0 || stderr.Len() != 0 {
+		t.Errorf("second project create = %d; stderr:\n%s", code, stderr.String())
 	}
 }

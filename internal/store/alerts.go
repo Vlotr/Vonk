@@ -118,7 +118,7 @@ func (db *DB) AlertSettings(ctx context.Context, projectID int64) (AlertSettings
 	return readAlertSettings(ctx, db.read, projectID)
 }
 
-// rowQuerier is what *sql.DB and *sql.Tx share for reading.
+// rowQuerier is what pools and transactions share for reading.
 type rowQuerier interface {
 	querier
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
@@ -170,17 +170,26 @@ func readAlertSettings(ctx context.Context, q rowQuerier, projectID int64) (Aler
 }
 
 // UpdateAlertSettings changes a project's notification choices in one
-// write transaction: it reads them, lets change edit them, and writes all
-// of them back with the Slack webhook. Two changes at once therefore run
-// one after the other and never undo each other. It returns the settings
-// as stored, or ErrNotFound. change must not touch the database.
+// write transaction: it locks the project's row, reads them, lets change
+// edit them, and writes all of them back with the Slack webhook. Two
+// changes at once therefore run one after the other and never undo each
+// other. It returns the settings as stored, or ErrNotFound. change must not
+// touch the database.
 func (db *DB) UpdateAlertSettings(ctx context.Context, projectID int64, change func(*AlertSettings)) (AlertSettings, error) {
-	tx, err := db.write.BeginTx(ctx, nil)
+	tx, err := db.write.BeginTx(ctx)
 	if err != nil {
 		return AlertSettings{}, err
 	}
 	defer tx.Rollback() // no-op after Commit
 
+	var id int64
+	err = tx.QueryRowContext(ctx, "SELECT id FROM projects WHERE id = ?"+tx.forUpdate(), projectID).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return AlertSettings{}, ErrNotFound
+	}
+	if err != nil {
+		return AlertSettings{}, err
+	}
 	s, err := readAlertSettings(ctx, tx, projectID)
 	if err != nil {
 		return AlertSettings{}, err
@@ -285,13 +294,17 @@ func (db *DB) ClaimPeriod(ctx context.Context, name string, projectID int64, per
 }
 
 // claim writes the state of name when there is none yet or when due says
-// the old one may be replaced.
+// the old one may be replaced. The lock on name keeps the read and the
+// write together, also before the first claim made a row.
 func (db *DB) claim(ctx context.Context, name string, projectID int64, value string, now time.Time, due func(AlertState) bool) (bool, error) {
-	tx, err := db.write.BeginTx(ctx, nil)
+	tx, err := db.write.BeginTx(ctx)
 	if err != nil {
 		return false, err
 	}
 	defer tx.Rollback() // no-op after Commit
+	if err := tx.lock(ctx, lockAlertStatePrefix+name); err != nil {
+		return false, err
+	}
 
 	old := AlertState{Name: name}
 	var sentAt int64

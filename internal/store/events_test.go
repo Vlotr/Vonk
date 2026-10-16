@@ -3,11 +3,8 @@ package store
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"testing"
 	"time"
-
-	"monitor/internal/config"
 )
 
 // at returns a fixed time plus d, truncated to milliseconds like the database.
@@ -183,14 +180,9 @@ func TestSaveErrorEvents_SkipsDeletedProject(t *testing.T) {
 // event, and a returning issue the release of the event that reopened it
 // (received at regressed_at).
 func TestMigrate_BackfillsReleases(t *testing.T) {
-	dir := t.TempDir()
-	db, err := Open(context.Background(), config.Config{DataDir: dir, SQLitePath: filepath.Join(dir, "monitor.db")})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
+	db, _ := openUnmigrated(t)
 	ctx := context.Background()
-	files, err := migrationFiles()
+	files, err := db.migrationFiles()
 	if err != nil {
 		t.Fatal(err)
 	}
