@@ -56,11 +56,11 @@ func TestVerifyPassword_ReadsParametersFromTheHash(t *testing.T) {
 
 func TestCheckPassword_Length(t *testing.T) {
 	for pw, ok := range map[string]bool{
-		"":                      false,
-		"123456789":             false,
-		"1234567890":            true,
-		"ééééééééé":             false, // 9 characters, 18 bytes
-		"éééééééééé":            true,
+		"":                       false,
+		"123456789":              false,
+		"1234567890":             true,
+		"ééééééééé":              false, // 9 characters, 18 bytes
+		"éééééééééé":             true,
 		strings.Repeat("a", 256): true,
 		strings.Repeat("a", 257): false,
 	} {
