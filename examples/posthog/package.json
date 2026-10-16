@@ -1,0 +1,17 @@
+{
+  "name": "monitor-example-posthog",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@sentry/browser": "11.8.0",
+    "posthog-js": "1.438.12"
+  },
+  "devDependencies": {
+    "vite": "^8.3.4"
+  }
+}

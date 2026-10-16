@@ -7,7 +7,8 @@
 //   4. creates the projects "Webshop" and "Customer portal" with the CLI and
 //      reads their DSNs;
 //   5. serves the Laravel example (php artisan serve) with that DSN;
-//   6. serves the browser example (Vite) on another free port.
+//   6. serves the browser example (Vite) on another free port;
+//   7. serves the PostHog example (Vite) with Webshop's PostHog token and DSN.
 //
 // The tests read the addresses and the admin's session from the environment.
 // Process output goes to e2e/.logs/ for when something fails.
@@ -23,6 +24,7 @@ import { join, resolve } from 'node:path'
 const root = resolve(__dirname, '..')
 const laravelDir = join(root, 'examples/laravel')
 const browserDir = join(root, 'examples/browser')
+const posthogDir = join(root, 'examples/posthog')
 const logDir = join(__dirname, '.logs')
 
 /** run runs a command to completion and fails setup when it fails. */
@@ -118,6 +120,7 @@ export default async function globalSetup() {
     run('make', ['build'], root)
     if (!existsSync(join(laravelDir, 'vendor'))) run('composer', ['install', '--no-interaction'], laravelDir)
     if (!existsSync(join(browserDir, 'node_modules'))) run('npm', ['ci'], browserDir)
+    if (!existsSync(join(posthogDir, 'node_modules'))) run('npm', ['ci'], posthogDir)
 
     // The monitor, as an operator would run it.
     const port = await freePort()
@@ -161,10 +164,11 @@ export default async function globalSetup() {
       })
       const id = /^ID:\s+(\d+)$/m.exec(created.stdout)?.[1]
       const dsn = /^DSN:\s+(\S+)$/m.exec(created.stdout)?.[1]
-      if (created.status !== 0 || !id || !dsn) throw new Error(`project create failed: ${created.stdout}${created.stderr}`)
-      return { id, dsn }
+      const token = /^PostHog token:\s+(\S+)$/m.exec(created.stdout)?.[1]
+      if (created.status !== 0 || !id || !dsn || !token) throw new Error(`project create failed: ${created.stdout}${created.stderr}`)
+      return { id, dsn, token }
     }
-    const { id: projectId, dsn } = createProject('Webshop')
+    const { id: projectId, dsn, token: posthogToken } = createProject('Webshop')
     // A second project for the All projects page (phase 2), fed by the browser example.
     const portal = createProject('Customer portal')
 
@@ -209,6 +213,20 @@ export default async function globalSetup() {
     children.push(browserExample)
     await waitFor(browserURL, 'browser example', browserExample)
 
+    // The PostHog example: posthog-js and @sentry/browser for Webshop, with
+    // the setup the Setup and keys page gives (phase 3).
+    const posthogPort = await freePort()
+    const posthogURL = `http://127.0.0.1:${posthogPort}`
+    const posthogExample = start(
+      'posthog',
+      'npx',
+      ['vite', '--host', '127.0.0.1', '--port', String(posthogPort), '--strictPort'],
+      posthogDir,
+      { ...process.env, VITE_POSTHOG_TOKEN: posthogToken, VITE_POSTHOG_HOST: monitorURL, VITE_SENTRY_DSN: dsn },
+    )
+    children.push(posthogExample)
+    await waitFor(posthogURL, 'PostHog example', posthogExample)
+
     Object.assign(process.env, {
       MONITOR_URL: monitorURL,
       ADMIN_STATE: adminState,
@@ -220,6 +238,7 @@ export default async function globalSetup() {
       PORTAL_DSN: portal.dsn,
       LARAVEL_URL: laravelURL,
       BROWSER_EXAMPLE_URL: browserURL,
+      POSTHOG_EXAMPLE_URL: posthogURL,
     })
     return teardown
   } catch (err) {

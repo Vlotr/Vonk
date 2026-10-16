@@ -14,8 +14,9 @@ vendor/
 # Build output of the browser fixture recipes.
 /internal/sentry/testdata/capture/browser/dist/
 /internal/posthog/testdata/capture/dist/
-# Vite build output of the browser example.
+# Vite build output of the browser and PostHog examples.
 /examples/browser/dist/
+/examples/posthog/dist/
 # Playwright results and the logs of the processes the e2e setup starts.
 /e2e/test-results/
 /e2e/.logs/
