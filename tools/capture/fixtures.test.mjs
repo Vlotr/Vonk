@@ -1,14 +1,14 @@
 // Guard for every committed fixture: no file under internal/*/testdata
-// (gzip bodies decompressed) may name this machine's user or host. Run on
-// the machine that recorded a fixture, it catches a recording committed
-// without its recipe's sanitize step. node --test (part of make test).
+// (gzip bodies decompressed, multipart uploads and zip bundles unpacked)
+// may name this machine's user or host. Run on the machine that recorded
+// a fixture, it catches a recording committed without its recipe's
+// sanitize step. node --test (part of make test).
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { gunzipSync } from 'node:zlib';
-import { findLeaks, machine } from './leaks.mjs';
+import { findLeaks, machine, texts } from './leaks.mjs';
 
 const root = fileURLToPath(new URL('../../internal/', import.meta.url));
 
@@ -39,8 +39,9 @@ test('committed fixtures do not name this machine', () => {
   const files = fixtures();
   assert.ok(files.length > 0, 'no fixtures found');
   for (const file of files) {
-    let data = readFileSync(file);
-    if (data[0] === 0x1f && data[1] === 0x8b) data = gunzipSync(data);
-    assert.deepEqual(findLeaks(data.toString('utf8'), machine()), [], file);
+    // Gzip bodies decompressed, multipart uploads and zip bundles unpacked.
+    for (const text of texts(readFileSync(file))) {
+      assert.deepEqual(findLeaks(text, machine()), [], file);
+    }
   }
 });

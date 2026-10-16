@@ -32,7 +32,7 @@ test: web/node_modules
 	go vet ./...
 	go test -race ./...
 	cd web && npm run typecheck && npm test
-	node --test internal/sentry/testdata/capture/sanitize.test.mjs tools/capture/fixtures.test.mjs
+	node --test internal/sentry/testdata/capture/sanitize.test.mjs tools/capture/leaks.test.mjs tools/capture/fixtures.test.mjs
 
 # The page statistics' performance check (docs/perf.md): 1 000 000 page
 # views in a temp database, deleted afterwards.

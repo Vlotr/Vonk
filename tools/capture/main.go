@@ -9,21 +9,28 @@
 // preflights (which it does not record) for any origin, so browser SDKs can
 // talk to it too. With -responses it answers some paths the way the real
 // service would (configuration endpoints an SDK reads before it sends).
+// With -forward it hands every request on to a server and answers with
+// that server's reply, so it records a whole conversation between a client
+// and a working server (sentry-cli's uploads, which depend on the answers).
 //
 // Usage:
 //
 //	go run ./tools/capture -addr 127.0.0.1:9999 -out /tmp/captured
 //	go run ./tools/capture -response '{"flags":{}}'   # a different reply body
 //	go run ./tools/capture -responses answers.json   # per path, see loadAnswers
+//	go run ./tools/capture -forward http://127.0.0.1:8000   # record, then pass on
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -48,6 +55,7 @@ func main() {
 	out := flag.String("out", "captured", "directory for the recorded requests")
 	response := flag.String("response", "{}", "JSON body sent back for every request")
 	responses := flag.String("responses", "", "JSON file with answers per path prefix (see loadAnswers)")
+	forward := flag.String("forward", "", "server to pass every request on to; its replies are the answers")
 	flag.Parse()
 
 	if err := os.MkdirAll(*out, 0o755); err != nil {
@@ -61,6 +69,13 @@ func main() {
 		}
 		rec.answers = answers
 	}
+	if *forward != "" {
+		target, err := url.Parse(*forward)
+		if err != nil || target.Host == "" {
+			log.Fatalf("capture: -forward %q is not a URL such as http://127.0.0.1:8000", *forward)
+		}
+		rec.forward = target
+	}
 	log.Printf("capture: listening on http://%s, writing to %s", *addr, *out)
 	log.Fatal(http.ListenAndServe(*addr, rec))
 }
@@ -70,6 +85,7 @@ type recorder struct {
 	dir      string
 	response string
 	answers  []answer // longest prefix first
+	forward  *url.URL // when set, requests go on to this server, which answers them
 	logf     func(format string, args ...any)
 
 	mu sync.Mutex
@@ -97,6 +113,19 @@ func (rec *recorder) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	rec.logf("capture: %s %s (%d bytes) -> %s", r.Method, r.URL.Path, len(body), name)
 
+	if rec.forward != nil {
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		proxy := httputil.NewSingleHostReverseProxy(rec.forward)
+		// The server's own CORS headers replace the recorder's.
+		proxy.ModifyResponse = func(resp *http.Response) error {
+			for name := range w.Header() {
+				w.Header().Del(name)
+			}
+			return nil
+		}
+		proxy.ServeHTTP(w, r)
+		return
+	}
 	for _, a := range rec.answers {
 		if strings.HasPrefix(r.URL.Path, a.Prefix) && strings.HasSuffix(r.URL.Path, a.Suffix) {
 			w.Header().Set("Content-Type", a.ContentType)

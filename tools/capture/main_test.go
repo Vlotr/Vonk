@@ -3,10 +3,13 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -100,5 +103,33 @@ func TestRecorder_AnswersPerPath(t *testing.T) {
 	rec.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/array/phc_x/config.js", nil))
 	if got := w.Header().Get("Content-Type"); got != "text/javascript" {
 		t.Errorf("config.js Content-Type = %q", got)
+	}
+}
+
+func TestRecorder_ForwardsToServer(t *testing.T) {
+	var seen []byte
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		io.WriteString(w, `{"state":"ok","path":"`+r.URL.Path+`"}`)
+	}))
+	defer upstream.Close()
+	target, _ := url.Parse(upstream.URL)
+	dir := t.TempDir()
+	rec := &recorder{dir: dir, response: "{}", forward: target, logf: t.Logf}
+
+	w := httptest.NewRecorder()
+	rec.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/0/organizations/acme/artifactbundle/assemble/", strings.NewReader(`{"checksum":"abc"}`)))
+
+	if w.Code != http.StatusCreated || w.Body.String() != `{"state":"ok","path":"/api/0/organizations/acme/artifactbundle/assemble/"}` {
+		t.Fatalf("response = %d %q, want the server's answer", w.Code, w.Body)
+	}
+	if string(seen) != `{"checksum":"abc"}` {
+		t.Errorf("server got body %q", seen)
+	}
+	recorded, err := os.ReadFile(filepath.Join(dir, "0001-POST-api-0-organizations-acme-artifactbundle-assemble.body"))
+	if err != nil || string(recorded) != `{"checksum":"abc"}` {
+		t.Errorf("recorded body = %q, %v", recorded, err)
 	}
 }
