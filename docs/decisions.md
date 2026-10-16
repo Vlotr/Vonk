@@ -260,3 +260,70 @@ Dashboard (Step 3):
 End-to-end (Step 4):
 
 - The e2e setup also creates "Customer portal"; phase 2 points the browser example at its DSN, so All projects shows two projects with new errors from real SDKs, as the design does. `phase2-issues.spec.ts` makes its own errors and does not depend on phase 1's.
+
+## Task 5: Users, access and project settings
+
+Schema and store:
+
+- Invites keep their projects in an extra table `invite_projects` (foreign keys with `ON DELETE CASCADE`), not a JSON column: SQLite reuses the row id of the newest row after a delete, so a stale project id in an old invite could otherwise grant a later project. `project_access` cascades the same way.
+- Addresses are stored trimmed and lowercase; one account per address. An invite for an address that has an account is refused (409); a new invite for an address replaces its unused earlier ones, and a new reset link replaces the user's unused earlier ones, so only the newest link works.
+- Making a member admin deletes their `project_access` rows (admins see every project); making an admin a member gives the projects sent along (none when none are sent).
+- The last-admin rule (no removing or demoting the last admin), single-use invites and reset links, and "setup only while there is no account" are all checked inside the write transaction, so two requests at once cannot both win.
+- Renaming a project keeps its slug. Store queries live in `internal/store/{users,sessions,invites,resets}.go`; projects gained `UpdateProject`, `RotateProjectKeys` (both keys at once), `DeleteProject` and `ProjectIDs`.
+
+Passwords, sessions and CSRF:
+
+- argon2id with OWASP's settings (19 MiB, 2 passes, 1 thread, 16-byte salt, 32-byte key) in PHC form; verification reads the settings from the hash and refuses hashes asking for more than 64 MiB or 16 passes. At most 4 hashes run at once, so a burst of logins cannot run the container out of memory. Dependency `golang.org/x/crypto` v0.58.0 (approved in the plan; it moved `golang.org/x/sys` to v0.49.0).
+- Passwords: 10 to 256 characters, counted as characters; no other rules. A login for an unknown address is checked against a dummy hash and answers the same 401 text.
+- Session, invite and reset tokens are 32 random bytes (URL-safe base64). The database keeps an HMAC-SHA256 of each, keyed with a key derived from `SECRET_KEY`: a copy of (or a write to) the database is not enough to sign in, and changing `SECRET_KEY` signs everyone out and voids open links.
+- Cookie `monitor_session`, or `__Host-monitor_session` when `BASE_URL` is https (the prefix makes browsers insist on Secure, Path=/ and no Domain). Sliding expiry: a session lasts 30 days after its last use; the expiry and cookie are renewed at most once an hour, so minute polls do not write. An expired or unknown cookie is cleared. Expired sessions are deleted whenever someone signs in.
+- The CSRF token is random per session and stored as is (it is useless without the cookie); compared in constant time; required on every non-GET request behind `RequireUser`, pages included.
+- The sign-in endpoints have no session yet: they take JSON only (`httpjson.Read`, 415 otherwise), and `http.CrossOriginProtection` (Go 1.25+) refuses changes sent from other sites on the whole dashboard (not on ingest, which browser SDKs post to cross-site). BASE_URL is added as a trusted origin for proxies that change the Host header.
+- Dashboard answers carry `X-Frame-Options: DENY`, `Content-Security-Policy: frame-ancestors 'none'`, `X-Content-Type-Options: nosniff` and `Referrer-Policy: same-origin`; API answers `Cache-Control: no-store`. A full Content-Security-Policy is left out: it needs a review of inline styles first.
+- Wrong current password on the account page: 400 (a 401 would make the dashboard think the session ended) and it counts as a failed sign-in. Changing the password signs out the other sessions and keeps this one.
+- After accepting an invite or using a reset link, the person is signed in at once.
+
+Throttle and links:
+
+- Login throttle: a sliding window per key that keeps only the newest 5 or 20 times, swept when a limiter holds 10 000 keys. A successful sign-in (or password reset) clears the address's count, not the client's. The client is the TCP peer, or the last `X-Forwarded-For` hop when the peer is loopback or a private address (a reverse proxy such as Caddy in Docker); from a public peer the header is ignored, since a client could write it to escape the limit. Keys are SHA-256 of a random per-process salt and the address, so no address is kept.
+- "Forgot password" has the same limits (every request counts) and answers 429 the same way for any address; a malformed address gets 400. It answers at once and mails in the background, so its timing does not tell which addresses have an account; without mail it answers the same and sends nothing.
+- Unknown invite or reset tokens answer 404, expired or used ones 410. Links carry the token after `#token=`, which browsers never send: no server, proxy or Referer sees it. The pages post it to `POST /ui/api/invite/check` and `/ui/api/password/reset/check` (not a GET with the token in the URL).
+- Admin-made reset links are for members only (the spec: admins reset themselves on the server); for an admin the route answers 400 naming `monitor admin reset-password`. They are also mailed when mail is on (ruling 10). The CLI works for any account and only prints.
+
+Access:
+
+- `auth.User` carries the set of project ids its holder may see, read once per request by `RequireUser` (every id for an admin), so `CanAccessProject` and `AccessibleProjectIDs` need no database and no error. Their `ctx` is unused, kept for the planned signature. A request without a user (a route mounted outside `RequireUser` by mistake) may see nothing.
+- Admin-only API routes answer 404 to members, like a missing object, through `adminOnly` in `internal/api`.
+- The status route checks the status first (400 for any id), then looks the issue up and checks access (404), then changes it.
+- An admin may remove or demote themselves while another admin exists; the UI does not offer Remove on your own row.
+- `auth.Service.NewSession` is exported so tests in `api` and `server` act as a user without hashing passwords (160 ms each under `-race`); `internal/auth` tests lower the argon2 cost in `TestMain` instead.
+- Test placement: `TestReset_AdminLinkForMember` and `TestLastAdmin_CannotBeRemovedOrDemoted` are in `internal/api/users_test.go` (the routes live there), `TestCLI_AdminResetPassword` in `cmd/monitor/admin_test.go`; the brief listed them under `internal/auth`. Extra files beyond the brief: `internal/auth/{auth,links}.go`, `internal/testutil/smtp.go`.
+
+Mail:
+
+- `smtp://` needs STARTTLS, except to localhost or a loopback address (a relay on this machine); `smtps://` speaks TLS from the start; TLS 1.2 or newer. Ports default to 587 and 465. Only `?from=` is accepted (other settings are refused, to catch typos) and it must be one address. `config.Load` parses `MAIL_URL` at startup (so a bad value stops the start with the other problems) and keeps the parsed `mail.Config`; errors never repeat the password.
+- `mail.Parse` has no `BASE_URL`, so `mail.NewSender(cfg, baseURL)` applies the default sender `monitor@<BASE_URL host>`.
+- Messages are plain text in UTF-8, quoted-printable, with a Q-encoded subject and a Message-ID at the sender's domain; a line break in To or Subject is refused. Send gives up after 30 s by default; invite and reset mails use 20 s. A failed invite or reset mail is logged and reported as `mailed: false`; the link is still shown. Mail texts name `BASE_URL`, never the tool name (Go does not read it).
+- The fake SMTP server for tests is `internal/testutil/smtp.go` (STARTTLS, implicit TLS or plain, with httptest's certificate for 127.0.0.1), for Task 6 to reuse.
+
+Settings API:
+
+- Retention: 30, 90, 180 or 365 days, or `null` for indefinitely (400 otherwise); a new project keeps 90 days unless told otherwise. Names are trimmed, 1 to 100 characters. Tracking choices not sent are off (the form sends Laravel and browser on by default, as the design shows).
+- `PATCH` changes only the fields that are sent; `retentionDays: null` (sent) means indefinitely, a missing field leaves it.
+- The project list carries no keys; the single project (Setup and keys) adds `dsn`, `posthogToken` and `posthogHost` (= BASE_URL). Delete is `DELETE` without a body; the typed confirmation is in the UI.
+- `GET /ui/api/settings/users` lists every account (with a member's project ids) and the pending invites; links are only ever in the answer that made them.
+
+Dashboard:
+
+- Settings has three pages, Projects, Users and Account; their links sit in the "Settings" line above the headline, where the design has only the word. The sidebar's Settings (at its bottom, as designed) opens Projects for admins and Account for members, who see no other Settings page (and get "Page not found" on their URLs). Sign out is a button on the Account page.
+- Edit opens the form card in place of New project (`?edit=<id>`), with Keys (rotate after a confirmation) and Delete project (enabled once the name is typed) under it. Add project is `?new`; with no projects yet the form is open.
+- Sizes fitted to Settings.png at 1360 × 2 (within 1 px): labels and the note 14 px, checkbox labels 15 px, native checkboxes 20 px in the primary button's dark (`accent-color`), fields 44 px with a `#b9c2cc` border (new token `--color-input-border`), the open form card 20 px padding with a dark border (`--color-border-strong`), table rows 69.5 px, row buttons 40 px with 14 px text, chips 6 px apart, the dashed "Add page views" chip 32 px high.
+- "Add page views" (Settings) and "Add page tracking" (All projects, admins only) turn page views on and open Setup and keys at its page views card; members see "No page tracking yet" there. The All projects empty state links admins to Settings and tells members to ask an admin.
+- Setup and keys also shows the `Integration::handles($exceptions)` line for `bootstrap/app.php` and `php artisan sentry:test`, besides the brief's two Laravel lines, and labels the PostHog token and host; code boxes turn JetBrains Mono's ligatures off, so `->` and `://` look as they are copied.
+- "Created Sep 2, 2026" always shows the year, as the design does (`formatFullDate`); "Joined …" on the users list likewise.
+- The sign-in pages (no design) are one 420 px column on the page background: brand, headline, sentence, and the form in a card. The login page sends people on to `?next=` only when it is a path on this site and not a sign-in page (`safeNext`).
+- The shell loads `GET /ui/api/me` (polled with the other data) for the role and the CSRF token; a 401 from the API sends the browser to `/login?next=<here>`. The logo moved to `components/Logo.tsx` for the sign-in pages.
+
+End-to-end:
+
+- `global-setup.ts` creates the first admin on the setup page in Chromium and stores its session (`ADMIN_STATE`) for the specs, instead of `DEV_BASIC_AUTH`. `phase2-access.spec.ts` deletes the project it creates, because `phase2-issues` counts the two example projects. New screenshot `phase2-settings.png` (Settings → Projects with the New project form open).

@@ -6,7 +6,7 @@ A self-hosted monitoring tool: one Go binary that pretends to be Sentry (errors)
 
 | Command | What it does |
 | --- | --- |
-| `make dev` | Go server on `:8000` plus the Vite dev server (hot reload) on `:5173`, which forwards `/ui/api` and `/health` to Go. Data in `./data`. Ctrl-C stops both. |
+| `make dev` | Go server on `:8000` plus the Vite dev server (hot reload) on `:5173`, which forwards `/ui/api` and `/health` to Go. Data in `./data`. Ctrl-C stops both. On a fresh `./data` the dashboard opens the setup page: create the first admin there. |
 | `make test` | `go vet ./...`, `go test -race ./...`, web typecheck and Vitest. Run before every commit. |
 | `make e2e` | Playwright end-to-end tests in `e2e/`: builds the binary, starts it with the Laravel and browser examples, checks the dashboard in Chromium and saves screenshots. Needs PHP 8.3+ and Composer. |
 | `make build` | Web build into `web/dist`, then `bin/monitor` with the dashboard embedded. |
@@ -20,10 +20,13 @@ Run the binary by hand:
 ```sh
 SECRET_KEY=$(openssl rand -hex 32) BASE_URL=http://localhost:8000 DATA_DIR=./data bin/monitor serve
 SECRET_KEY=... BASE_URL=http://localhost:8000 DATA_DIR=./data bin/monitor project create --name Webshop
+SECRET_KEY=... BASE_URL=http://localhost:8000 DATA_DIR=./data bin/monitor admin reset-password --email you@example.com
 ADDR=:8000 bin/monitor healthcheck   # exit 0 when /health answers 200
 ```
 
-Container: `docker run -p 8000:8000 -e SECRET_KEY=... -e BASE_URL=http://localhost:8000 -e DEV_BASIC_AUTH=dev:some-password -v monitor-data:/data monitor:dev`. The image has no shell; run CLI commands with `docker exec <container> /monitor project create --name Webshop`.
+`admin reset-password` prints a one-time link (valid one hour) for any account; it must run with the server's `SECRET_KEY`, which keys the stored token hashes.
+
+Container: `docker run -p 8000:8000 -e SECRET_KEY=... -e BASE_URL=http://localhost:8000 -v monitor-data:/data monitor:dev`, then open it and create the first admin. The image has no shell; run CLI commands with `docker exec <container> /monitor project create --name Webshop`.
 
 ## Capturing real SDK traffic
 
@@ -56,17 +59,16 @@ node internal/sentry/testdata/capture/sanitize.mjs \
 | `SECRET_KEY` | required | At least 16 characters; the example values `verander-mij` and `change-me` are refused. |
 | `BASE_URL` | required | Root of a host, such as `https://monitor.example.com`. No subpath. DSNs are built from it. |
 | `DATABASE_URL` | empty | `postgres://...` selects Postgres (not supported until Task 11; startup refuses it). Empty: SQLite at `<DATA_DIR>/monitor.db`. |
-| `MAIL_URL` | empty | SMTP; read but unused until Task 5. |
+| `MAIL_URL` | empty | `smtp://user:pass@host:587` (STARTTLS, required except to localhost) or `smtps://user:pass@host:465`, optional `?from=` (default `monitor@<BASE_URL host>`). Parsed at startup by `mail.Parse`; invites and reset links are mailed when set. |
 | `ADDR` | `:8000` | Listen address. |
 | `DATA_DIR` | `/data` | SQLite file and later backups. |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`. |
-| `DEV_BASIC_AUTH` | empty | `user:password`. Temporary dashboard guard (Tasks 1 to 4, removed in Task 5). Without it, only requests made directly from this machine (loopback, no proxy headers) reach the dashboard, so in Docker or behind a proxy you need it. |
 | `TZ` | UTC | Schedules (later tasks). |
 
 ## Layout
 
 ```
-cmd/monitor/            the binary: main.go (command dispatch), serve.go, healthcheck.go, project.go
+cmd/monitor/            the binary: main.go (command dispatch), serve.go, healthcheck.go, project.go, admin.go
 internal/config/        Load(getenv): reads and validates the settings
 internal/store/         DB (one write connection + read pool), migrations, queries
   migrations/sqlite/    NNNN_name.sql, embedded, applied in order at startup
@@ -76,28 +78,33 @@ internal/sentry/        Sentry envelopes and events: ParseEnvelope, Event, Finge
 internal/scrub/         removes sensitive values and IP addresses before storage
 internal/ingest/        SDK endpoints: Sentry envelope handler, auth, CORS, rate limit, queue, batch writer
 internal/issues/        Service.SetStatus (resolve, ignore, reopen) and the Hooks the writer calls on new and regressed issues (NoHooks until Task 6)
-internal/httpjson/      Write and Error: the JSON responses every endpoint shares
-internal/api/           dashboard JSON API under /ui/api/ (overview, projects, issues, issue detail, status, User-Agent names)
-internal/server/        router, dashboard guard, request logging, panic recovery, /health
+internal/httpjson/      Write and Error (the JSON responses every endpoint shares) and Read (JSON request bodies)
+internal/auth/          accounts: passwords (argon2id), sessions, CSRF, login throttle, invites and reset links, the sign-in handlers, access helpers
+internal/mail/          MAIL_URL parsing and a plain-text SMTP sender
+internal/api/           dashboard JSON API under /ui/api/ (overview, projects, issues, issue detail, status, settings for projects and users)
+internal/server/        router (public, sign-in and signed-in routes), security headers, request logging, panic recovery, /health
+internal/testutil/      fakes for tests in several packages (a fake SMTP server)
 internal/web/           serves the embedded SPA with index.html fallback
 web/                    Vite + React + TypeScript dashboard
   embed.go              Go package monitor/web: embeds web/dist into the binary
   dist/.keep            committed placeholder so `go build` works before a web build
   src/brand.ts          the tool name, the only place it lives
   src/styles/tokens.css every color, font, radius and spacing value, sampled from the designs
-  src/api/client.ts     typed calls to /ui/api
-  src/lib/              pure helpers with Vitest tests (format, levels, frames, issueFilters) and usePolling
-  src/layout/           AppShell (loads the projects), Sidebar
-  src/pages/            AllProjectsPage, IssuesPage, IssueDetailPage, NotFoundPage
-  src/components/       HourBars (+ HourLegend), StackTrace, Tag, Icons, LoadError, Button.module.css
+  src/api/client.ts     typed calls to /ui/api; changes send the session's CSRF token
+  src/lib/              pure helpers with Vitest tests (format, levels, frames, issueFilters, settings, signin) and usePolling, useLinkCheck, clipboard
+  src/layout/           AppShell (loads the user and the projects), Sidebar, MeContext, ProjectsContext
+  src/pages/            AllProjectsPage, IssuesPage, IssueDetailPage, NotFoundPage; Setup, Login, Invite, ForgotPassword, ResetPassword;
+                        SettingsProjectsPage, ProjectSetupPage, SettingsUsersPage, AccountPage
+  src/components/       HourBars (+ HourLegend), StackTrace, Tag, Icons, Logo, LoadError, CopyBlock, AuthLayout, SettingsHeader,
+                        AdminOnly, Button.module.css, Form.module.css
 examples/laravel/       Laravel 13 app with sentry/sentry-laravel: /boom and /boom-other fail on purpose
 examples/browser/       Vite page with @sentry/browser, DSN from ?dsn=: a TypeError and an unhandled rejection
-e2e/                    Playwright: global-setup.ts starts everything, phase1.spec.ts, phase2-issues.spec.ts, screenshots/
+e2e/                    Playwright: global-setup.ts starts everything and makes the first admin, phase1.spec.ts, phase2-access.spec.ts, phase2-issues.spec.ts, screenshots/
 tools/capture/          recorder for real SDK traffic (see "Capturing real SDK traffic")
 docs/decisions.md       one line per judgment call
 ```
 
-Packages still to come (see the plan): `internal/posthog`, `internal/auth`, `internal/mail`, `internal/alerts`, `internal/jobs`, `internal/routes`, `internal/bots`.
+Packages still to come (see the plan): `internal/posthog`, `internal/alerts`, `internal/jobs`, `internal/routes`, `internal/bots`.
 
 ## How Sentry ingest works
 
@@ -105,17 +112,33 @@ SDKs send envelopes to `POST /api/<project id>/envelope/` (DSN `http(s)://<key>@
 
 Try it by hand: `bin/monitor project create --name Webshop`, then point an SDK at the printed DSN, or replay a fixture: `curl -X POST http://localhost:8000/api/1/envelope/ -H "X-Sentry-Auth: Sentry sentry_key=<key>" -H 'Content-Encoding: gzip' --data-binary @internal/sentry/testdata/php-exception.envelope.gz`. The issues then show in the dashboard under the project's Issues.
 
+## Accounts and access
+
+The first account is made on `/setup` (an admin); after that `POST /ui/api/setup` answers 404 and people join with an invite link an admin makes in Settings → Users (7 days, once). Roles: admin (every project, Settings) and member (only the projects in `project_access`). An admin can never remove or demote the last admin (409; checked inside the write transaction).
+
+- Passwords: 10 to 256 characters, argon2id (19 MiB, 2 passes, 1 thread; parameters live in each hash), at most 4 hashes at once.
+- Sessions: a random token in the cookie `monitor_session` (`__Host-monitor_session` when `BASE_URL` is https): HttpOnly, SameSite=Lax, Secure over https, 30 days after last use (renewed at most once an hour). The database holds an HMAC-SHA256 of the token keyed from `SECRET_KEY`, as for invite and reset tokens, so changing `SECRET_KEY` signs everyone out and kills open links.
+- CSRF: every non-GET request behind `RequireUser` needs `X-CSRF-Token` equal to the session's token (from `GET /ui/api/me`); JSON bodies only (`httpjson.Read`); `http.CrossOriginProtection` refuses changes sent from other sites on the whole dashboard (not on ingest, which browsers post to cross-site).
+- Login throttle (in memory): 5 failed sign-ins per address and 20 per client in 15 minutes, then 429 with `Retry-After`. The client is the TCP peer, or the last `X-Forwarded-For` hop when the peer is loopback or a private address (a reverse proxy); keys are salted hashes. Forgot-password requests have the same limits; a wrong current password on the account page counts as a failed sign-in.
+- Reset links: by mail from the login page (same answer for unknown addresses; the mail goes out in the background), by an admin for a member in Settings → Users (also mailed when mail is on), or `monitor admin reset-password`. One hour, once; using one signs the account out everywhere. A newer link replaces older ones.
+- Links carry their token after `#token=`: browsers never send it, so no server or proxy log sees it; the pages post it in a body.
+
+Every project-scoped handler must check access with `auth.CanAccessProject(ctx, auth.UserFrom(ctx), projectID)` (404 when false, the same as a missing object) or limit queries to `auth.AccessibleProjectIDs`; a request without a user can see nothing (fail closed). Admin-only API routes go through `adminOnly` in `internal/api` (404 for members). Add each new route to `TestAccessMatrix` in `internal/api/access_matrix_test.go`. Tests act as a user with `auth.Service.NewSession`.
+
+Auth API: public `GET /ui/api/auth/status` → `{setupNeeded, mailEnabled}`, `POST /ui/api/setup`, `/ui/api/login`, `/ui/api/invite/check`, `/ui/api/invite/accept`, `/ui/api/password/forgot`, `/ui/api/password/reset/check`, `/ui/api/password/reset`; signed in `GET /ui/api/me` → `{id, email, role, csrfToken, mailEnabled}`, `POST /ui/api/logout`, `POST /ui/api/me/password`. The sign-in calls answer like `/me` and set the cookie.
+
 ## The dashboard
 
-Routes: `/` (All projects), `/projects/:id/issues` (tab, filters and search in the query: `?status=resolved&source=browser&sort=events&q=cart&route=/checkout`), `/projects/:id/issues/:issueId`. Pages poll their data every 60 s (`usePolling`, which also keeps the old rows while new filters load and holds polls back during an optimistic change); the shell loads the project list for the sidebar, which shows the project of the URL (or the last one visited, or the first). A status change reloads that list, so the sidebar's open count follows.
+Routes: `/` (All projects), `/projects/:id/issues` (tab, filters and search in the query: `?status=resolved&source=browser&sort=events&q=cart&route=/checkout`), `/projects/:id/issues/:issueId`, `/settings` (Projects for admins, Account for members), `/settings/projects` (`?new`, `?edit=<id>`), `/settings/projects/:id/setup`, `/settings/users` (`?invite`, `?edit=<id>`), `/settings/account`; outside the shell `/setup`, `/login?next=`, `/invite#token=`, `/forgot-password`, `/reset-password#token=`. The server redirects pages without a session to `/login` (or `/setup` before the first account); the SPA does the same when the API answers 401. Pages poll their data every 60 s (`usePolling`, which also keeps the old rows while new filters load and holds polls back during an optimistic change); the shell loads the project list for the sidebar, which shows the project of the URL (or the last one visited, or the first). A status change reloads that list, so the sidebar's open count follows.
 
-API (`internal/api`, registered on the dashboard mux, so behind the guard):
+API (`internal/api`, registered on the dashboard mux, so behind `auth.RequireUser`; members get only their projects everywhere):
 
 - `GET /ui/api/overview` → `{updatedAt, projects: [{id, name, sources, newIssues24h, errors24h, hourly, pageviews24h: null, avgTimeOnPageMs: null}], newestIssues: [{id, projectId, projectName, type, message, lastSeen}]}`. Projects with new issues first, then by errors, then by name. `newIssues24h` counts open issues first seen in the last 24 hours, `errors24h` every event of the last 24 hours; `newestIssues` are at most five of those new open issues across projects, most recently seen first. The page-view fields stay null until Task 8.
 - `GET /ui/api/projects` → `[{id, name, slug, sources, openIssues}]`
 - `GET /ui/api/projects/{id}/issues?status=open&source=laravel&sort=last_seen&q=…&route=…&limit=25&offset=0` → `{project, counts, openIssues, new24h, total, issues: [{id, type, message, source, culprit, events, users, firstSeen, lastSeen, isNew, hourly}]}`. `source` is `laravel` or `browser`; `sort` is `last_seen` (default), `first_seen`, `events` or `users`; `q` (at most 200 characters) matches title, message, culprit or the URL of any event, ignoring case; `route` keeps issues with an event on that route (filled from Task 7). `counts` and `total` follow the filters; `openIssues` and `new24h` describe the whole project (the headline). `hourly` is 24 clock hours (UTC), oldest first, the current hour last.
 - `GET /ui/api/issues/{id}` → `{issue: {…, status, projectId}, hourly, latestEvent}`. `latestEvent.frames` is the main exception's trace with the most recent call first and at most three lines of code on each side of the error line; optional fields (user, browser, os, environment, server, runtime, url, release, country) are left out when the event lacks them. Browser and system come from the request's User-Agent header.
-- `POST /ui/api/issues/{id}/status` with `Content-Type: application/json` and `{"status":"open|resolved|ignored"}` → `{id, projectId, status}`; 400 for another status, 415 for another content type (until Task 5 that keeps other sites from posting forms here), 404 for an unknown issue.
+- `POST /ui/api/issues/{id}/status` with `Content-Type: application/json`, `X-CSRF-Token` and `{"status":"open|resolved|ignored"}` → `{id, projectId, status}`; 400 for another status, 415 for another content type, 404 for an unknown issue or one of another project.
+- Settings, admins only (404 for members): `GET/POST /ui/api/settings/projects`, `GET/PATCH/DELETE /ui/api/settings/projects/{id}`, `POST /ui/api/settings/projects/{id}/rotate-keys` (bodies `{name, retentionDays: 30|90|180|365|null, tracksLaravel, tracksBrowser, tracksPageviews}`, PATCH changes only what is sent; the single-project answers add `dsn`, `posthogToken`, `posthogHost`), `GET /ui/api/settings/users` → `{users, invites}`, `PATCH/DELETE /ui/api/settings/users/{id}` (`{role?, projectIds?}`), `POST /ui/api/settings/users/{id}/reset-link` (members only) → `{link, expiresAt, mailed}`, `POST /ui/api/settings/invites` (`{email, role, projectIds}`) → `{invite, link, mailed}`, `DELETE /ui/api/settings/invites/{id}`.
 
 Issue status lives in `issues.Service.SetStatus` (resolving records `resolved_at`). The ingest writer reopens a resolved issue when an event arrives that was received at or after the resolve: status `open`, `resolved_at` cleared, `regressed_at` set, and `Hooks.OnIssueRegressed` called once after the batch. Ignored issues stay ignored but keep counting events.
 
@@ -125,13 +148,13 @@ The look comes from the PNGs: Instrument Sans and JetBrains Mono (bundled with `
 
 ## Conventions
 
-- Simple, idiomatic Go; stdlib first (`net/http` routing, `log/slog`, `embed`, `database/sql`). The team is new to Go: clarity over cleverness. New dependencies need a line in `docs/decisions.md`. Approved: `modernc.org/sqlite`.
+- Simple, idiomatic Go; stdlib first (`net/http` routing, `log/slog`, `embed`, `database/sql`). The team is new to Go: clarity over cleverness. New dependencies need a line in `docs/decisions.md`. Approved: `modernc.org/sqlite`, `golang.org/x/crypto` (argon2id).
 - Subcommands: `serve` (default), `healthcheck`, `project create`, later `admin reset-password`, `restore`, `delete-user-data`. One file per subcommand in `cmd/monitor/`. `run(args, getenv, stdout, stderr) int` keeps them testable.
 - Times in the DB are unix milliseconds (`BIGINT`); JSON uses RFC 3339. JSON payloads are `TEXT`. Booleans are `BOOLEAN` with `TRUE`/`FALSE`.
 - SQL stays in the subset SQLite and Postgres share: use `INSERT ... RETURNING id`, not `LastInsertId`. Placeholders are `?` for now (Task 11 adds a dialect helper).
 - Migrations are append-only: never edit a committed file, add `NNNN_name.sql`. Every SQLite migration needs a Postgres twin from Task 11 on. Tracked in `schema_migrations`.
 - All writes go through `db.write` (one connection, `BEGIN IMMEDIATE`); queries use `db.read` (read-only pool).
-- Routing: public routes (SDK ingest, `/health`) go on the public mux in `internal/server`; everything else falls through the dashboard guard. Dashboard API under `/ui/api/`, camelCase JSON, errors as `{"error":"..."}`. Missing access and missing objects both return 404.
+- Routing: public routes (SDK ingest, `/health`) go on the public mux in `internal/server`; the sign-in pages and their API (`auth.PublicPages`, `RegisterPublic`) and `/assets/` are open; everything else falls through `auth.RequireUser`. Dashboard API under `/ui/api/`, camelCase JSON, errors as `{"error":"..."}`. Missing access and missing objects both return 404. Error messages meant for people (shown by the UI as they are) start with a capital letter and end with a period.
 - Never store or log IP addresses. Request logs leave out the query string and the client address. Everything an SDK sends goes through `internal/scrub` before it is queued or stored.
 - Frontend: plain CSS, design tokens as CSS variables in `web/src/styles/tokens.css`, CSS modules per component, no UI kit, no chart library. No color, font, radius or line-height literal outside `tokens.css`. Fonts bundled via `@fontsource-variable`. Light theme only. Poll every 60 s. UI copy is English and matches the designs; show only data that exists (no placeholders, no fake numbers). The tool name shows as `[Tool name]`, defined only in `web/src/brand.ts`; Go never reads it.
 - Tests first (TDD), next to the code (`*_test.go`, `*.test.ts(x)`). Tests use temp directories, never `/data`, and keep output clean.
@@ -141,12 +164,14 @@ The look comes from the PNGs: Instrument Sans and JetBrains Mono (bundled with `
 
 - `vite build` empties `web/dist`; a plugin in `web/vite.config.ts` writes `dist/.keep` back. A binary built without the web build answers dashboard pages with 503 and a hint.
 - `go.mod` ignores `./web/node_modules`, `./e2e/node_modules` and `./examples`, so `./...` never descends into npm or Composer packages.
-- Without `DEV_BASIC_AUTH` the dashboard guard lets in only requests made directly from this machine: the TCP peer must be loopback and the request must carry no `Forwarded`, `X-Forwarded-For` or `X-Real-IP` header. A reverse proxy on the same host (or a container with `--network host`) connects from 127.0.0.1 too; the forwarding headers it adds are what gives it away, so a proxy that strips them would still get in. Forwarding headers are never trusted to let a request in. Behind Docker port mapping or any proxy, set `DEV_BASIC_AUTH`.
+- Until the first account exists, anyone who reaches the dashboard can create it: create it right after the first start (the log warns while there is none).
+- Behind a reverse proxy the login throttle counts per client only if the proxy sets `X-Forwarded-For` and connects from loopback or a private address; otherwise all clients share the proxy's count of 20 failures.
+- argon2id costs about 160 ms per hash under `-race`. `internal/auth` tests lower the cost in `TestMain`; other packages' tests make users with a dummy hash and sign in with `auth.Service.NewSession` instead of the login endpoint.
 - The runtime image is distroless (no shell, no curl); the Docker `HEALTHCHECK` runs `/monitor healthcheck`.
 - Accepted SDK requests are logged at debug (`LOG_LEVEL=debug` to see them); refused ones (401, 413, 429, ...) at info.
 - Only the ingest writer should write ingested data, and code inside a `db.write` transaction must use the `*sql.Tx`, never `db.write` itself: the write pool has one connection, so that would wait forever.
 - `make e2e` rewrites `e2e/screenshots/*.png` on every run (relative times and data differ). Commit them when the dashboard changed on purpose; otherwise `git checkout e2e/screenshots`. Process output of a run is in `e2e/.logs/`.
 - The e2e setup starts each process in its own process group and stops the group, because `php artisan serve` runs `php -S` as a child. It passes the DSN to Laravel as an environment variable with `--no-reload` (without it, artisan serve drops variables that are not in `.env`) and sets `SENTRY_SERVER_NAME=web-1` so screenshots never show this machine's host name.
 - The stack trace marks the error line with `aria-current="true"`; the e2e test finds it that way.
-- The e2e setup creates two projects: "Webshop" (fed by the Laravel and browser examples) and "Customer portal" (`PORTAL_DSN`; phase 2 points the browser example at it with `?dsn=`). The specs share one monitor and run in file order, but each makes the errors it checks itself.
+- The e2e setup creates two projects: "Webshop" (fed by the Laravel and browser examples) and "Customer portal" (`PORTAL_DSN`; phase 2 points the browser example at it with `?dsn=`). The specs share one monitor and run in file order, but each makes the errors it checks itself. The first admin is created on the setup page in global setup; specs sign in with `browser.newContext({ storageState: env('ADMIN_STATE') })`. `phase2-access` deletes the project it creates again, since `phase2-issues` expects the two example projects only.
 - `go test -race ./internal/ingest/` takes about 17 s: `TestIngest_ConcurrentLoad` sends 10 000 envelopes over HTTP. `go test ./internal/sentry/ -run '^$' -fuzz FuzzParseEnvelope -fuzztime 60s` fuzzes parse, scrub and grouping.
