@@ -2,7 +2,7 @@
 
 A light, self-hosted tool for errors and page statistics. Your apps keep their existing SDKs: the tool pretends to be Sentry (errors from Laravel and the browser) and PostHog (page views). It runs as one Go binary with the dashboard built in, in one small container with all data on one volume. The name is not decided yet; the dashboard shows `[Tool name]`.
 
-Status: early development (phase 2 of the plan). The first visitor creates the admin account; others join with an invite link, as admins or as members who see only the projects they are given. Projects are made in Settings, which shows the DSN and the setup steps. Point a Sentry SDK at that DSN: errors are stored, grouped into issues, and listed in the dashboard with their stack trace. Issues can be resolved, ignored and reopened; a resolved issue opens again when the error comes back. The All projects page shows which projects have new errors. Each project's Alerts page sends new issues, returning issues, error spikes and a daily, weekly or monthly summary by mail and to Slack; admins hear about problems of the tool itself, such as a disk that runs full. Old data is deleted after each project's retention, the database is backed up before every update, and Settings → Status and `/health` show how the tool is doing. Page views come next.
+Status: early development (phase 2 of the plan). The first visitor creates the admin account; others join with an invite link, as admins or as members who see only the projects they are given. Projects are made in Settings, which shows the DSN and the setup steps. Point a Sentry SDK at that DSN: errors are stored, grouped into issues, and listed in the dashboard with their stack trace. Issues can be resolved, ignored and reopened; a resolved issue opens again when the error comes back. The All projects page shows which projects have new errors. Each project's Alerts page sends new issues, returning issues, error spikes and a daily, weekly or monthly summary by mail and to Slack; admins hear about problems of the tool itself, such as a disk that runs full. Old data is deleted after each project's retention, the database is backed up before every update, and Settings → Status and `/health` show how the tool is doing. Phase 3 has started: the tool accepts posthog-js page views and builds hourly page statistics (views, visitors, time on page, bots apart, errors per page); the Pages screen comes next.
 
 Tested with these SDKs, sending real errors to the tool (see `examples/` and `make e2e`):
 
@@ -84,12 +84,28 @@ Forgot your password? With `MAIL_URL` set, the login page mails a reset link. Wi
 | `TZ` | no | UTC | Time zone of the schedules: summaries go out at 08:00 there, for example `Europe/Amsterdam`. |
 | `DEV_ALLOW_HTTP_WEBHOOKS` | no | `false` | For development and tests only, never in production: `true` lets Slack webhooks use plain http (a fake Slack on your machine). Webhooks must otherwise be https. |
 
+## Page views (PostHog)
+
+Point posthog-js at the tool: `api_host` is your `BASE_URL`, the token is the project's PostHog token (Settings → Projects → Setup and keys). Without cookies:
+
+```js
+posthog.init('<project token>', {
+  api_host: 'https://monitor.example.com',
+  persistence: 'memory',
+  capture_pageview: 'history_change',
+  capture_pageleave: true,
+  disable_session_recording: true,
+})
+```
+
+The tool answers the endpoints posthog-js calls (`/i/v0/e/`, `/e/`, `/batch/`, `/flags/`, `/decide/`, `/array/<token>/config.js`, …) with no feature flags and recording, surveys, autocapture and heatmaps off. Time on a page runs from its page view to its page leave or the next page view in the same tab; a visit that never closed counts as a view but not in the average time. Known bots (by User-Agent) are counted apart. IP addresses are not stored. Ids, UUIDs, hashes and tokens in paths are grouped into one route automatically (`/orders/1234` counts as `/orders/:id`); route patterns per project (`/products/:slug`) come with the Pages screen.
+
 ## Alerts and health
 
 - Per project, on its Alerts page (admins change it; members who see the project read it): new issue, returning issue, spike (at least 5 times the usual hourly number of errors by default, and 10 or more; at most once in 6 hours) and a summary (daily, weekly on Mondays or monthly on the 1st, at 08:00 in `TZ`), each by email and to Slack. Mail goes to everyone who may see the project; Slack to the project's incoming webhook, which must start with `https://` ("Send test message" checks it). At most 30 notifications per project and channel an hour; then one message says how many more were held back.
 - For admins: a mail (and a message on the admins' Slack webhook, set in Settings → Status) when the disk under `DATA_DIR` has less than 10 % or 1 GiB free, when events could not be stored, or when events were turned away because the tool could not keep up; at most once in 12 hours each.
 - `GET /health` answers 200 with status `ok`, or `degraded` naming what fails while the tool still works (a disk under 10 % or 1 GiB free, or one that cannot be read); 503 with status `error` only when it cannot work (the database fails, or the disk has under 1 % or 256 MiB free). The answer has the version, the free disk space and the queue depth; the Docker health check uses it. Settings → Status shows the same and more: uptime, database size, events in the last hour, the last backup and the recent admin alerts.
-- Retention: once a day each project's data older than its "Keep data for" is deleted; "Indefinitely" keeps everything.
+- Retention: once a day each project's data older than its "Keep data for" is deleted (errors, page views and their hourly statistics); "Indefinitely" keeps everything.
 - Updates: when a new version changes the database, it first copies it to `DATA_DIR/backups/pre-migrate-<version>-<time>.db` (the five newest are kept) and refuses to start if that copy fails.
 
 The tool speaks plain HTTP. Put a reverse proxy such as Caddy in front of it for HTTPS; with an `https://` `BASE_URL` the session cookie is sent over HTTPS only.

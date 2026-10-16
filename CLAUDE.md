@@ -11,10 +11,11 @@ A self-hosted monitoring tool: one Go binary that pretends to be Sentry (errors)
 | `make e2e` | Playwright end-to-end tests in `e2e/`: builds the binary, starts it with the Laravel and browser examples, checks the dashboard in Chromium and saves screenshots. Needs PHP 8.3+ and Composer. |
 | `make build` | Web build into `web/dist`, then `bin/monitor` with the dashboard embedded. |
 | `make docker` | Image `monitor:dev` for this machine's platform. |
+| `make perf` | The page statistics' performance check (`go test -tags perf ./internal/jobs -run TestPerf -v`): 1 000 000 page views in a temp database (about 220 MB, deleted afterwards); results and targets in `docs/perf.md`. Not part of `make test`. |
 | `docker compose up -d` | The container as the spec's example runs it (`compose.yaml`: `monitor:dev`, one volume, `TZ=Europe/Amsterdam`); needs `SECRET_KEY` in the environment. |
 | `make clean` | Remove `bin/` and the web build. |
 
-Focused runs while iterating: `go test -race ./internal/store/ -run TestCreateProject`, `go test ./internal/api/`, `go test -race ./internal/alerts/`, `cd web && npm test`, `cd e2e && npx playwright test` (after `make build` once).
+Focused runs while iterating: `go test -race ./internal/store/ -run TestCreateProject`, `go test ./internal/api/`, `go test -race ./internal/alerts/`, `go test ./internal/store/ -run TestDurations`, `go test ./internal/ingest/ -run TestPosthog`, `cd web && npm test`, `cd e2e && npx playwright test` (after `make build` once).
 
 Run the binary by hand:
 
@@ -31,12 +32,14 @@ Container: `docker run -p 8000:8000 -e SECRET_KEY=... -e BASE_URL=http://localho
 
 ## Capturing real SDK traffic
 
-`tools/capture` is a tiny recorder: point any SDK or CLI at it and it writes each request to `NNNN-METHOD-path.json` (method, path, query, host, headers) and `NNNN-METHOD-path.body` (the body exactly as sent, still compressed; sanitize it before committing, see below). It answers `200 {}` (`-response` changes the body) and allows CORS from any origin, so browser SDKs work too. Use it to make test fixtures from real clients instead of hand-written ones.
+`tools/capture` is a tiny recorder: point any SDK or CLI at it and it writes each request to `NNNN-METHOD-path.json` (method, path, query, host, headers) and `NNNN-METHOD-path.body` (the body exactly as sent, still compressed; sanitize it before committing, see below). It answers `200 {}` (`-response` changes the body; `-responses <file>` answers chosen paths like the real service, see `loadAnswers`) and allows CORS from any origin, so browser SDKs work too. Use it to make test fixtures from real clients instead of hand-written ones.
 
 ```sh
 go run ./tools/capture -addr 127.0.0.1:19999 -out /tmp/captured
 # then use a DSN like http://5f2b6a0c7d3e4f1a8b9c0d1e2f3a4b5c@127.0.0.1:19999/1 (any 32-hex key works)
 ```
+
+Every recipe's sanitize step uses the leak check in `tools/capture/leaks.mjs` (this machine's user name as a path segment, its host name as a host token), and `tools/capture/fixtures.test.mjs` (part of `make test`) runs it over every file under `internal/*/testdata` (gzip bodies decompressed): a recording committed without its sanitize step fails on the machine that made it.
 
 The Sentry fixtures in `internal/sentry/testdata/` were made with the recipes in `internal/sentry/testdata/capture/` (SDK versions in `docs/decisions.md`). To redo them after an SDK update, copy a recipe to a temp directory and:
 
@@ -50,6 +53,8 @@ node internal/sentry/testdata/capture/sanitize.mjs \
   /tmp/captured/0001-POST-api-1-envelope.body /tmp/captured/0001-POST-api-1-envelope.json \
   internal/sentry/testdata/php-exception <php-app-dir>
 ```
+
+PostHog fixtures (`internal/posthog/testdata/`, posthog-js 1.438.12, recipe in `internal/posthog/testdata/capture/`): copy the recipe to a temp directory, `npm install && npx playwright install chromium && npm run build`, start the recorder with the monitor's answers, `go run ./tools/capture -addr 127.0.0.1:19999 -out <dir> -responses internal/posthog/testdata/capture/responses.json` (posthog-js picks its compression from the remote config, so the answers matter; `TestPosthog_ConfigMatchesTheCapture` fails when the monitor's config and `responses.json` differ), then `POSTHOG_HOST=http://127.0.0.1:19999 npm run capture`. It loads a page, changes the page with `history.pushState`, calls `identify` and `capture('custom')`, and closes the page, waiting 4 s between steps. Sanitize each recorded request with `node internal/posthog/testdata/capture/sanitize.mjs <NNNN.body> <NNNN.json> internal/posthog/testdata/<NN-name>` (it refuses leaks, keeps the gzip body as sent and drops the receive time). `TestPosthog_Fixtures` replays them in order, with the clock at each body's `sent_at`.
 
 `<php-app-dir>` is the real path of the recipe copy the PHP server ran from (`pwd -P` in it, which resolves `/tmp` to `/private/tmp` on macOS); leave it out for the browser. The script replaces it with `/var/www/webshop`, sets `contexts.os` to neutral Linux values, keeps gzip bodies gzip, fixes `Content-Length`/`bodySize`, and refuses to write while your user name (as a path segment), host name (as a whole host token, in the case the system reports it) or the app directory is still in the body. Then update the ids and values the tests expect (they name them). `node --test internal/sentry/testdata/capture/sanitize.test.mjs` (part of `make test`) tests that leak check.
 
@@ -77,14 +82,19 @@ internal/store/         DB (one write connection + read pool), migrations, queri
 internal/project/       project helpers that are not queries (DSN)
 internal/sentry/        Sentry envelopes and events: ParseEnvelope, Event, Fingerprint, Summarize, Source
   testdata/             real SDK requests (fixtures) and the recipes that made them (capture/)
+internal/posthog/       PostHog bodies and events: ParseBody (decode.go), Event (events.go), the flags and remote config answers (responses.go)
+  testdata/             requests recorded from posthog-js (NN-name.body + .request.json) and their recipe (capture/)
+internal/routes/        Normalize: a page's path to its route (/orders/1234 → /orders/:id), with the project's patterns first
+internal/bots/          IsBot: crawlers and headless browsers by User-Agent
+internal/hll/           mergeable visitor sketches (exact sets up to 4096, then a HyperLogLog of 2^14 registers)
 internal/scrub/         removes sensitive values and IP addresses before storage
-internal/ingest/        SDK endpoints: Sentry envelope handler, auth, CORS, rate limit, queue, batch writer
+internal/ingest/        SDK endpoints: Sentry envelope handler, PostHog handler (posthog_handler.go), auth, CORS, rate limit, queue, batch writer
 internal/issues/        Service.SetStatus (resolve, ignore, reopen) and the Hooks the writer calls on new and regressed issues (alerts.Notifier in serve)
 internal/httpjson/      Write and Error (the JSON responses every endpoint shares) and Read (JSON request bodies)
 internal/auth/          accounts: passwords (argon2id), sessions, CSRF, login throttle, invites and reset links, the sign-in handlers, access helpers
 internal/mail/          MAIL_URL parsing and a plain-text SMTP sender
 internal/alerts/        notifications: Notifier (issues.Hooks, queues, delivery), cap.go (hourly cap), messages.go, slack.go, email.go, spike.go, digest.go, admin.go
-internal/jobs/          Scheduler (Every, DailyAt, injectable clock) and Retention
+internal/jobs/          Scheduler (Every, DailyAt, injectable clock), Retention, Aggregate (hourly page statistics), perf_test.go (build tag perf)
 internal/health/        Checker.Check: database, disk under DATA_DIR, queue depth; the /health handler
 internal/api/           dashboard JSON API under /ui/api/ (overview, projects, issues, issue detail and status, alerts, settings for projects, users and the status page)
 internal/server/        router (public, sign-in and signed-in routes), security headers, request logging, panic recovery, /health
@@ -108,17 +118,26 @@ examples/browser/       Vite page with @sentry/browser, DSN from ?dsn=: a TypeEr
 e2e/                    Playwright: global-setup.ts starts everything and makes the first admin, phase1.spec.ts, phase2-access.spec.ts, phase2-issues.spec.ts,
                         phase2-status.spec.ts (alerts with a fake Slack, the status page), screenshots/
 compose.yaml            the spec's compose example with the local image
-tools/capture/          recorder for real SDK traffic (see "Capturing real SDK traffic")
+tools/capture/          recorder for real SDK traffic, the shared leak check (leaks.mjs) and the fixtures guard (fixtures.test.mjs)
 docs/decisions.md       one line per judgment call
+docs/perf.md            the page statistics' performance check and its results
 ```
-
-Packages still to come (see the plan): `internal/posthog`, `internal/routes`, `internal/bots`.
 
 ## How Sentry ingest works
 
 SDKs send envelopes to `POST /api/<project id>/envelope/` (DSN `http(s)://<key>@<host>/<project id>`). The handler in `internal/ingest` authenticates the key (`X-Sentry-Auth`, `?sentry_key=` or the envelope's `dsn`), decompresses (gzip, deflate; 20 MiB limit before and after), parses with `sentry.ParseEnvelope` (event items up to 1 MiB, other item types skipped), applies the project's events-per-minute limit, scrubs each event with `scrub.Event` and puts it on the bounded `ingest.Queue` (10 000 events or 256 MiB of event JSON). It never waits: a full queue answers 429 with `Retry-After: 5`. One `ingest.Writer` takes events off the queue and writes them in batches (500 or every second) through `store.SaveErrorEvents`, which groups them into issues by `sentry.Fingerprint` and skips repeated event ids. Bad traffic gets a 4xx, never a 5xx; only a failing database gives 503.
 
 Try it by hand: `bin/monitor project create --name Webshop`, then point an SDK at the printed DSN, or replay a fixture: `curl -X POST http://localhost:8000/api/1/envelope/ -H "X-Sentry-Auth: Sentry sentry_key=<key>" -H 'Content-Encoding: gzip' --data-binary @internal/sentry/testdata/php-exception.envelope.gz`. The issues then show in the dashboard under the project's Issues.
+
+## How PostHog ingest and page statistics work
+
+posthog-js (or any PostHog SDK) gets `api_host` = `BASE_URL` and the project's PostHog token. The paths are at the root, on the public mux (`ingest.RegisterPosthog`, with and without the trailing slash; the dashboard must not use these prefixes): `/i/v0/e/`, `/e/`, `/capture/`, `/batch/` (capture, GET and POST), `/flags/` (`{"flags":{},"errorsWhileComputingFlags":false,"requestId":…}`), `/decide/` (the older union of config and flags), `/array/<token>/config` and `/config.js` (remote config with recording, surveys, autocapture, heatmaps, web vitals and dead clicks off, and `supportedCompression: ["gzip","gzip-js"]`), `/static/…` (an empty script: extensions are off), `/s/` (recordings: 200, dropped); other paths under these prefixes get 200 and a debug line. CORS allows any origin, GET and POST, and the headers the browser asks for.
+
+A capture body is JSON, gzip (posthog-js 1.438 sends it as `text/plain` and says so only by its first bytes; older versions add `?compression=gzip-js`), base64 (`compression=base64`, also inside a `data=` form or a GET `?data=`), with `Content-Encoding: gzip` undone first (20 MiB before and after; events over 1 MiB dropped); anything else is 400. Each event belongs to the project of its own `properties.token`, else the body's `api_key`/`token`; any unknown token refuses the request (401). Every token is accepted whether or not the project's "page views" flag is on (the flag only decides what the dashboard shows). The project's events-per-minute limit applies with a limiter of its own (429 with `Retry-After`), then `$pageview` and `$pageleave` are scrubbed (`scrub.Properties`: `$ip` and other IP fields dropped, key and URL rules) and go on the same queue as Sentry events; other events are accepted and not stored yet (custom events come in Task 9). The handler computes the page view's path (from `$current_url`, no query or fragment), its route (`routes.Normalize` with the project's `route_patterns`, so patterns apply to new data only) and whether it is a bot (`bots.IsBot` on the request's User-Agent or `$raw_user_agent`, or `$browser_type: bot`). Sentry error events get their route the same way, from `request.url`.
+
+The writer stores page views in `pageviews` (one per `$pageview_id`) and leaves in `pageleaves` (one per event uuid), in a transaction of their own (`store.SavePageEvents`). Times follow PostHog's rule (receive time moved by `timestamp − sent_at`, or minus `offset`) and the writer's clamp. Time on page: a page view is closed by its `$pageleave` (posthog-js sends the left page's `$pageview_id`) and by the next page view in the same tab (`$session_id` + `$window_id`; ruling 12), whichever is first; every closer can only shorten a duration, so arrival order does not matter. Durations under 0 or over 6 hours are dropped; a page view nothing closed keeps `left_without_pageleave` and is not in averages. Every stored page view, leave and routed error marks its hour in `stats_dirty_hours`.
+
+`jobs.Aggregate` runs every minute: it rebuilds each dirty hour and the current hour of every project (`store.RecomputeHour`, one write transaction that replaces the hour's `hourly_stats` rows and clears the mark): per route, views and bots, a visitor sketch of the people's user ids (`internal/hll`, ruling 13), the sum and count of durations, and error events. The dashboard reads only `hourly_stats`: `store.PageStats` (a project's totals, routes and views per hour over a range, visitors merged from the sketches) and `store.PageviewTotals` (the All projects columns). Retention deletes old page views, leaves and hourly rows with the project's events. Summaries include page views, visitors and the average time for projects that track page views.
 
 ## Accounts and access
 
@@ -157,11 +176,11 @@ The look comes from the PNGs: Instrument Sans and JetBrains Mono (bundled with `
 
 ## Alerts, health, retention and backups
 
-- Notifications (`internal/alerts`): `serve` passes the `Notifier` to the ingest writer as its `issues.Hooks`. New and returning issues, spikes and summaries go by mail (when `MAIL_URL` is set) to everyone who may see the project, and to the project's Slack webhook; each kind is on or off per channel on the project's Alerts page. Delivery is in the background, in memory: 3 tries (pauses 5 s and 30 s), lost on a restart. New and returning issue notifications are capped at 30 per project and channel per hour, then one "N more notifications were suppressed" message. Spike: the last hour has at least the threshold (default 5) times the hourly average of the 7 days before, and at least 10 errors; checked every 5 minutes, at most once in 6 hours. Summaries at 08:00 in `TZ` (daily; weekly on Mondays; monthly on the 1st), never twice for one period (`alert_state`).
+- Notifications (`internal/alerts`): `serve` passes the `Notifier` to the ingest writer as its `issues.Hooks`. New and returning issues, spikes and summaries go by mail (when `MAIL_URL` is set) to everyone who may see the project, and to the project's Slack webhook; each kind is on or off per channel on the project's Alerts page. Delivery is in the background, in memory: 3 tries (pauses 5 s and 30 s), lost on a restart. New and returning issue notifications are capped at 30 per project and channel per hour, then one "N more notifications were suppressed" message. Spike: the last hour has at least the threshold (default 5) times the hourly average of the 7 days before, and at least 10 errors; checked every 5 minutes, at most once in 6 hours. Summaries at 08:00 in `TZ` (daily; weekly on Mondays; monthly on the 1st), never twice for one period (`alert_state`); for projects that track page views they add page views, visitors and the average time on a page.
 - Admin alerts: every minute, a low disk (under 10 % or 1 GiB free under `DATA_DIR`), events the database could not store, and events the full queue turned away; mail to admins and the optional admins' Slack webhook (Settings → Status); at most once in 12 hours per kind.
 - Webhook URLs are secrets: never logged, never in an error, answered only masked (`https://hooks.slack.com/…/abcd`). They must be https; `DEV_ALLOW_HTTP_WEBHOOKS=true` allows plain http for local fakes (e2e, a container check), never in production. Only admins change a project's alerts; members see the page read-only.
 - `/health` → `{status, version, db, disk, diskFreeBytes, diskTotalBytes, queueDepth, failing}`: 200 with status `ok`, or `degraded` when a check fails but the tool works (a disk under 10 % or 1 GiB free, or one that cannot be read); 503 with status `error` only when it cannot work (the database fails, or the disk is under 1 % or 256 MiB free). The status page and the admin alerts read the same `health.Checker`.
-- Jobs (`internal/jobs`): one scheduler goroutine; retention daily (first a minute after the start) deletes each project's events older than its retention and issues last seen before it, 5000 rows per transaction; projects kept indefinitely keep everything.
+- Jobs (`internal/jobs`): one scheduler goroutine; retention daily (first a minute after the start) deletes each project's events older than its retention and issues last seen before it, and its page views, page leaves and hourly page summaries from before it, 5000 rows per transaction; projects kept indefinitely keep everything. The hourly page statistics are rebuilt every minute (see "How PostHog ingest and page statistics work").
 - Backups: every command opens the database through `openDatabase` (`cmd/monitor/database.go`): when migrations are pending on a database that has data, `store.BackupBeforeMigrate` first writes `VACUUM INTO <DATA_DIR>/backups/pre-migrate-<version>-<time>.db` and keeps the five newest; when that fails, the command stops before migrating (old backups that cannot be removed only give a warning).
 - Shutdown: HTTP server (15 s for running requests), jobs, the writer's last batch, the notifier (10 s), the database. `compose.yaml` gives the container `stop_grace_period: 30s` for that; Docker's default of 10 s would cut the last batch off.
 - Tests: `internal/testutil` has a fake SMTP server and a fake Slack webhook; `alerts` tests wait for deliveries with `n.busy.Wait()` and move a fake clock. Health checks take `DiskUsage` so tests never depend on the machine's disk.
@@ -195,4 +214,6 @@ The look comes from the PNGs: Instrument Sans and JetBrains Mono (bundled with `
 - The stack trace marks the error line with `aria-current="true"`; the e2e test finds it that way.
 - The e2e setup creates two projects: "Webshop" (fed by the Laravel and browser examples) and "Customer portal" (`PORTAL_DSN`; phase 2 points the browser example at it with `?dsn=`). The specs share one monitor and run in file order, but each makes the errors it checks itself. The first admin is created on the setup page in global setup; specs sign in with `browser.newContext({ storageState: env('ADMIN_STATE') })`. `phase2-access` deletes the project it creates again, since `phase2-issues` expects the two example projects only.
 - On a machine whose disk has under 10 % (or 1 GiB) free, as many laptops do, `/health` answers 200 with status `degraded` and the status page says "Disk space is running low" (under 1 % or 256 MiB: 503, "The disk is almost full"). Tests inject `health.Checker.DiskUsage`; the e2e setup only waits for `/health` to answer, and `phase2-status.png` shows whatever the disk of the machine says.
-- `go test -race ./internal/ingest/` takes about 17 s: `TestIngest_ConcurrentLoad` sends 10 000 envelopes over HTTP. `go test ./internal/sentry/ -run '^$' -fuzz FuzzParseEnvelope -fuzztime 60s` fuzzes parse, scrub and grouping.
+- `go test -race ./internal/ingest/` takes about 17 s: `TestIngest_ConcurrentLoad` sends 10 000 envelopes over HTTP. `go test ./internal/sentry/ -run '^$' -fuzz FuzzParseEnvelope -fuzztime 60s` fuzzes parse, scrub and grouping; `go test ./internal/posthog/ -run '^$' -fuzz FuzzParsePosthogBody -fuzztime 60s` the PostHog bodies.
+- posthog-js sends nothing from a browser that looks automated (`navigator.webdriver`, or HeadlessChrome in the User-Agent or in `navigator.userAgentData`), so a Playwright page must set a normal Chrome User-Agent and hide those two (`context.addInitScript`, as `internal/posthog/testdata/capture/capture.mjs` does). The monitor's own bot list counts HeadlessChrome as a bot too.
+- With `persistence: 'memory'` posthog-js 1.438 warns in the console that it mints a new distinct id on every page load (each load is a new anonymous visitor until `identify`).
