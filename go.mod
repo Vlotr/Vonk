@@ -2,8 +2,12 @@ module monitor
 
 go 1.27.2
 
-// npm packages are not Go code; keep ./... patterns out of them.
-ignore ./web/node_modules
+// npm and Composer packages are not Go code; keep ./... patterns out of them.
+ignore (
+	./web/node_modules
+	./e2e/node_modules
+	./examples
+)
 
 require modernc.org/sqlite v1.60.1
 

@@ -32,9 +32,16 @@ test: web/node_modules
 	go test -race ./...
 	cd web && npm run typecheck && npm test
 
-# Playwright end-to-end tests; they arrive with the Phase 1 dashboard.
-e2e:
-	@echo "No end-to-end tests yet."
+# Install the end-to-end test dependencies when their lockfile changes.
+e2e/node_modules: e2e/package.json e2e/package-lock.json
+	cd e2e && npm ci
+	@touch e2e/node_modules
+
+# Playwright end-to-end tests: the real binary, the Laravel and browser
+# examples with the official Sentry SDKs, and the dashboard in Chromium.
+# e2e/global-setup.ts builds the binary and starts everything.
+e2e: web/node_modules e2e/node_modules
+	cd e2e && npx playwright install chromium && npx playwright test
 
 # Build the dashboard into web/dist, which the Go binary embeds.
 web-build: web/node_modules
