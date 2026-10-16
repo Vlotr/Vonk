@@ -9,11 +9,13 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"monitor/internal/auth"
 	"monitor/internal/config"
+	"monitor/internal/health"
 	"monitor/internal/ingest"
 	"monitor/internal/issues"
 	"monitor/internal/scrub"
@@ -34,6 +36,37 @@ type testEnv struct {
 	handler http.Handler
 	// admin is the first account, signed in.
 	admin *session
+	// slack records the test messages the API posts.
+	slack *fakeSlack
+	// health is the status page's checker, with a disk the test controls.
+	health *health.Checker
+	// dir is DATA_DIR.
+	dir string
+}
+
+// fakeSlack records posts; err makes them fail.
+type fakeSlack struct {
+	mu    sync.Mutex
+	posts []slackPost
+	err   error
+}
+
+type slackPost struct{ webhook, text string }
+
+func (f *fakeSlack) Post(_ context.Context, webhook, text string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.err != nil {
+		return f.err
+	}
+	f.posts = append(f.posts, slackPost{webhook, text})
+	return nil
+}
+
+func (f *fakeSlack) sent() []slackPost {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]slackPost(nil), f.posts...)
 }
 
 // session is a signed-in browser: its cookie and CSRF token.
@@ -72,7 +105,12 @@ func newTestEnv(t *testing.T, opts ...envOption) *testEnv {
 	}
 	svc := auth.New(o)
 
-	h := New(db, svc, "https://monitor.example.com", logger)
+	slack := &fakeSlack{}
+	queue := ingest.NewQueue(100)
+	checker := &health.Checker{DB: db, DataDir: dir, Queue: queue, Version: "test", Log: logger,
+		DiskUsage: func(string) (uint64, uint64, error) { return 40 << 30, 100 << 30, nil }}
+	h := New(Options{DB: db, Auth: svc, BaseURL: "https://monitor.example.com", Logger: logger,
+		Health: checker, Slack: slack, Started: testNow.Add(-90 * time.Minute)})
 	h.now = func() time.Time { return testNow }
 	guarded := http.NewServeMux()
 	svc.Register(guarded)
@@ -82,7 +120,7 @@ func newTestEnv(t *testing.T, opts ...envOption) *testEnv {
 	svc.RegisterPublic(public)
 	public.Handle("/", svc.RequireUser(guarded))
 
-	env := &testEnv{db: db, auth: svc, handler: public}
+	env := &testEnv{db: db, auth: svc, handler: public, slack: slack, health: checker, dir: dir}
 	admin, err := db.CreateFirstAdmin(context.Background(), "admin@example.com", "not-a-real-hash", testNow)
 	if err != nil {
 		t.Fatal(err)

@@ -13,17 +13,21 @@ import (
 	"syscall"
 	"time"
 
+	"monitor/internal/alerts"
 	"monitor/internal/auth"
 	"monitor/internal/config"
+	"monitor/internal/health"
 	"monitor/internal/ingest"
-	"monitor/internal/issues"
+	"monitor/internal/jobs"
 	"monitor/internal/mail"
 	"monitor/internal/server"
-	"monitor/internal/store"
 )
 
 // shutdownTimeout is how long running requests get to finish after SIGTERM.
 const shutdownTimeout = 15 * time.Second
+
+// notifierShutdown is how long notifications under way get to go out after SIGTERM.
+const notifierShutdown = 10 * time.Second
 
 // serve runs the HTTP server until SIGINT or SIGTERM.
 func serve(args []string, getenv func(string) string, stderr io.Writer) int {
@@ -55,38 +59,67 @@ func serve(args []string, getenv func(string) string, stderr io.Writer) int {
 }
 
 func runServer(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
-	logger.Info("starting", "version", version, "addr", cfg.Addr, "base_url", cfg.BaseURL, "sqlite", cfg.SQLitePath)
+	started := time.Now()
+	logger.Info("starting", "version", version, "addr", cfg.Addr, "base_url", cfg.BaseURL, "sqlite", cfg.SQLitePath, "tz", cfg.Location.String())
 
-	db, err := store.Open(ctx, cfg)
+	db, err := openDatabase(ctx, cfg, func(path string) {
+		logger.Info("database backed up before the update", "path", path)
+	})
 	if err != nil {
 		return err
 	}
-	defer db.Close()
+	defer db.Close() // last, after everything below has stopped
 
-	if err := db.Migrate(ctx); err != nil {
-		return fmt.Errorf("database migration failed: %w", err)
-	}
-
-	// Ingest: handlers put accepted events on the queue, one writer stores
-	// them in batches. The writer gets its own context, not ctx, so it keeps
-	// writing while the server lets running requests finish; Close below
-	// writes whatever is still queued.
-	queue := ingest.NewQueue(ingest.DefaultQueueCapacity)
-	writer := ingest.NewWriter(db, queue, issues.NoHooks{}, logger)
-	go writer.Run(context.Background())
-	defer writer.Close() // before db.Close; also on the error paths
-
-	// Mail for invites and reset links (and, later, notifications).
+	// Mail for invites, reset links and notifications.
 	var mailer auth.Mailer
 	if cfg.Mail != nil {
 		mailer = mail.NewSender(*cfg.Mail, cfg.BaseURL)
 		logger.Info("mail is on", "host", cfg.Mail.Host, "port", cfg.Mail.Port)
 	} else {
-		logger.Info("mail is off: invite and reset links are only shown, not mailed; set MAIL_URL to mail them")
+		logger.Info("mail is off: invites, reset links and notifications are not mailed; set MAIL_URL to mail them")
 	}
 	if n, err := db.CountUsers(ctx); err == nil && n == 0 {
 		logger.Warn("no account yet: open " + cfg.BaseURL + "/setup now and create the first admin; until then anyone who can reach it can")
 	}
+
+	// Notifications: the writer tells the notifier about new and returning
+	// issues; it delivers in the background.
+	notifier := alerts.New(alerts.Options{DB: db, Mailer: mailer, BaseURL: cfg.BaseURL, Logger: logger, Location: cfg.Location})
+	notifier.Start()
+	defer notifier.Close(notifierShutdown)
+
+	// Ingest: handlers put accepted events on the queue, one writer stores
+	// them in batches. The writer gets its own context, not ctx, so it keeps
+	// writing while the server lets running requests finish; Close writes
+	// whatever is still queued.
+	queue := ingest.NewQueue(ingest.DefaultQueueCapacity)
+	writer := ingest.NewWriter(db, queue, notifier, logger)
+	go writer.Run(context.Background())
+	defer writer.Close() // before the notifier and the database close; also on the error paths
+
+	// Background jobs: retention, spike checks, summaries and the checks
+	// of the tool itself.
+	checker := &health.Checker{DB: db, DataDir: cfg.DataDir, Queue: queue, Version: version, Log: logger}
+	adminAlerts := alerts.NewAdminAlerts(notifier, checker, func() alerts.IngestStats {
+		ws := writer.Stats()
+		return alerts.IngestStats{QueueRefused: queue.Refused(), FailedBatches: ws.FailedBatches, LostEvents: ws.LostEvents, LastError: ws.LastError}
+	})
+	scheduler := jobs.New(nil, logger)
+	scheduler.Add((&jobs.Retention{DB: db, Log: logger}).Job())
+	for _, job := range notifier.Jobs() {
+		scheduler.Add(job)
+	}
+	scheduler.Add(adminAlerts.Job())
+	jobsCtx, stopJobs := context.WithCancel(context.Background())
+	jobsDone := make(chan struct{})
+	go func() {
+		scheduler.Run(jobsCtx)
+		close(jobsDone)
+	}()
+	defer func() { // first of the deferred stops: no job runs while the rest shuts down
+		stopJobs()
+		<-jobsDone
+	}()
 
 	srv := &http.Server{
 		Handler: server.New(server.Deps{
@@ -97,6 +130,8 @@ func runServer(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			Queue:   queue,
 			Limiter: ingest.NewRateLimiter(),
 			Mailer:  mailer,
+			Health:  checker,
+			Started: started,
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       60 * time.Second,
@@ -130,7 +165,8 @@ func runServer(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 	if err := <-serveErr; !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
-	writer.Close()
+	// The deferred stops run now: jobs, then the writer (its last batch
+	// still notifies), then the notifier, then the database.
 	logger.Info("stopped")
 	return nil
 }

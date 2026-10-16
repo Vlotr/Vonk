@@ -15,6 +15,7 @@ import (
 	"testing/fstest"
 
 	"monitor/internal/config"
+	"monitor/internal/health"
 	"monitor/internal/ingest"
 	"monitor/internal/store"
 	"monitor/internal/web"
@@ -59,14 +60,19 @@ func newTestDeps(t *testing.T, logOutput io.Writer) Deps {
 		t.Fatalf("Migrate: %v", err)
 	}
 
+	logger := slog.New(slog.NewTextHandler(logOutput, nil))
+	queue := ingest.NewQueue(100)
 	return Deps{
 		Config:  cfg,
 		DB:      db,
-		Logger:  slog.New(slog.NewTextHandler(logOutput, nil)),
+		Logger:  logger,
 		Version: "test",
 		SPA:     web.NewHandler(testFiles),
-		Queue:   ingest.NewQueue(100),
+		Queue:   queue,
 		Limiter: ingest.NewRateLimiter(),
+		// A roomy disk, whatever the machine running the tests has.
+		Health: &health.Checker{DB: db, DataDir: dir, Queue: queue, Version: "test", Log: logger,
+			DiskUsage: func(string) (uint64, uint64, error) { return 50 << 30, 100 << 30, nil }},
 	}
 }
 

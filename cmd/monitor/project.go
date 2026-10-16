@@ -41,16 +41,14 @@ func projectCommand(args []string, getenv func(string) string, stdout, stderr io
 	}
 
 	ctx := context.Background()
-	db, err := store.Open(ctx, cfg)
+	db, err := openDatabase(ctx, cfg, func(path string) {
+		fmt.Fprintf(stderr, "monitor: backed up the database to %s before updating it\n", path)
+	})
 	if err != nil {
 		fmt.Fprintf(stderr, "monitor: %v\n", err)
 		return 1
 	}
 	defer db.Close()
-	if err := db.Migrate(ctx); err != nil {
-		fmt.Fprintf(stderr, "monitor: database migration failed: %v\n", err)
-		return 1
-	}
 
 	// Defaults until the Settings screen exists: keep data 90 days and track
 	// Laravel and browser errors.

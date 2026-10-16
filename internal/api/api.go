@@ -8,16 +8,40 @@
 package api
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
 
+	"monitor/internal/alerts"
 	"monitor/internal/auth"
+	"monitor/internal/health"
 	"monitor/internal/httpjson"
 	"monitor/internal/issues"
 	"monitor/internal/store"
 )
+
+// SlackPoster posts a message to a Slack webhook; *alerts.Slack is one.
+type SlackPoster interface {
+	Post(ctx context.Context, webhook, text string) error
+}
+
+// Options configure the API handler.
+type Options struct {
+	DB *store.DB
+	// Auth makes invites and reset links, and says whether mail is on.
+	Auth *auth.Service
+	// BaseURL is BASE_URL, which DSNs and links are built from.
+	BaseURL string
+	Logger  *slog.Logger
+	// Health runs the checks the status page shows.
+	Health *health.Checker
+	// Slack sends the test messages; nil means the real Slack client.
+	Slack SlackPoster
+	// Started is when the process started, for the status page's uptime.
+	Started time.Time
+}
 
 // Handler serves the dashboard API.
 type Handler struct {
@@ -25,16 +49,25 @@ type Handler struct {
 	auth    *auth.Service
 	baseURL string // for the DSNs on the setup page
 	issues  *issues.Service
+	health  *health.Checker
+	slack   SlackPoster
+	started time.Time
 	log     *slog.Logger
 	now     func() time.Time // the clock; tests set it
 }
 
-// New returns the API handler. authService makes invites and reset links;
-// baseURL is BASE_URL, which DSNs are built from.
-func New(db *store.DB, authService *auth.Service, baseURL string, logger *slog.Logger) *Handler {
-	h := &Handler{db: db, auth: authService, baseURL: baseURL, log: logger, now: time.Now}
+// New returns the API handler.
+func New(o Options) *Handler {
+	h := &Handler{db: o.DB, auth: o.Auth, baseURL: o.BaseURL, health: o.Health, slack: o.Slack,
+		started: o.Started, log: o.Logger, now: time.Now}
+	if h.slack == nil {
+		h.slack = alerts.NewSlack()
+	}
+	if h.started.IsZero() {
+		h.started = time.Now()
+	}
 	// The service reads the handler's clock, so a test that sets h.now sets both.
-	h.issues = issues.NewService(db, func() time.Time { return h.now() })
+	h.issues = issues.NewService(o.DB, func() time.Time { return h.now() })
 	return h
 }
 
@@ -46,6 +79,9 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /ui/api/projects/{id}/issues", h.listIssues)
 	mux.HandleFunc("GET /ui/api/issues/{id}", h.issueDetail)
 	mux.HandleFunc("POST /ui/api/issues/{id}/status", h.setIssueStatus)
+	mux.HandleFunc("GET /ui/api/projects/{id}/alerts", h.projectAlerts)
+	mux.HandleFunc("PATCH /ui/api/projects/{id}/alerts", h.updateProjectAlerts)
+	mux.HandleFunc("POST /ui/api/projects/{id}/alerts/slack-test", h.testProjectSlack)
 
 	// Settings, for admins only.
 	mux.HandleFunc("GET /ui/api/settings/projects", h.adminOnly(h.settingsProjects))
@@ -60,6 +96,9 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /ui/api/settings/users/{id}/reset-link", h.adminOnly(h.resetLink))
 	mux.HandleFunc("POST /ui/api/settings/invites", h.adminOnly(h.createInvite))
 	mux.HandleFunc("DELETE /ui/api/settings/invites/{id}", h.adminOnly(h.revokeInvite))
+	mux.HandleFunc("GET /ui/api/settings/status", h.adminOnly(h.status))
+	mux.HandleFunc("PUT /ui/api/settings/admin-slack", h.adminOnly(h.setAdminSlack))
+	mux.HandleFunc("POST /ui/api/settings/admin-slack/test", h.adminOnly(h.testAdminSlack))
 }
 
 // adminOnly answers 404 to anyone but an admin, as if the route did not exist.

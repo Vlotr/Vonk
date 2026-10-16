@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // env returns a getenv function backed by a map, so tests never touch the real environment.
@@ -227,5 +228,33 @@ func TestLoadConfig_RejectsBadOptionalValues(t *testing.T) {
 				t.Errorf("error %q shows the password", err)
 			}
 		})
+	}
+}
+
+func TestLoadConfig_TimeZone(t *testing.T) {
+	cfg, err := Load(env(validEnv()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Location != time.UTC {
+		t.Errorf("Location without TZ = %v, want UTC", cfg.Location)
+	}
+
+	for _, tz := range []string{"Europe/Amsterdam", ":Europe/Amsterdam"} {
+		vars := validEnv()
+		vars["TZ"] = tz
+		cfg, err := Load(env(vars))
+		if err != nil {
+			t.Fatalf("TZ=%s: %v", tz, err)
+		}
+		if cfg.Location.String() != "Europe/Amsterdam" {
+			t.Errorf("TZ=%s: Location = %v", tz, cfg.Location)
+		}
+	}
+
+	vars := validEnv()
+	vars["TZ"] = "Mars/Olympus_Mons"
+	if _, err := Load(env(vars)); err == nil || !strings.Contains(err.Error(), "TZ") || !strings.Contains(err.Error(), "Europe/Amsterdam") {
+		t.Errorf("unknown TZ: err = %v, want one naming TZ with an example", err)
 	}
 }

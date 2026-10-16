@@ -10,7 +10,6 @@
 package server
 
 import (
-	"context"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -19,6 +18,7 @@ import (
 	"monitor/internal/api"
 	"monitor/internal/auth"
 	"monitor/internal/config"
+	"monitor/internal/health"
 	"monitor/internal/httpjson"
 	"monitor/internal/ingest"
 	"monitor/internal/store"
@@ -39,6 +39,14 @@ type Deps struct {
 	Limiter *ingest.RateLimiter
 	// Mailer sends invites and reset links; nil when MAIL_URL is not set.
 	Mailer auth.Mailer
+	// Health runs the checks of /health and the status page; nil means
+	// one for DB, Queue and Config.DataDir.
+	Health *health.Checker
+	// Slack posts the test messages of the Alerts and Status pages; nil
+	// means the real Slack client.
+	Slack api.SlackPoster
+	// Started is when the process started, for the status page's uptime.
+	Started time.Time
 }
 
 // New returns the handler for the whole server.
@@ -46,6 +54,10 @@ func New(deps Deps) http.Handler {
 	spa := deps.SPA
 	if spa == nil {
 		spa = web.Handler()
+	}
+	checker := deps.Health
+	if checker == nil {
+		checker = &health.Checker{DB: deps.DB, DataDir: deps.Config.DataDir, Queue: deps.Queue, Version: deps.Version, Log: deps.Logger}
 	}
 	accounts := auth.New(auth.Options{
 		DB:        deps.DB,
@@ -58,7 +70,15 @@ func New(deps Deps) http.Handler {
 	// Signed in: the JSON API and the dashboard's pages.
 	dashboard := http.NewServeMux()
 	accounts.Register(dashboard)
-	api.New(deps.DB, accounts, deps.Config.BaseURL, deps.Logger).Register(dashboard)
+	api.New(api.Options{
+		DB:      deps.DB,
+		Auth:    accounts,
+		BaseURL: deps.Config.BaseURL,
+		Logger:  deps.Logger,
+		Health:  checker,
+		Slack:   deps.Slack,
+		Started: deps.Started,
+	}).Register(dashboard)
 	dashboard.HandleFunc("/ui/api/", notFoundJSON)
 	// "/" rather than "GET /": Go's mux refuses a method-only catch-all next to
 	// "/ui/api/". The SPA handler answers other methods with 405 itself.
@@ -89,7 +109,7 @@ func New(deps Deps) http.Handler {
 
 	// Public: SDK traffic and the health check. Anything else is the dashboard.
 	public := http.NewServeMux()
-	public.HandleFunc("GET /health", healthHandler(deps))
+	public.HandleFunc("GET /health", health.Handler(checker))
 	public.Handle(ingest.SentryEnvelopePattern, ingest.NewSentryHandler(deps.DB, deps.Queue, deps.Limiter, deps.Logger))
 	public.HandleFunc("/api/", notFoundJSON)
 	public.Handle("/", dashboardHeaders(sameOrigin.Handler(ui)))
@@ -113,24 +133,6 @@ func dashboardHeaders(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
-}
-
-// healthHandler answers whether the process and its database work.
-func healthHandler(deps Deps) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
-		defer cancel()
-
-		body := map[string]string{"status": "ok", "version": deps.Version, "db": "ok"}
-		status := http.StatusOK
-		if err := deps.DB.Ping(ctx); err != nil {
-			deps.Logger.Error("health check: database", "err", err)
-			body["status"] = "error"
-			body["db"] = "error"
-			status = http.StatusServiceUnavailable
-		}
-		httpjson.Write(w, status, body)
-	}
 }
 
 // logRequests logs one line per request. It leaves out the query string

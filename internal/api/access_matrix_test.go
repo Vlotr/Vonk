@@ -32,6 +32,11 @@ func TestAccessMatrix(t *testing.T) {
 	spare := env.project(t, "Spare")
 
 	shopIssue := firstIssue(t, env, shop.ID)
+	shopAlerts := store.DefaultAlertSettings()
+	shopAlerts.SlackWebhookURL = "https://hooks.slack.com/services/T1/B1/shop-webhook-secret"
+	if err := env.db.SaveAlertSettings(ctx, shop.ID, shopAlerts); err != nil {
+		t.Fatal(err)
+	}
 	withAccess := env.member(t, "with@example.com", shop.ID)
 	without := env.member(t, "without@example.com", portal.ID)
 	invite, err := env.db.CreateInvite(ctx, store.NewInvite{Email: "invited@example.com", Role: store.RoleMember,
@@ -41,7 +46,7 @@ func TestAccessMatrix(t *testing.T) {
 	}
 
 	// What the project's data looks like in an answer.
-	leaks := []string{"Secret Webshop", "secret-shop", shop.SentryKey}
+	leaks := []string{"Secret Webshop", "secret-shop", shop.SentryKey, "shop-webhook-secret"}
 
 	type route struct {
 		name, method, path, body string
@@ -56,6 +61,9 @@ func TestAccessMatrix(t *testing.T) {
 		adminCode int
 		// unchanged checks after a refused request that nothing changed.
 		unchanged func(t *testing.T)
+		// skipAllowed leaves out the users who may make the change (it would
+		// change what later rows expect); the route's own tests cover them.
+		skipAllowed bool
 	}
 	issueStatusIs := func(want string) func(t *testing.T) {
 		return func(t *testing.T) {
@@ -97,7 +105,24 @@ func TestAccessMatrix(t *testing.T) {
 		}
 	}
 
+	alertsUnchanged := func(t *testing.T) { alertSettingsAre(t, env, shop.ID, shopAlerts) }
+	noPostTo := func(webhook string) func(t *testing.T) {
+		return func(t *testing.T) {
+			for _, p := range env.slack.sent() {
+				if p.webhook == webhook {
+					t.Errorf("a refused request posted to %s", webhook)
+				}
+			}
+		}
+	}
+	adminWebhookUnset := func(t *testing.T) {
+		if v, _ := env.db.Setting(ctx, store.SettingAdminSlackWebhook); v != "" {
+			t.Errorf("admin webhook after a refused request = %q", v)
+		}
+	}
+
 	shopIssues := fmt.Sprintf("/ui/api/projects/%d/issues", shop.ID)
+	shopAlertsPath := fmt.Sprintf("/ui/api/projects/%d/alerts", shop.ID)
 	routes := []route{
 		// Project data: everyone with access.
 		{name: "projects", method: "GET", path: "/ui/api/projects", list: true, seesShop: func(b []byte) bool {
@@ -123,6 +148,16 @@ func TestAccessMatrix(t *testing.T) {
 		{name: "issue detail", method: "GET", path: fmt.Sprintf("/ui/api/issues/%d", shopIssue)},
 		{name: "issue status", method: "POST", path: fmt.Sprintf("/ui/api/issues/%d/status", shopIssue),
 			body: `{"status":"ignored"}`, unchanged: issueStatusIs(store.IssueOpen)},
+		{name: "alerts", method: "GET", path: shopAlertsPath},
+		// The same values again, so the rows after it see the same settings.
+		{name: "alerts: change", method: "PATCH", path: shopAlertsPath,
+			body: `{"alerts":{"newIssue":{"email":true}}}`, unchanged: alertsUnchanged},
+		{name: "alerts: take over the webhook", method: "PATCH", path: shopAlertsPath,
+			body: `{"slackWebhookUrl":"https://evil.example.com/hook"}`, adminCode: 0, unchanged: alertsUnchanged, skipAllowed: true},
+		{name: "alerts: Slack test", method: "POST", path: shopAlertsPath + "/slack-test",
+			body: `{"webhookUrl":"https://hooks.slack.com/services/matrix-project"}`, unchanged: noPostTo("https://hooks.slack.com/services/matrix-project")},
+		{name: "alerts: Slack test of the saved webhook", method: "POST", path: shopAlertsPath + "/slack-test",
+			body: `{}`, unchanged: noPostTo(shopAlerts.SlackWebhookURL)},
 
 		// Settings: admins only.
 		{name: "settings: projects", method: "GET", path: "/ui/api/settings/projects", adminOnly: true, adminCode: 200},
@@ -153,6 +188,12 @@ func TestAccessMatrix(t *testing.T) {
 			adminOnly: true, unchanged: userIs(env.admin.userID, store.RoleAdmin)},
 		{name: "settings: reset link for a member", method: "POST", path: fmt.Sprintf("/ui/api/settings/users/%d/reset-link", withAccess.userID),
 			body: `{}`, adminOnly: true, adminCode: 200},
+		{name: "settings: status", method: "GET", path: "/ui/api/settings/status", adminOnly: true, adminCode: 200},
+		{name: "settings: admin Slack webhook", method: "PUT", path: "/ui/api/settings/admin-slack",
+			body: `{"webhookUrl":"https://hooks.slack.com/services/matrix-admin"}`, adminOnly: true, adminCode: 200, unchanged: adminWebhookUnset},
+		{name: "settings: admin Slack test", method: "POST", path: "/ui/api/settings/admin-slack/test",
+			body: `{"webhookUrl":"https://hooks.slack.com/services/matrix-admin-test"}`, adminOnly: true, adminCode: 200,
+			unchanged: noPostTo("https://hooks.slack.com/services/matrix-admin-test")},
 	}
 
 	users := []struct {
@@ -172,6 +213,9 @@ func TestAccessMatrix(t *testing.T) {
 			t.Run(rt.name+"/"+u.name, func(t *testing.T) {
 				if u.admin && rt.adminOnly && rt.adminCode == 0 {
 					t.Skip("changes too much for this table; covered by the route's own tests")
+				}
+				if rt.skipAllowed && u.access && (!rt.adminOnly || u.admin) {
+					t.Skip("changes what later rows expect; covered by the route's own tests")
 				}
 				if _, err := env.db.SetIssueStatus(ctx, shopIssue, store.IssueOpen, testNow); err != nil {
 					t.Fatal(err)

@@ -1,7 +1,7 @@
 // Package config reads the settings from environment variables.
 //
 // Required: SECRET_KEY and BASE_URL. Optional: DATABASE_URL, MAIL_URL, ADDR,
-// DATA_DIR and LOG_LEVEL. Load reports every problem at once, so an
+// DATA_DIR, LOG_LEVEL and TZ. Load reports every problem at once, so an
 // operator can fix the whole environment in one go.
 package config
 
@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"monitor/internal/mail"
 )
@@ -50,6 +51,9 @@ type Config struct {
 	SQLitePath string
 	// LogLevel is the minimum level that is logged.
 	LogLevel slog.Level
+	// Location is TZ, the clock of schedules such as the 08:00 summary
+	// mail; UTC when TZ is not set.
+	Location *time.Location
 }
 
 // Load reads the configuration through getenv (pass os.Getenv in production).
@@ -84,6 +88,17 @@ func Load(getenv func(string) string) (Config, error) {
 	if v := strings.TrimSpace(getenv("LOG_LEVEL")); v != "" {
 		if err := cfg.LogLevel.UnmarshalText([]byte(v)); err != nil {
 			problems = append(problems, fmt.Errorf("LOG_LEVEL must be debug, info, warn or error, got %q", v))
+		}
+	}
+
+	cfg.Location = time.UTC
+	// A leading ":" is the C library's way to say "a file under zoneinfo".
+	if tz := strings.TrimPrefix(strings.TrimSpace(getenv("TZ")), ":"); tz != "" {
+		loc, err := time.LoadLocation(tz)
+		if err != nil {
+			problems = append(problems, fmt.Errorf("TZ %q is not a time zone; use a name such as Europe/Amsterdam", tz))
+		} else {
+			cfg.Location = loc
 		}
 	}
 

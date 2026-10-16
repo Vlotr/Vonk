@@ -26,7 +26,7 @@ const usage = `Usage:
   monitor admin reset-password --email EMAIL   print a one-time link to choose a new password
 
 Settings come from environment variables: SECRET_KEY and BASE_URL are required;
-DATABASE_URL, MAIL_URL, ADDR, DATA_DIR and LOG_LEVEL are optional.
+DATABASE_URL, MAIL_URL, ADDR, DATA_DIR, LOG_LEVEL and TZ are optional.
 `
 
 func main() {
