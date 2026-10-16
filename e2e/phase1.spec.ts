@@ -45,6 +45,8 @@ test('Laravel and browser errors appear in the issue list and on the issue page'
     httpCredentials: { username: env('MONITOR_USER'), password: env('MONITOR_PASSWORD') },
   })
   const ui = await dashboard.newPage()
+  // A controllable clock, so the test can jump to the page's next minute poll.
+  await ui.clock.install()
   await ui.goto(`${env('MONITOR_URL')}/projects/${env('PROJECT_ID')}/issues`)
 
   // The writer stores events within a second; the page itself refreshes once
@@ -72,12 +74,18 @@ test('Laravel and browser errors appear in the issue list and on the issue page'
   await expect(other.locator('td').nth(2)).toHaveText('1')
   await expect(other).toContainText('Laravel')
 
-  // The browser SDK's errors, with source Browser.
+  // The browser SDK's errors, with source Browser and the file's path on the
+  // site as culprit. An unhandled rejection is named that, as in the design.
   const typeError = rows.filter({ hasText: 'TypeError' })
   await expect(typeError).toHaveCount(1)
   await expect(typeError).toContainText("Cannot read properties of undefined (reading 'price')")
   await expect(typeError).toContainText('Browser')
-  await expect(rows.filter({ hasText: 'Failed to fetch /api/stock' })).toContainText('Browser')
+  await expect(typeError).toContainText('src/main.js:21')
+  const rejection = rows.filter({ hasText: 'Failed to fetch /api/stock' })
+  await expect(rejection).toHaveCount(1)
+  await expect(rejection.locator('strong')).toHaveText('Unhandled rejection')
+  await expect(rejection).toContainText('Browser')
+  await expect(rejection).toContainText('src/main.js:30')
 
   await ui.screenshot({ path: join(screenshots, 'phase1-issues.png'), fullPage: true })
 
@@ -101,6 +109,19 @@ test('Laravel and browser errors appear in the issue list and on the issue page'
 
   // Framework code can be shown.
   await trace.getByRole('button', { name: 'Show framework code' }).click()
+  await expect(trace.getByRole('button', { name: 'Hide framework code' })).toBeVisible()
+  await expect(trace).toContainText('vendor/laravel/framework/')
+
+  // A newer event of the same issue arrives while the page is open. The next
+  // poll brings it (a new latest event) and must keep what the viewer opened.
+  expect((await page.goto(laravel + '/boom'))?.status()).toBe(500)
+  const events = ui.locator('dt:text-is("Events") + dd')
+  await expect(async () => {
+    const polled = ui.waitForResponse((r) => r.url().includes('/ui/api/issues/'))
+    await ui.clock.fastForward(60_000)
+    await polled
+    await expect(events).toHaveText('3', { timeout: 1000 })
+  }).toPass({ timeout: 20_000 })
   await expect(trace.getByRole('button', { name: 'Hide framework code' })).toBeVisible()
   await expect(trace).toContainText('vendor/laravel/framework/')
 
