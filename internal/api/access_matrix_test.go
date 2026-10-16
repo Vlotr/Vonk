@@ -59,6 +59,18 @@ func TestAccessMatrix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	apiToken, err := env.db.CreateAPIToken(ctx, store.NewAPIToken{Name: "secret-shop-uploads", TokenHash: "matrix-token",
+		ProjectIDs: []int64{shop.ID}, CreatedBy: env.admin.userID, Now: testNow})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tokenCount := func(want int) func(t *testing.T) {
+		return func(t *testing.T) {
+			if list, _ := env.db.ListAPITokens(ctx); len(list) != want {
+				t.Errorf("API tokens after a refused change = %d, want %d", len(list), want)
+			}
+		}
+	}
 
 	// What the project's data looks like in an answer.
 	leaks := []string{"Secret Webshop", "secret-shop", shop.SentryKey, "shop-webhook-secret"}
@@ -224,6 +236,12 @@ func TestAccessMatrix(t *testing.T) {
 			adminOnly: true, unchanged: userIs(env.admin.userID, store.RoleAdmin)},
 		{name: "settings: reset link for a member", method: "POST", path: fmt.Sprintf("/ui/api/settings/users/%d/reset-link", withAccess.userID),
 			body: `{}`, adminOnly: true, adminCode: 200},
+		{name: "settings: API tokens", method: "GET", path: "/ui/api/settings/api-tokens", adminOnly: true, adminCode: 200},
+		{name: "settings: revoke API token", method: "DELETE", path: fmt.Sprintf("/ui/api/settings/api-tokens/%d", apiToken.ID),
+			adminOnly: true, unchanged: tokenCount(1)},
+		// A member making a token for a project they cannot see would let them upload to it.
+		{name: "settings: make an API token", method: "POST", path: "/ui/api/settings/api-tokens",
+			body: fmt.Sprintf(`{"name":"mine","projectIds":[%d]}`, shop.ID), adminOnly: true, adminCode: 201, unchanged: tokenCount(1)},
 		{name: "settings: status", method: "GET", path: "/ui/api/settings/status", adminOnly: true, adminCode: 200},
 		{name: "settings: admin Slack webhook", method: "PUT", path: "/ui/api/settings/admin-slack",
 			body: `{"webhookUrl":"https://hooks.slack.com/services/matrix-admin"}`, adminOnly: true, adminCode: 200, unchanged: adminWebhookUnset},
@@ -320,7 +338,7 @@ func TestAccessMatrix_SignedOut(t *testing.T) {
 	for _, path := range []string{"/ui/api/projects", "/ui/api/overview", fmt.Sprintf("/ui/api/projects/%d/issues", shop.ID),
 		fmt.Sprintf("/ui/api/projects/%d/pages", shop.ID), fmt.Sprintf("/ui/api/projects/%d/events", shop.ID),
 		fmt.Sprintf("/ui/api/projects/%d/events/checkout", shop.ID), fmt.Sprintf("/ui/api/projects/%d/users/42/activity", shop.ID),
-		"/ui/api/settings/projects", "/ui/api/settings/users", "/ui/api/me"} {
+		"/ui/api/settings/projects", "/ui/api/settings/users", "/ui/api/settings/api-tokens", "/ui/api/me"} {
 		if rec := env.as(t, nil, "GET", path, ""); rec.Code != http.StatusUnauthorized {
 			t.Errorf("GET %s signed out = %d, want 401", path, rec.Code)
 		}
