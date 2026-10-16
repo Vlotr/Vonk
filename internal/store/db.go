@@ -30,6 +30,9 @@ const busyTimeoutMillis = 5000
 type DB struct {
 	write *sql.DB // exactly one connection: every INSERT, UPDATE and DELETE goes here
 	read  *sql.DB // read-only pool for queries
+
+	path    string // the SQLite file
+	dataDir string // DATA_DIR, where backups/ lives
 }
 
 // Open opens the database described by cfg. Run Migrate before using it.
@@ -37,7 +40,15 @@ func Open(ctx context.Context, cfg config.Config) (*DB, error) {
 	if cfg.DatabaseURL != "" {
 		return nil, errors.New("DATABASE_URL is set, but Postgres is not supported yet; unset it to use SQLite")
 	}
-	return openSQLite(ctx, cfg.SQLitePath)
+	db, err := openSQLite(ctx, cfg.SQLitePath)
+	if err != nil {
+		return nil, err
+	}
+	db.dataDir = cfg.DataDir
+	if db.dataDir == "" {
+		db.dataDir = filepath.Dir(cfg.SQLitePath)
+	}
+	return db, nil
 }
 
 func openSQLite(ctx context.Context, path string) (*DB, error) {
@@ -89,7 +100,7 @@ func openSQLite(ctx context.Context, path string) (*DB, error) {
 		return nil, fmt.Errorf("open sqlite %s: %w", path, err)
 	}
 
-	return &DB{write: write, read: read}, nil
+	return &DB{write: write, read: read, path: path}, nil
 }
 
 // Ping checks that both the write connection and the read pool answer a query.
@@ -102,6 +113,18 @@ func (db *DB) Ping(ctx context.Context) error {
 		return fmt.Errorf("read pool: %w", err)
 	}
 	return nil
+}
+
+// SizeBytes returns the size of the database on disk: the SQLite file and
+// its write-ahead log.
+func (db *DB) SizeBytes() int64 {
+	var total int64
+	for _, name := range []string{db.path, db.path + "-wal"} {
+		if info, err := os.Stat(name); err == nil {
+			total += info.Size()
+		}
+	}
+	return total
 }
 
 // Close closes both pools.

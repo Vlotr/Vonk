@@ -31,6 +31,16 @@ type migration struct {
 // every start and from several processes at once: each migration runs in its
 // own write transaction together with its schema_migrations row.
 func (db *DB) Migrate(ctx context.Context) error {
+	files, err := migrationFiles()
+	if err != nil {
+		return err
+	}
+	return db.migrate(ctx, files)
+}
+
+// migrate applies files; tests pass fewer files than are embedded to make
+// an older database.
+func (db *DB) migrate(ctx context.Context, files []migration) error {
 	_, err := db.write.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (
 		version    INTEGER PRIMARY KEY,
 		name       TEXT    NOT NULL,
@@ -40,10 +50,6 @@ func (db *DB) Migrate(ctx context.Context) error {
 		return fmt.Errorf("create schema_migrations: %w", err)
 	}
 
-	files, err := migrationFiles()
-	if err != nil {
-		return err
-	}
 	for _, m := range files {
 		if err := db.applyMigration(ctx, m); err != nil {
 			return fmt.Errorf("migration %s: %w", m.name, err)
