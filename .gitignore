@@ -8,3 +8,8 @@ node_modules/
 # embed web/dist before the dashboard has been built (see web/embed.go).
 /web/dist/*
 !/web/dist/.keep
+
+# Composer packages (fixture recipes, later the Laravel example).
+vendor/
+# Build output of the browser fixture recipe.
+/internal/sentry/testdata/capture/browser/dist/
