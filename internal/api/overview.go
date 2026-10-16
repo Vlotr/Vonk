@@ -32,8 +32,11 @@ type overviewProjectJSON struct {
 	Errors24h int `json:"errors24h"`
 	// Hourly counts the error events per clock hour, oldest first; the last entry is the current hour.
 	Hourly []int `json:"hourly"`
-	// Pageviews24h and AvgTimeOnPageMs stay null until page tracking exists (Task 8).
-	Pageviews24h    *int   `json:"pageviews24h"`
+	// Pageviews24h and AvgTimeOnPageMs are the page views by people of the
+	// last 24 clock hours and their average time on a page, for projects
+	// that track page views; null for the others ("Add page tracking").
+	// AvgTimeOnPageMs is also null while no page view has a time.
+	Pageviews24h    *int64 `json:"pageviews24h"`
 	AvgTimeOnPageMs *int64 `json:"avgTimeOnPageMs"`
 }
 
@@ -82,6 +85,20 @@ func (h *Handler) overview(w http.ResponseWriter, r *http.Request) {
 		h.internalError(w, r, err)
 		return
 	}
+	// Page views of the 24 clock hours that end with the current one, from
+	// the hourly summaries, for the projects that track them.
+	var tracking []int64
+	for _, p := range projects {
+		if p.TracksPageviews {
+			tracking = append(tracking, p.ID)
+		}
+	}
+	thisHour := now.UTC().Truncate(time.Hour)
+	pages, err := h.db.PageviewTotals(ctx, tracking, thisHour.Add(-23*time.Hour), thisHour.Add(time.Hour))
+	if err != nil {
+		h.internalError(w, r, err)
+		return
+	}
 
 	resp := overviewJSON{
 		UpdatedAt:    now,
@@ -93,14 +110,23 @@ func (h *Handler) overview(w http.ResponseWriter, r *http.Request) {
 		for _, n := range hours[p.ID] {
 			events += n
 		}
-		resp.Projects = append(resp.Projects, overviewProjectJSON{
+		row := overviewProjectJSON{
 			ID:           p.ID,
 			Name:         p.Name,
 			Sources:      sources(p),
 			NewIssues24h: newCounts[p.ID],
 			Errors24h:    events,
 			Hourly:       hourBuckets(hours[p.ID], now),
-		})
+		}
+		if p.TracksPageviews {
+			t := pages[p.ID] // zero without data
+			row.Pageviews24h = &t.Views
+			if t.DurationCount > 0 {
+				avg := t.TotalDurationMs / t.DurationCount
+				row.AvgTimeOnPageMs = &avg
+			}
+		}
+		resp.Projects = append(resp.Projects, row)
 	}
 	// ListProjects sorts by name, and a stable sort keeps that for ties.
 	sort.SliceStable(resp.Projects, func(i, j int) bool {

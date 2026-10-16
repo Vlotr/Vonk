@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"monitor/internal/store"
 )
@@ -30,6 +31,13 @@ func TestAccessMatrix(t *testing.T) {
 	env.save(t, portal.ID, phpEvent(t, eventSpec{id: hexID(2), message: "portal message", function: "portal"}))
 	// A project only admin-only routes touch.
 	spare := env.project(t, "Spare")
+	// The project tracks page views: the Pages screen and the overview's page columns have its numbers.
+	if _, err := env.db.UpdateProject(ctx, shop.ID, store.ProjectSettings{Name: shop.Name, RetentionDays: shop.RetentionDays,
+		TracksLaravel: true, TracksBrowser: true, TracksPageviews: true}); err != nil {
+		t.Fatal(err)
+	}
+	env.visits(t, shop.ID, visit{user: "u1", route: "/secret-shop-page", at: testNow.Add(-time.Hour), stay: time.Minute})
+	env.visits(t, portal.ID, visit{user: "u2", route: "/portal-page", at: testNow.Add(-time.Hour), stay: time.Minute})
 
 	shopIssue := firstIssue(t, env, shop.ID)
 	shopAlerts := store.DefaultAlertSettings()
@@ -118,7 +126,14 @@ func TestAccessMatrix(t *testing.T) {
 		}
 	}
 
+	patternsUnchanged := func(t *testing.T) {
+		if got, err := env.db.ProjectByID(ctx, shop.ID); err != nil || len(got.RoutePatterns) != 0 {
+			t.Errorf("route patterns after a refused change = %v, %v", got.RoutePatterns, err)
+		}
+	}
+
 	shopIssues := fmt.Sprintf("/ui/api/projects/%d/issues", shop.ID)
+	shopPages := fmt.Sprintf("/ui/api/projects/%d/pages", shop.ID)
 	shopAlertsPath := fmt.Sprintf("/ui/api/projects/%d/alerts", shop.ID)
 	routes := []route{
 		// Project data: everyone with access.
@@ -142,6 +157,9 @@ func TestAccessMatrix(t *testing.T) {
 		{name: "issues list", method: "GET", path: shopIssues},
 		{name: "issues list, filtered", method: "GET", path: shopIssues + "?status=open&source=laravel&sort=events&limit=5"},
 		{name: "search", method: "GET", path: shopIssues + "?q=secret-shop-path"},
+		{name: "issues list, by page", method: "GET", path: shopIssues + "?route=/secret-shop-path"},
+		{name: "pages", method: "GET", path: shopPages},
+		{name: "pages, 30 days", method: "GET", path: shopPages + "?range=30d&tz=Europe/Amsterdam"},
 		{name: "issue detail", method: "GET", path: fmt.Sprintf("/ui/api/issues/%d", shopIssue)},
 		{name: "issue status", method: "POST", path: fmt.Sprintf("/ui/api/issues/%d/status", shopIssue),
 			body: `{"status":"ignored"}`, unchanged: issueStatusIs(store.IssueOpen)},
@@ -163,6 +181,10 @@ func TestAccessMatrix(t *testing.T) {
 		{name: "settings: one project", method: "GET", path: fmt.Sprintf("/ui/api/settings/projects/%d", shop.ID), adminOnly: true, adminCode: 200},
 		{name: "settings: edit project", method: "PATCH", path: fmt.Sprintf("/ui/api/settings/projects/%d", shop.ID),
 			body: `{"name":"Taken over"}`, adminOnly: true, unchanged: projectUnchanged},
+		{name: "settings: route patterns", method: "PATCH", path: fmt.Sprintf("/ui/api/settings/projects/%d", shop.ID),
+			body: `{"routePatterns":["/secret-shop-page/:x"]}`, adminOnly: true, unchanged: patternsUnchanged},
+		{name: "settings: route preview", method: "POST", path: fmt.Sprintf("/ui/api/settings/projects/%d/route-preview", shop.ID),
+			body: `{"routePatterns":["/secret-shop-page"]}`, adminOnly: true, adminCode: 200, unchanged: patternsUnchanged},
 		{name: "settings: rotate keys", method: "POST", path: fmt.Sprintf("/ui/api/settings/projects/%d/rotate-keys", shop.ID),
 			body: `{}`, adminOnly: true, unchanged: projectUnchanged},
 		{name: "settings: delete project", method: "DELETE", path: fmt.Sprintf("/ui/api/settings/projects/%d", spare.ID),
@@ -281,6 +303,7 @@ func TestAccessMatrix_SignedOut(t *testing.T) {
 	env := newTestEnv(t)
 	shop := env.project(t, "Webshop")
 	for _, path := range []string{"/ui/api/projects", "/ui/api/overview", fmt.Sprintf("/ui/api/projects/%d/issues", shop.ID),
+		fmt.Sprintf("/ui/api/projects/%d/pages", shop.ID),
 		"/ui/api/settings/projects", "/ui/api/settings/users", "/ui/api/me"} {
 		if rec := env.as(t, nil, "GET", path, ""); rec.Code != http.StatusUnauthorized {
 			t.Errorf("GET %s signed out = %d, want 401", path, rec.Code)

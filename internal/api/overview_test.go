@@ -155,3 +155,46 @@ func TestOverview_Empty(t *testing.T) {
 		t.Errorf("GET /ui/api/overview without projects = %d %s, want empty lists", rec.Code, rec.Body)
 	}
 }
+
+// Projects that track page views get their page views and average time on
+// a page of the last 24 hours, from the hourly summaries; others keep null
+// (the design's "Add page tracking").
+func TestOverview_PageviewColumns(t *testing.T) {
+	env := newTestEnv(t)
+	shop := env.pageProject(t, "Webshop")
+	env.pageProject(t, "Quiet site")
+	tools := env.project(t, "Internal tools") // errors only
+	env.visits(t, shop.ID,
+		visit{user: "u1", route: "/", at: testNow.Add(-time.Hour), stay: 60 * time.Second},
+		visit{user: "u2", route: "/cart", at: testNow.Add(-2 * time.Hour), stay: 84 * time.Second},
+		visit{user: "u3", route: "/cart", at: testNow.Add(-3 * time.Hour)}, // no leave: not in the average
+		visit{user: "bot", route: "/", at: testNow.Add(-time.Hour), stay: time.Second, bot: true},
+		visit{user: "u4", route: "/", at: testNow.Add(-30 * time.Hour), stay: time.Hour}, // before the 24 hours
+	)
+	// Page views of a project that does not track them (its token is accepted anyway) stay hidden.
+	env.visits(t, tools.ID, visit{user: "u1", route: "/", at: testNow.Add(-time.Hour), stay: time.Minute})
+
+	got := getJSON[overviewResponse](t, env, "/ui/api/overview")
+	byName := map[string]int{}
+	for i, p := range got.Projects {
+		byName[p.Name] = i
+	}
+	ws := got.Projects[byName["Webshop"]]
+	if ws.Pageviews24h == nil || *ws.Pageviews24h != 3 || ws.AvgTimeOnPageMs == nil || *ws.AvgTimeOnPageMs != 72_000 {
+		t.Errorf("Webshop page columns = %v, %v; want 3 page views, 72 s", deref(ws.Pageviews24h), deref(ws.AvgTimeOnPageMs))
+	}
+	q := got.Projects[byName["Quiet site"]]
+	if q.Pageviews24h == nil || *q.Pageviews24h != 0 || q.AvgTimeOnPageMs != nil {
+		t.Errorf("Quiet site = %v, %v; want 0 page views and no average (null)", deref(q.Pageviews24h), deref(q.AvgTimeOnPageMs))
+	}
+	if it := got.Projects[byName["Internal tools"]]; it.Pageviews24h != nil || it.AvgTimeOnPageMs != nil {
+		t.Errorf("Internal tools = %v, %v; want null (no page tracking)", deref(it.Pageviews24h), deref(it.AvgTimeOnPageMs))
+	}
+}
+
+func deref(p *int) any {
+	if p == nil {
+		return nil
+	}
+	return *p
+}

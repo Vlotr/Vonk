@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"sort"
 	"time"
 )
 
@@ -314,4 +315,48 @@ func closeByRows(ctx context.Context, c *closing, stmt *sql.Stmt, args ...any) e
 		c.close(at)
 	}
 	return rows.Err()
+}
+
+// RecentPaths returns the distinct paths of a project's latest page views
+// and the URLs of its latest error events (n of each, read through their
+// time indexes), the most recent first. It is for the route patterns'
+// preview on Edit project only; statistics never read raw page views.
+func (db *DB) RecentPaths(ctx context.Context, projectID int64, n int) ([]string, error) {
+	type seen struct {
+		path string
+		at   int64
+	}
+	var all []seen
+	queries := []string{
+		"SELECT path, start FROM pageviews WHERE project_id = ? ORDER BY start DESC LIMIT ?",
+		"SELECT url, timestamp FROM error_events WHERE project_id = ? AND url <> '' ORDER BY timestamp DESC LIMIT ?",
+	}
+	for _, q := range queries {
+		rows, err := db.read.QueryContext(ctx, q, projectID, n)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var s seen
+			if err := rows.Scan(&s.path, &s.at); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			all = append(all, s)
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+	}
+	sort.SliceStable(all, func(i, j int) bool { return all[i].at > all[j].at })
+	paths := []string{}
+	done := map[string]bool{}
+	for _, s := range all {
+		if !done[s.path] {
+			done[s.path] = true
+			paths = append(paths, s.path)
+		}
+	}
+	return paths, nil
 }

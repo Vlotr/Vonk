@@ -10,6 +10,7 @@ import (
 
 	"monitor/internal/httpjson"
 	"monitor/internal/project"
+	"monitor/internal/routes"
 	"monitor/internal/store"
 )
 
@@ -21,11 +22,26 @@ import (
 //	PATCH  /ui/api/settings/projects/{id}             change any of the create fields
 //	POST   /ui/api/settings/projects/{id}/rotate-keys new DSN key and PostHog token
 //	DELETE /ui/api/settings/projects/{id}             the project and all its data
+//	POST   /ui/api/settings/projects/{id}/route-preview  recent paths and their routes under {routePatterns}
 //
 // retentionDays is 30, 90, 180 or 365, or null to keep data indefinitely.
+// PATCH also takes routePatterns, such as ["/products/:slug"]; they apply
+// to data that comes in from then on (ruling 14).
 
 // maxBodySettings caps the JSON bodies of the settings routes.
 const maxBodySettings = 16 << 10
+
+// maxBodyProject caps the bodies that carry route patterns (up to 100 of
+// 300 characters).
+const maxBodyProject = 64 << 10
+
+// previewPaths is how many recent paths the route preview shows at most,
+// and previewPerSection how many of them start with the same segment, so
+// one busy section (/products/...) leaves room for the others.
+const (
+	previewPaths      = 20
+	previewPerSection = 3
+)
 
 // maxProjectName is the longest project name, in characters.
 const maxProjectName = 100
@@ -43,6 +59,8 @@ type settingsProjectJSON struct {
 	TracksLaravel   bool `json:"tracksLaravel"`
 	TracksBrowser   bool `json:"tracksBrowser"`
 	TracksPageviews bool `json:"tracksPageviews"`
+	// RoutePatterns turn paths into routes before the automatic rules.
+	RoutePatterns []string `json:"routePatterns"`
 }
 
 // projectKeysJSON is a project with what its "Setup and keys" page shows.
@@ -58,6 +76,7 @@ func toSettingsProject(p store.Project) settingsProjectJSON {
 	return settingsProjectJSON{
 		ID: p.ID, Name: p.Name, CreatedAt: p.CreatedAt, RetentionDays: p.RetentionDays,
 		TracksLaravel: p.TracksLaravel, TracksBrowser: p.TracksBrowser, TracksPageviews: p.TracksPageviews,
+		RoutePatterns: p.RoutePatterns,
 	}
 }
 
@@ -98,6 +117,28 @@ type projectBody struct {
 	TracksLaravel   *bool        `json:"tracksLaravel"`
 	TracksBrowser   *bool        `json:"tracksBrowser"`
 	TracksPageviews *bool        `json:"tracksPageviews"`
+	// RoutePatterns is for PATCH only; nil leaves them as they are.
+	RoutePatterns *[]string `json:"routePatterns"`
+}
+
+// cleanPatterns returns the route patterns without blank lines and
+// surrounding spaces, or why they cannot be saved.
+func cleanPatterns(patterns []string) ([]string, error) {
+	clean := []string{}
+	for _, p := range patterns {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		if len(p) > store.MaxRoutePatternBytes {
+			return nil, errors.New("A route pattern can have at most 300 characters.")
+		}
+		clean = append(clean, p)
+	}
+	if len(clean) > store.MaxRoutePatterns {
+		return nil, errors.New("A project can have at most 100 route patterns.")
+	}
+	return clean, nil
 }
 
 // apply puts the fields that were sent onto s and checks the result.
@@ -152,7 +193,7 @@ func (h *Handler) settingsProjects(w http.ResponseWriter, r *http.Request) {
 // 90 days unless retentionDays says otherwise.
 func (h *Handler) createProject(w http.ResponseWriter, r *http.Request) {
 	var body projectBody
-	if !httpjson.Read(w, r, maxBodySettings, &body) {
+	if !httpjson.Read(w, r, maxBodyProject, &body) {
 		return
 	}
 	days := store.DefaultRetentionDays
@@ -206,7 +247,7 @@ func (h *Handler) settingsProject(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) updateProject(w http.ResponseWriter, r *http.Request) {
 	var body projectBody
-	if !httpjson.Read(w, r, maxBodySettings, &body) {
+	if !httpjson.Read(w, r, maxBodyProject, &body) {
 		return
 	}
 	p, ok := h.settingsProjectByID(w, r)
@@ -218,7 +259,18 @@ func (h *Handler) updateProject(w http.ResponseWriter, r *http.Request) {
 		httpjson.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	var patterns []string
+	if body.RoutePatterns != nil {
+		var err error
+		if patterns, err = cleanPatterns(*body.RoutePatterns); err != nil {
+			httpjson.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
 	updated, err := h.db.UpdateProject(r.Context(), p.ID, settings)
+	if err == nil && body.RoutePatterns != nil {
+		updated, err = h.db.SetRoutePatterns(r.Context(), p.ID, patterns)
+	}
 	if errors.Is(err, store.ErrNotFound) {
 		notFound(w)
 		return
@@ -228,6 +280,56 @@ func (h *Handler) updateProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpjson.Write(w, http.StatusOK, h.toProjectKeys(updated))
+}
+
+// routePreviewJSON is a recent path and the route it gets.
+type routePreviewJSON struct {
+	Path  string `json:"path"`
+	Route string `json:"route"`
+}
+
+// routePreview answers POST /ui/api/settings/projects/{id}/route-preview
+// with {routePatterns}: the project's recent paths (of page views and
+// error URLs, with their secrets masked) and the route each would get
+// under those patterns. Nothing is saved.
+func (h *Handler) routePreview(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		RoutePatterns []string `json:"routePatterns"`
+	}
+	if !httpjson.Read(w, r, maxBodyProject, &body) {
+		return
+	}
+	p, ok := h.settingsProjectByID(w, r)
+	if !ok {
+		return
+	}
+	patterns, err := cleanPatterns(body.RoutePatterns)
+	if err != nil {
+		httpjson.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	recent, err := h.db.RecentPaths(r.Context(), p.ID, 500)
+	if err != nil {
+		h.internalError(w, r, err)
+		return
+	}
+	list := []routePreviewJSON{}
+	done := map[string]bool{}
+	perSection := map[string]int{}
+	for _, raw := range recent {
+		path := routes.Path(raw) // masked, also when stored before masking existed
+		section, _, _ := strings.Cut(strings.TrimPrefix(path, "/"), "/")
+		if done[path] || perSection[section] == previewPerSection {
+			continue
+		}
+		done[path] = true
+		perSection[section]++
+		list = append(list, routePreviewJSON{Path: path, Route: routes.Normalize(path, patterns)})
+		if len(list) == previewPaths {
+			break
+		}
+	}
+	httpjson.Write(w, http.StatusOK, map[string]any{"paths": list})
 }
 
 // rotateKeys gives the project a new DSN key and PostHog token; apps using

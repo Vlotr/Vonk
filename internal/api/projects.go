@@ -16,6 +16,8 @@ type projectJSON struct {
 	Sources []string `json:"sources"`
 	// OpenIssues feeds the count next to Issues in the sidebar.
 	OpenIssues int `json:"openIssues"`
+	// TracksPageviews puts Pages in the sidebar.
+	TracksPageviews bool `json:"tracksPageviews"`
 }
 
 // listProjects answers GET /ui/api/projects: the projects the signed-in
@@ -35,11 +37,12 @@ func (h *Handler) listProjects(w http.ResponseWriter, r *http.Request) {
 	list := make([]projectJSON, 0, len(projects))
 	for _, p := range projects {
 		list = append(list, projectJSON{
-			ID:         p.ID,
-			Name:       p.Name,
-			Slug:       p.Slug,
-			Sources:    sources(p),
-			OpenIssues: open[p.ID],
+			ID:              p.ID,
+			Name:            p.Name,
+			Slug:            p.Slug,
+			Sources:         sources(p),
+			OpenIssues:      open[p.ID],
+			TracksPageviews: p.TracksPageviews,
 		})
 	}
 	httpjson.Write(w, http.StatusOK, list)

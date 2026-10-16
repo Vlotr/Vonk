@@ -20,6 +20,7 @@ type settingsProjectResponse struct {
 	TracksLaravel   bool      `json:"tracksLaravel"`
 	TracksBrowser   bool      `json:"tracksBrowser"`
 	TracksPageviews bool      `json:"tracksPageviews"`
+	RoutePatterns   []string  `json:"routePatterns"`
 	DSN             string    `json:"dsn"`
 	PosthogToken    string    `json:"posthogToken"`
 	PosthogHost     string    `json:"posthogHost"`
@@ -138,5 +139,110 @@ func TestSettingsProjects_EditRotateDelete(t *testing.T) {
 	}
 	if rec := env.as(t, env.admin, "DELETE", path, ""); rec.Code != http.StatusNotFound {
 		t.Errorf("DELETE twice = %d, want 404", rec.Code)
+	}
+}
+
+// Route patterns are set on Edit project, one per line; blank lines go.
+func TestSettingsProjects_RoutePatterns(t *testing.T) {
+	env := newTestEnv(t)
+	p := env.project(t, "Webshop")
+	path := fmt.Sprintf("/ui/api/settings/projects/%d", p.ID)
+
+	if got := decode[settingsProjectResponse](t, env.get(t, path).Body.Bytes()); got.RoutePatterns == nil || len(got.RoutePatterns) != 0 {
+		t.Errorf("a new project's patterns = %#v, want []", got.RoutePatterns)
+	}
+	rec := env.as(t, env.admin, "PATCH", path, `{"routePatterns":[" /products/:slug ","","  ","/blog/:year/:post"]}`)
+	got := decode[settingsProjectResponse](t, rec.Body.Bytes())
+	if rec.Code != http.StatusOK || fmt.Sprint(got.RoutePatterns) != "[/products/:slug /blog/:year/:post]" || got.Name != "Webshop" {
+		t.Errorf("PATCH patterns = %d %+v", rec.Code, got)
+	}
+	list := decode[[]settingsProjectResponse](t, env.get(t, "/ui/api/settings/projects").Body.Bytes())
+	if len(list) != 1 || fmt.Sprint(list[0].RoutePatterns) != "[/products/:slug /blog/:year/:post]" {
+		t.Errorf("list = %+v, want the patterns for the Edit form", list)
+	}
+	// Other changes leave the patterns alone.
+	rec = env.as(t, env.admin, "PATCH", path, `{"name":"Web shop"}`)
+	if got := decode[settingsProjectResponse](t, rec.Body.Bytes()); len(got.RoutePatterns) != 2 {
+		t.Errorf("patterns after a rename = %v", got.RoutePatterns)
+	}
+
+	tooMany := make([]string, 101)
+	for i := range tooMany {
+		tooMany[i] = fmt.Sprintf("%q", fmt.Sprintf("/p%d/:id", i))
+	}
+	for _, body := range []string{
+		`{"routePatterns":"/products/:slug"}`,
+		`{"routePatterns":[` + strings.Join(tooMany, ",") + `]}`,
+		`{"routePatterns":["/` + strings.Repeat("x", 300) + `"]}`,
+		`{"name":"","routePatterns":["/a/:b"]}`,
+	} {
+		rec := env.as(t, env.admin, "PATCH", path, body)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("PATCH %.60s = %d, want 400", body, rec.Code)
+		}
+	}
+	if got := decode[settingsProjectResponse](t, env.get(t, path).Body.Bytes()); got.Name != "Web shop" || len(got.RoutePatterns) != 2 {
+		t.Errorf("after refused changes = %+v", got)
+	}
+}
+
+type routePreviewResponse struct {
+	Paths []struct {
+		Path  string `json:"path"`
+		Route string `json:"route"`
+	} `json:"paths"`
+}
+
+// The preview shows recent paths (page views and error URLs) with the
+// route each gets under the patterns typed, without saving them.
+func TestSettingsProjects_RoutePreview(t *testing.T) {
+	env := newTestEnv(t)
+	p := env.pageProject(t, "Webshop")
+	ctx := context.Background()
+	const token = "4f8c2a9e7b1d3f5a6c8e0b2d4f6a8c0e2b4d6f8a0c2e4b6d8f0a2c4e6b8d0f2a"
+	var events []store.PageEvent
+	paths := []string{"/products/blue-shoes", "/products/red-shoes", "/products/green-shoes", "/products/black-boots",
+		"/orders/1234", "/", "/reset-password/" + token /* stored before ruling 38 */, "/products/blue-shoes"}
+	for i, path := range paths {
+		events = append(events, store.PageEvent{ProjectID: p.ID, PageviewID: fmt.Sprint(i), SessionID: fmt.Sprint(i),
+			Route: "/x", Path: path, At: testNow.Add(-time.Duration(len(paths)-i) * time.Minute)})
+	}
+	if _, err := env.db.SavePageEvents(ctx, events); err != nil {
+		t.Fatal(err)
+	}
+	env.save(t, p.ID, phpEvent(t, eventSpec{id: hexID(1), url: "https://shop.example.com/checkout/payment?step=2", at: testNow.Add(-time.Hour)}))
+
+	preview := func(patterns string) map[string]string {
+		t.Helper()
+		rec := env.as(t, env.admin, "POST", fmt.Sprintf("/ui/api/settings/projects/%d/route-preview", p.ID), `{"routePatterns":`+patterns+`}`)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("preview = %d %s", rec.Code, rec.Body)
+		}
+		got := map[string]string{}
+		for _, pr := range decode[routePreviewResponse](t, rec.Body.Bytes()).Paths {
+			got[pr.Path] = pr.Route
+		}
+		return got
+	}
+	got := preview(`["/products/:slug", "/checkout/:step"]`)
+	want := map[string]string{
+		// At most three paths per first segment, the most recent first.
+		"/products/blue-shoes": "/products/:slug", "/products/black-boots": "/products/:slug", "/products/green-shoes": "/products/:slug",
+		"/orders/1234": "/orders/:id", "/": "/",
+		"/reset-password/:hash": "/reset-password/:hash",
+		"/checkout/payment":     "/checkout/:step",
+	}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("preview =\n%v\nwant\n%v", got, want)
+	}
+	// Without patterns, the automatic rules alone. Nothing was saved.
+	if got := preview(`[]`); got["/products/blue-shoes"] != "/products/blue-shoes" {
+		t.Errorf("without patterns = %v", got)
+	}
+	if saved, _ := env.db.ProjectByID(ctx, p.ID); len(saved.RoutePatterns) != 0 {
+		t.Errorf("the preview saved %v", saved.RoutePatterns)
+	}
+	if rec := env.as(t, env.admin, "POST", "/ui/api/settings/projects/999/route-preview", `{"routePatterns":[]}`); rec.Code != http.StatusNotFound {
+		t.Errorf("unknown project = %d, want 404", rec.Code)
 	}
 }

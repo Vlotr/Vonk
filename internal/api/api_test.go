@@ -18,6 +18,7 @@ import (
 	"monitor/internal/health"
 	"monitor/internal/ingest"
 	"monitor/internal/issues"
+	"monitor/internal/routes"
 	"monitor/internal/scrub"
 	"monitor/internal/sentry"
 	"monitor/internal/store"
@@ -173,14 +174,18 @@ func (e *testEnv) project(t *testing.T, name string) store.Project {
 	return p
 }
 
-// save stores events the way ingest does: scrubbed, through the queue and
-// the batch writer, received at testNow.
+// save stores events the way ingest does: scrubbed, with the route of
+// their URL, through the queue and the batch writer, received at testNow.
 func (e *testEnv) save(t *testing.T, projectID int64, events ...*sentry.Event) {
 	t.Helper()
 	queue := ingest.NewQueue(len(events))
 	for _, ev := range events {
 		scrub.Event(ev)
-		if !queue.TryEnqueue(ingest.Item{ProjectID: projectID, ReceivedAt: testNow, Event: ev}) {
+		route := ""
+		if ev.Request.URL != "" {
+			route = routes.Normalize(ev.Request.URL, nil)
+		}
+		if !queue.TryEnqueue(ingest.Item{ProjectID: projectID, ReceivedAt: testNow, Event: ev, Route: route}) {
 			t.Fatal("queue full")
 		}
 	}
@@ -333,11 +338,12 @@ func hexID(n int) string {
 }
 
 type projectsResponse []struct {
-	ID         int64    `json:"id"`
-	Name       string   `json:"name"`
-	Slug       string   `json:"slug"`
-	Sources    []string `json:"sources"`
-	OpenIssues int      `json:"openIssues"`
+	ID              int64    `json:"id"`
+	Name            string   `json:"name"`
+	Slug            string   `json:"slug"`
+	Sources         []string `json:"sources"`
+	OpenIssues      int      `json:"openIssues"`
+	TracksPageviews bool     `json:"tracksPageviews"`
 }
 
 func TestListProjects_SourcesAndOpenIssues(t *testing.T) {
@@ -371,6 +377,17 @@ func TestListProjects_SourcesAndOpenIssues(t *testing.T) {
 	}
 	if got[1].OpenIssues != 2 {
 		t.Errorf("Webshop open issues = %d, want 2 (one of three is resolved)", got[1].OpenIssues)
+	}
+}
+
+// The sidebar shows Pages for the projects that track page views.
+func TestListProjects_TracksPageviews(t *testing.T) {
+	env := newTestEnv(t)
+	env.pageProject(t, "Webshop")
+	env.project(t, "Internal tools")
+	got := getJSON[projectsResponse](t, env, "/ui/api/projects")
+	if len(got) != 2 || got[0].TracksPageviews || !got[1].TracksPageviews {
+		t.Errorf("projects = %+v, want Internal tools without and Webshop with page views", got)
 	}
 }
 
