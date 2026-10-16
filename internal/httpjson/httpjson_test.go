@@ -3,6 +3,7 @@ package httpjson
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -17,5 +18,42 @@ func TestWriteAndError(t *testing.T) {
 	Error(rec, http.StatusNotFound, "not found")
 	if rec.Code != http.StatusNotFound || rec.Body.String() != "{\"error\":\"not found\"}\n" {
 		t.Errorf("Error = %d %q", rec.Code, rec.Body)
+	}
+}
+
+func TestRead(t *testing.T) {
+	tests := []struct {
+		name, contentType, body string
+		code                    int // 0: Read succeeds
+	}{
+		{"object", "application/json", `{"name":"Webshop"}`, 0},
+		{"charset", "application/json; charset=utf-8", `{"name":"Webshop"}`, 0},
+		{"form", "application/x-www-form-urlencoded", `{"name":"Webshop"}`, http.StatusUnsupportedMediaType},
+		{"text", "text/plain", `{"name":"Webshop"}`, http.StatusUnsupportedMediaType},
+		{"no type", "", `{"name":"Webshop"}`, http.StatusUnsupportedMediaType},
+		{"not JSON", "application/json", `name=Webshop`, http.StatusBadRequest},
+		{"two values", "application/json", `{"name":"a"}{"name":"b"}`, http.StatusBadRequest},
+		{"wrong type", "application/json", `{"name":1}`, http.StatusBadRequest},
+		{"too large", "application/json", `{"name":"` + strings.Repeat("a", 100) + `"}`, http.StatusRequestEntityTooLarge},
+	}
+	for _, tt := range tests {
+		req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(tt.body))
+		if tt.contentType != "" {
+			req.Header.Set("Content-Type", tt.contentType)
+		}
+		rec := httptest.NewRecorder()
+		var v struct {
+			Name string `json:"name"`
+		}
+		ok := Read(rec, req, 64, &v)
+		if tt.code == 0 {
+			if !ok || v.Name != "Webshop" {
+				t.Errorf("%s: Read = %v, %+v; answered %d %s", tt.name, ok, v, rec.Code, rec.Body)
+			}
+			continue
+		}
+		if ok || rec.Code != tt.code || !strings.HasPrefix(rec.Body.String(), `{"error":`) {
+			t.Errorf("%s: Read = %v, answered %d %s; want %d with a JSON error", tt.name, ok, rec.Code, rec.Body, tt.code)
+		}
 	}
 }
