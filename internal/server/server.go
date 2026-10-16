@@ -1,8 +1,8 @@
 // Package server wires the HTTP routes and the middleware around them.
 //
 // Routes fall in two groups. Public routes are SDK traffic (/api/... for
-// Sentry, later the PostHog endpoints) and /health; they are registered on
-// the public mux. Every other request is the dashboard: the sign-in pages
+// Sentry, /i/v0/e/, /flags/ and the other PostHog paths) and /health; they
+// are registered on the public mux. Every other request is the dashboard: the sign-in pages
 // and their API (auth.PublicPages, auth.RegisterPublic) and the app's
 // assets are open, and everything else falls through auth.RequireUser to
 // the dashboard mux (the SPA and /ui/api/...). New dashboard routes are
@@ -36,7 +36,9 @@ type Deps struct {
 	SPA http.Handler
 	// Queue receives accepted SDK data; an ingest.Writer empties it.
 	Queue *ingest.Queue
-	// Limiter enforces each project's events-per-minute limit.
+	// Limiter enforces each project's events-per-minute limit for Sentry
+	// traffic; PostHog traffic gets a limiter of its own, with the same
+	// limit, so page views never crowd out errors.
 	Limiter *ingest.RateLimiter
 	// Mailer sends invites and reset links; nil when MAIL_URL is not set.
 	Mailer auth.Mailer
@@ -116,6 +118,7 @@ func New(deps Deps) http.Handler {
 	public := http.NewServeMux()
 	public.HandleFunc("GET /health", health.Handler(checker))
 	public.Handle(ingest.SentryEnvelopePattern, ingest.NewSentryHandler(deps.DB, deps.Queue, deps.Limiter, deps.Logger))
+	ingest.RegisterPosthog(public, ingest.NewPosthogHandler(deps.DB, deps.Queue, ingest.NewRateLimiter(), deps.Logger))
 	public.HandleFunc("/api/", notFoundJSON)
 	public.Handle("/", dashboardHeaders(sameOrigin.Handler(ui)))
 
@@ -152,8 +155,8 @@ func logRequests(logger *slog.Logger, next http.Handler) http.Handler {
 		switch {
 		case r.URL.Path == "/health":
 			level = slog.LevelDebug // the Docker health check calls it every 30 s
-		case strings.HasPrefix(r.URL.Path, "/api/") && rec.status < 300:
-			level = slog.LevelDebug // accepted SDK traffic: one line per error event would flood the log
+		case (strings.HasPrefix(r.URL.Path, "/api/") || ingest.IsPosthogPath(r.URL.Path)) && rec.status < 300:
+			level = slog.LevelDebug // accepted SDK traffic: one line per event would flood the log
 		}
 		logger.Log(r.Context(), level, "request",
 			"method", r.Method,

@@ -491,3 +491,50 @@ func TestRecoverPanics(t *testing.T) {
 		t.Errorf("panic not logged: %q", logs.String())
 	}
 }
+
+// postPageview sends one $pageview for project p as posthog-js would, from another site.
+func postPageview(h http.Handler, token string) *httptest.ResponseRecorder {
+	body := `{"api_key":"` + token + `","batch":[{"event":"$pageview","properties":{"$current_url":"https://shop.example.com/checkout"}}]}`
+	req := httptest.NewRequest(http.MethodPost, "/i/v0/e/", strings.NewReader(body))
+	req.RemoteAddr = "203.0.113.5:40000"
+	req.Header.Set("Content-Type", "text/plain")
+	req.Header.Set("Origin", "https://shop.example.com")
+	req.Header.Set("Sec-Fetch-Site", "cross-site")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
+}
+
+func TestPosthogRoutes(t *testing.T) {
+	var logs bytes.Buffer
+	deps := newTestDeps(t, &logs)
+	h := New(deps)
+	signIn(t, h) // the PostHog endpoints stay public once accounts exist
+	p, err := deps.DB.CreateProject(context.Background(), store.NewProject{Name: "Webshop"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec := postPageview(h, p.PosthogToken); rec.Code != http.StatusOK || rec.Header().Get("Access-Control-Allow-Origin") != "*" {
+		t.Errorf("POST /i/v0/e/ = %d %v %s", rec.Code, rec.Header(), rec.Body)
+	}
+	for _, target := range []string{"/flags/?v=2", "/decide/?v=4", "/array/" + p.PosthogToken + "/config.js", "/static/1.438.12/surveys.js", "/e/?data=x"} {
+		rec := do(h, http.MethodGet, target, "203.0.113.5:40000")
+		if isHTML(rec) || rec.Code >= 500 || rec.Header().Get("Access-Control-Allow-Origin") != "*" {
+			t.Errorf("GET %s = %d %s", target, rec.Code, rec.Header().Get("Content-Type"))
+		}
+	}
+	// Accepted SDK requests are logged at debug only; refused ones at info.
+	if strings.Contains(logs.String(), "/i/v0/e/") || strings.Contains(logs.String(), "/flags/") {
+		t.Errorf("accepted PostHog requests were logged at info: %s", logs.String())
+	}
+	if rec := postPageview(h, "phc_unknown"); rec.Code != http.StatusUnauthorized {
+		t.Errorf("unknown token = %d", rec.Code)
+	}
+	if !strings.Contains(logs.String(), "status=401") {
+		t.Errorf("a refused PostHog request was not logged: %s", logs.String())
+	}
+	// Dashboard pages that only look alike still reach the dashboard.
+	if rec := do(h, http.MethodGet, "/settings/status", ""); !isHTML(rec) && rec.Code != http.StatusFound {
+		t.Errorf("GET /settings/status = %d %s", rec.Code, rec.Header().Get("Content-Type"))
+	}
+}

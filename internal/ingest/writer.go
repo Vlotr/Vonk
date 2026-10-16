@@ -1,12 +1,14 @@
 package ingest
 
 import (
+	"cmp"
 	"context"
 	"log/slog"
 	"sync"
 	"time"
 
 	"monitor/internal/issues"
+	"monitor/internal/posthog"
 	"monitor/internal/sentry"
 	"monitor/internal/store"
 )
@@ -32,7 +34,8 @@ var defaultRetryDelays = []time.Duration{200 * time.Millisecond, time.Second, 5 
 
 // Writer takes items off the queue and writes them to the database in
 // batches: every second, or as soon as 500 items are waiting. It is the only
-// goroutine that writes ingested data, so SQLite never sees two writers.
+// goroutine that writes ingested data (error events and page events), so
+// SQLite never sees two writers.
 type Writer struct {
 	db    *store.DB
 	queue *Queue
@@ -63,8 +66,9 @@ type WriterStats struct {
 	LastError string
 }
 
-// StoredLastHour returns how many events the writer stored in the last
-// hour (since the start, when that was less than an hour ago).
+// StoredLastHour returns how many events (errors, page views and page
+// leaves) the writer stored in the last hour (since the start, when that
+// was less than an hour ago).
 func (w *Writer) StoredLastHour() int {
 	return w.stored.lastHour(time.Now())
 }
@@ -154,60 +158,124 @@ func (w *Writer) drain(ctx context.Context, batch []Item) {
 	}
 }
 
-// flush writes one batch in one transaction, retrying when the database
-// fails, and then tells the hooks about new and regressed issues. A batch
-// that still fails after the retries is logged and dropped, so one bad
-// moment never stops ingest.
+// flush writes one batch, retrying when the database fails, and then
+// tells the hooks about new and regressed issues. Error events and page
+// events go in a transaction each. A part that still fails after the
+// retries is logged and dropped, so one bad moment never stops ingest.
 func (w *Writer) flush(ctx context.Context, batch []Item) {
-	events := make([]store.NewErrorEvent, 0, len(batch))
-	for _, item := range batch {
-		ev, err := errorEvent(item)
-		if err != nil {
-			w.log.Error("ingest: event cannot be encoded; dropped", "project", item.ProjectID, "err", err)
-			continue
-		}
-		events = append(events, ev)
-	}
-
 	var (
-		result store.SaveResult
-		err    error
+		errorEvents []store.NewErrorEvent
+		pageEvents  []store.PageEvent
 	)
-	for attempt := 0; ; attempt++ {
-		result, err = w.db.SaveErrorEvents(ctx, events)
-		if err == nil {
-			break
+	for _, item := range batch {
+		switch {
+		case item.Event != nil:
+			ev, err := errorEvent(item)
+			if err != nil {
+				w.log.Error("ingest: event cannot be encoded; dropped", "project", item.ProjectID, "err", err)
+				continue
+			}
+			errorEvents = append(errorEvents, ev)
+		case item.Page != nil:
+			pageEvents = append(pageEvents, pageEvent(item))
 		}
-		if attempt == len(w.retryDelays) {
-			w.log.Error("ingest: database write failed; events dropped", "events", len(events), "attempts", attempt+1, "err", err)
-			w.mu.Lock()
-			w.stats.FailedBatches++
-			w.stats.LostEvents += int64(len(events))
-			w.stats.LastError = err.Error()
-			w.mu.Unlock()
-			return
-		}
-		w.log.Warn("ingest: database write failed; retrying", "events", len(events), "attempt", attempt+1, "err", err)
-		time.Sleep(w.retryDelays[attempt])
 	}
 
-	w.stored.add(time.Now(), result.Stored)
-	if result.Orphaned > 0 {
-		w.log.Warn("ingest: events of deleted projects skipped", "events", result.Orphaned)
+	if len(errorEvents) > 0 {
+		var result store.SaveResult
+		if w.save(len(errorEvents), func() (err error) {
+			result, err = w.db.SaveErrorEvents(ctx, errorEvents)
+			return err
+		}) {
+			w.stored.add(time.Now(), result.Stored)
+			if result.Orphaned > 0 {
+				w.log.Warn("ingest: events of deleted projects skipped", "events", result.Orphaned)
+			}
+			w.log.Debug("ingest: batch written", "stored", result.Stored, "duplicates", result.Duplicates,
+				"new_issues", len(result.NewIssues), "regressed_issues", len(result.Regressed))
+			for _, issue := range result.NewIssues {
+				w.hooks.OnIssueCreated(ctx, issue)
+			}
+			for _, issue := range result.Regressed {
+				w.hooks.OnIssueRegressed(ctx, issue)
+			}
+		}
 	}
-	w.log.Debug("ingest: batch written", "stored", result.Stored, "duplicates", result.Duplicates,
-		"new_issues", len(result.NewIssues), "regressed_issues", len(result.Regressed))
-	for _, issue := range result.NewIssues {
-		w.hooks.OnIssueCreated(ctx, issue)
-	}
-	for _, issue := range result.Regressed {
-		w.hooks.OnIssueRegressed(ctx, issue)
+	if len(pageEvents) > 0 {
+		var result store.PageSaveResult
+		if w.save(len(pageEvents), func() (err error) {
+			result, err = w.db.SavePageEvents(ctx, pageEvents)
+			return err
+		}) {
+			w.stored.add(time.Now(), result.Stored)
+			if result.Orphaned > 0 {
+				w.log.Warn("ingest: page events of deleted projects skipped", "events", result.Orphaned)
+			}
+			w.log.Debug("ingest: page events written", "stored", result.Stored, "duplicates", result.Duplicates)
+		}
 	}
 }
 
+// save runs write until it succeeds, waiting retryDelays between
+// attempts, and reports whether it did. When it never does, the n events
+// are counted as lost.
+func (w *Writer) save(n int, write func() error) bool {
+	for attempt := 0; ; attempt++ {
+		err := write()
+		if err == nil {
+			return true
+		}
+		if attempt == len(w.retryDelays) {
+			w.log.Error("ingest: database write failed; events dropped", "events", n, "attempts", attempt+1, "err", err)
+			w.mu.Lock()
+			w.stats.FailedBatches++
+			w.stats.LostEvents += int64(n)
+			w.stats.LastError = err.Error()
+			w.mu.Unlock()
+			return false
+		}
+		w.log.Warn("ingest: database write failed; retrying", "events", n, "attempt", attempt+1, "err", err)
+		time.Sleep(w.retryDelays[attempt])
+	}
+}
+
+// clampTime returns ts, or received when ts is missing, more than an hour
+// after received (a client clock that is off) or more than 30 days before it.
+func clampTime(ts, received time.Time) time.Time {
+	if ts.IsZero() || ts.After(received.Add(maxFutureSkew)) || ts.Before(received.Add(-maxAge)) {
+		return received
+	}
+	return ts
+}
+
+// pageEvent turns a queued PostHog event into a page view or page leave
+// for the store. A page view is known by its $pageview_id (posthog-js:
+// its uuid), so a resent one is stored once.
+func pageEvent(item Item) store.PageEvent {
+	ev := item.Page
+	pe := store.PageEvent{
+		ProjectID: item.ProjectID,
+		Leave:     ev.Name == posthog.EventPageleave,
+		SessionID: ev.SessionID,
+		WindowID:  ev.WindowID,
+		UserID:    ev.DistinctID,
+		At:        clampTime(ev.Time(item.ReceivedAt), item.ReceivedAt),
+	}
+	if pe.Leave {
+		pe.EventID = cmp.Or(ev.UUID, newEventID())
+		pe.PageviewID = ev.PageviewID
+		return pe
+	}
+	pe.PageviewID = cmp.Or(ev.PageviewID, ev.UUID, newEventID())
+	pe.Route = item.Route
+	pe.Path = item.Path
+	pe.IsBot = item.IsBot
+	return pe
+}
+
 // errorEvent turns a queued event into its database row: grouping, title,
-// culprit and source, the stored JSON, and a timestamp that is neither in
-// the future nor more than 30 days old.
+// culprit and source, the route, the stored JSON, and a timestamp that is
+// neither in the future nor more than 30 days old.
 func errorEvent(item Item) (store.NewErrorEvent, error) {
 	ev := item.Event
 	if ev.EventID == "" {
@@ -218,10 +286,7 @@ func errorEvent(item Item) (store.NewErrorEvent, error) {
 		return store.NewErrorEvent{}, err
 	}
 
-	ts := ev.Timestamp
-	if ts.IsZero() || ts.After(item.ReceivedAt.Add(maxFutureSkew)) || ts.Before(item.ReceivedAt.Add(-maxAge)) {
-		ts = item.ReceivedAt
-	}
+	ts := clampTime(ev.Timestamp, item.ReceivedAt)
 	summary := sentry.Summarize(ev)
 	return store.NewErrorEvent{
 		ProjectID:   item.ProjectID,
@@ -236,6 +301,7 @@ func errorEvent(item Item) (store.NewErrorEvent, error) {
 		ReceivedAt:  item.ReceivedAt,
 		UserID:      ev.User.ID,
 		URL:         ev.Request.URL,
+		Route:       item.Route,
 		Release:     ev.Release,
 		Environment: ev.Environment,
 		Platform:    ev.Platform,

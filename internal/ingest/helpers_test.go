@@ -28,6 +28,12 @@ func (c *fakeClock) Now() time.Time {
 	return c.t
 }
 
+func (c *fakeClock) Set(t time.Time) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.t = t
+}
+
 func (c *fakeClock) Advance(d time.Duration) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -52,7 +58,7 @@ func (b *syncBuffer) String() string {
 	return b.buf.String()
 }
 
-// testEnv is a database, a queue, a rate limiter and the envelope handler.
+// testEnv is a database, a queue, rate limiters and the Sentry and PostHog handlers.
 type testEnv struct {
 	db      *store.DB
 	dbPath  string
@@ -96,6 +102,12 @@ func newTestEnv(t *testing.T, queueCapacity int) *testEnv {
 	h := NewSentryHandler(db, env.queue, env.limiter, logger)
 	h.now = clock.Now
 	env.mux.Handle(SentryEnvelopePattern, h)
+	// PostHog traffic has limits of its own, on the same queue.
+	posthogLimiter := NewRateLimiter()
+	posthogLimiter.now = clock.Now
+	ph := NewPosthogHandler(db, env.queue, posthogLimiter, logger)
+	ph.now = clock.Now
+	RegisterPosthog(env.mux, ph)
 	return env
 }
 

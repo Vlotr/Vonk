@@ -104,8 +104,8 @@ func runServer(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 	go writer.Run(context.Background())
 	defer writer.Close() // before the notifier and the database close; also on the error paths
 
-	// Background jobs: retention, spike checks, summaries and the checks
-	// of the tool itself.
+	// Background jobs: retention, the hourly page statistics, spike
+	// checks, summaries and the checks of the tool itself.
 	checker := &health.Checker{DB: db, DataDir: cfg.DataDir, Queue: queue, Version: version, Log: logger}
 	adminAlerts := alerts.NewAdminAlerts(notifier, checker, func() alerts.IngestStats {
 		ws := writer.Stats()
@@ -113,6 +113,7 @@ func runServer(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 	})
 	scheduler := jobs.New(nil, logger)
 	scheduler.Add((&jobs.Retention{DB: db, Log: logger}).Job())
+	scheduler.Add((&jobs.Aggregate{DB: db, Log: logger}).Job())
 	for _, job := range notifier.Jobs() {
 		scheduler.Add(job)
 	}

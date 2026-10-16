@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"monitor/internal/httpjson"
+	"monitor/internal/routes"
 	"monitor/internal/scrub"
 	"monitor/internal/sentry"
 	"monitor/internal/store"
@@ -139,12 +140,27 @@ func (h *SentryHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			ev.SetEventID(newEventID())
 		}
 		scrub.Event(ev)
-		if !h.queue.TryEnqueue(Item{ProjectID: project.ID, ReceivedAt: received, Event: ev}) {
+		item := Item{ProjectID: project.ID, ReceivedAt: received, Event: ev, Route: errorRoute(ev, project.RoutePatterns)}
+		if !h.queue.TryEnqueue(item) {
 			h.queueFull(w)
 			return
 		}
 	}
 	httpjson.Write(w, http.StatusOK, map[string]string{"id": env.Events[0].EventID})
+}
+
+// errorRoute returns the route of the page an error happened on: from the
+// request URL (server SDKs send the request, browser SDKs the page), else
+// the "url" tag; "" when the event names no page.
+func errorRoute(ev *sentry.Event, patterns []string) string {
+	page := ev.Request.URL
+	if page == "" {
+		page = ev.Tags["url"]
+	}
+	if page == "" {
+		return ""
+	}
+	return routes.Normalize(page, patterns)
 }
 
 // authFailed answers 401 for a bad key and 503 when the lookup itself failed.

@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"monitor/internal/posthog"
 	"monitor/internal/sentry"
 )
 
@@ -20,20 +21,34 @@ const (
 	DefaultQueueMaxBytes = 256 << 20
 )
 
-// Item is one piece of ingested data waiting for the writer.
+// Item is one piece of ingested data waiting for the writer: a Sentry
+// error event or a PostHog page event.
 type Item struct {
 	ProjectID  int64
 	ReceivedAt time.Time
-	Event      *sentry.Event // a scrubbed Sentry error event
+	// Route is the page it happened on (routes.Normalize with the
+	// project's patterns), "" when unknown.
+	Route string
+	// Event is a scrubbed Sentry error event, or nil.
+	Event *sentry.Event
+	// Page is a scrubbed PostHog $pageview or $pageleave, or nil.
+	Page *posthog.Event
+	// Path is a page view's URL path, without query and fragment.
+	Path string
+	// IsBot marks a page view sent by a bot.
+	IsBot bool
 }
 
 // size is the item's approximate weight in the queue: the bytes of JSON its
 // event was decoded from.
 func (it Item) size() int64 {
-	if it.Event == nil {
-		return 0
+	switch {
+	case it.Event != nil:
+		return int64(it.Event.Size)
+	case it.Page != nil:
+		return int64(it.Page.Size)
 	}
-	return int64(it.Event.Size)
+	return 0
 }
 
 // Queue is a bounded first-in, first-out queue between the handlers and the
