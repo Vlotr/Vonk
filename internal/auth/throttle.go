@@ -19,14 +19,22 @@ import (
 // gives its try back. Counts live in memory and start over when the server
 // restarts. Neither addresses nor client addresses are kept: the keys are
 // salted hashes of them.
+//
+// Addresses of existing accounts are counted in a store of their own that
+// never evicts (it holds at most one key per account). Other addresses go
+// to a capped store that makes room when full. Were they one store, a
+// flood of throwaway addresses could push out the key of a locked-out
+// account, whose refused tries add nothing and so look oldest. Both stores
+// count the same way, so the answers do not tell which addresses have an
+// account.
 const (
 	failuresPerEmail  = 5
 	failuresPerClient = 20
 	throttleWindow    = 15 * time.Minute
 )
 
-// maxLimiterKeys caps how many keys a limiter tracks, so a flood of new
-// addresses cannot grow it without end.
+// maxLimiterKeys caps how many keys a capped limiter tracks, so a flood of
+// new addresses or clients cannot grow it without end.
 const maxLimiterKeys = 10_000
 
 // evictionSample is how many keys a full limiter looks at to make room.
@@ -35,8 +43,10 @@ const evictionSample = 32
 // limiter counts events per key over a sliding window. It is not safe for
 // concurrent use: the throttle that owns it holds a lock around every call.
 type limiter struct {
-	limit   int
-	window  time.Duration
+	limit  int
+	window time.Duration
+	// maxKeys caps the keys; 0 means no cap (the store of accounts, which
+	// holds at most one key per account).
 	maxKeys int
 	events  map[string][]time.Time // oldest first, at most limit of them
 }
@@ -59,7 +69,7 @@ func (l *limiter) wait(key string, now time.Time) time.Duration {
 // add counts an event for key.
 func (l *limiter) add(key string, now time.Time) {
 	events := l.recent(key, now)
-	if events == nil && len(l.events) >= l.maxKeys {
+	if events == nil && l.maxKeys > 0 && len(l.events) >= l.maxKeys {
 		l.makeRoom(now)
 	}
 	events = append(events, now)
@@ -132,45 +142,61 @@ func (l *limiter) recent(key string, now time.Time) []time.Time {
 
 // throttle limits tries per email address and per client.
 type throttle struct {
-	mu       sync.Mutex // around both limiters, so a try is checked and reserved in one step
-	byEmail  *limiter
-	byClient *limiter
-	salt     []byte // random per process, so the keys cannot be turned back into addresses
+	mu        sync.Mutex // around all limiters, so a try is checked and reserved in one step
+	byAccount *limiter   // addresses of existing accounts: never evicted
+	byAddress *limiter   // other addresses: capped
+	byClient  *limiter   // capped
+	salt      []byte     // random per process, so the keys cannot be turned back into addresses
 }
 
 func newThrottle(perEmail, perClient int, window time.Duration) *throttle {
 	salt := make([]byte, 32)
 	rand.Read(salt)
-	return &throttle{byEmail: newLimiter(perEmail, window), byClient: newLimiter(perClient, window), salt: salt}
+	accounts := newLimiter(perEmail, window)
+	accounts.maxKeys = 0
+	return &throttle{byAccount: accounts, byAddress: newLimiter(perEmail, window), byClient: newLimiter(perClient, window), salt: salt}
+}
+
+// addresses is the store for an address: byAccount when it has an account.
+func (t *throttle) addresses(account bool) *limiter {
+	if account {
+		return t.byAccount
+	}
+	return t.byAddress
 }
 
 // attempt is one reserved try of an address from a client.
 type attempt struct {
 	emailKey, clientKey string
+	account             bool // the address has an account
 	at                  time.Time
 }
 
-// begin reserves a try for the address and the client. When either has
-// used up its tries it reserves nothing, and wait says how long to wait.
-// A reserved try counts as a failure unless succeeded gives it back.
-func (t *throttle) begin(email, clientKey string, now time.Time) (attempt, time.Duration, bool) {
-	a := attempt{emailKey: t.hash("email", email), clientKey: clientKey, at: now}
+// begin reserves a try for the address and the client. account tells
+// whether the address belongs to an existing account (look it up first).
+// When the address or the client has used up its tries it reserves
+// nothing, and wait says how long to wait. A reserved try counts as a
+// failure unless succeeded gives it back.
+func (t *throttle) begin(email string, account bool, clientKey string, now time.Time) (attempt, time.Duration, bool) {
+	a := attempt{emailKey: t.hash("email", email), clientKey: clientKey, account: account, at: now}
+	addresses := t.addresses(account)
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if wait := max(t.byEmail.wait(a.emailKey, now), t.byClient.wait(clientKey, now)); wait > 0 {
+	if wait := max(addresses.wait(a.emailKey, now), t.byClient.wait(clientKey, now)); wait > 0 {
 		return attempt{}, wait, false
 	}
-	t.byEmail.add(a.emailKey, now)
+	addresses.add(a.emailKey, now)
 	t.byClient.add(clientKey, now)
 	return a, 0, true
 }
 
-// succeeded gives a try back after a sign-in that worked: the address
-// starts over and the client's try does not count.
+// succeeded gives a try back after a password that was right (a sign-in,
+// or the current password when changing it): the address starts over and
+// the client's try does not count.
 func (t *throttle) succeeded(a attempt) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.byEmail.reset(a.emailKey)
+	t.addresses(a.account).reset(a.emailKey)
 	t.byClient.remove(a.clientKey, a.at)
 }
 
@@ -179,7 +205,8 @@ func (t *throttle) forget(email string) {
 	key := t.hash("email", email)
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.byEmail.reset(key)
+	t.byAccount.reset(key)
+	t.byAddress.reset(key)
 }
 
 // clientKey identifies the client of r without keeping its address.

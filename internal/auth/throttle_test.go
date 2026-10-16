@@ -145,10 +145,10 @@ func TestThrottle_KeysAreNotAddresses(t *testing.T) {
 
 	// Addresses are kept as hashes too, whatever their length.
 	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
-	if _, _, ok := th.begin("jan@example.com", key, now); !ok {
+	if _, _, ok := th.begin("jan@example.com", true, key, now); !ok {
 		t.Fatal("first try refused")
 	}
-	for k := range th.byEmail.events {
+	for k := range th.byAccount.events {
 		if strings.Contains(k, "jan") || len(k) != 64 {
 			t.Errorf("address key = %q, want a hash", k)
 		}
@@ -160,22 +160,22 @@ func TestThrottle_BeginReservesAndSucceededGivesBack(t *testing.T) {
 	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
 
 	// Two tries for the address are reserved at once; the third waits.
-	a, _, ok1 := th.begin("jan@example.com", "c1", now)
-	_, _, ok2 := th.begin("jan@example.com", "c2", now)
-	_, wait, ok3 := th.begin("jan@example.com", "c3", now)
+	a, _, ok1 := th.begin("jan@example.com", true, "c1", now)
+	_, _, ok2 := th.begin("jan@example.com", true, "c2", now)
+	_, wait, ok3 := th.begin("jan@example.com", true, "c3", now)
 	if !ok1 || !ok2 || ok3 || wait != 15*time.Minute {
 		t.Fatalf("begin = %v %v %v (wait %v), want two tries and then 15m", ok1, ok2, ok3, wait)
 	}
 	// A try that worked clears the address and gives the client its try back.
 	th.succeeded(a)
-	if _, _, ok := th.begin("jan@example.com", "c1", now); !ok {
+	if _, _, ok := th.begin("jan@example.com", true, "c1", now); !ok {
 		t.Error("after a sign-in that worked the address is still blocked")
 	}
 	for range 2 {
-		th.begin("other@example.com", "c1", now)
+		th.begin("other@example.com", false, "c1", now)
 	}
 	// c1 has used its three tries now: jan once more and other twice.
-	if _, _, ok := th.begin("third@example.com", "c1", now); ok {
+	if _, _, ok := th.begin("third@example.com", false, "c1", now); ok {
 		t.Error("the client got more than 3 tries")
 	}
 }

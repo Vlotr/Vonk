@@ -139,18 +139,19 @@ func (s *Service) login(w http.ResponseWriter, r *http.Request) {
 		httpjson.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	// The try is reserved before the slow password check, so requests
-	// arriving at the same moment cannot all get through.
-	reserved, wait, allowed := s.logins.begin(email, s.logins.clientKey(r), s.now())
-	if !allowed {
-		tooManyAttempts(w, wait)
-		return
-	}
-
+	// Whether the address has an account decides which throttle store
+	// counts it (accounts are never evicted); both answer alike.
 	u, err := s.db.UserByEmail(ctx, email)
 	found := err == nil
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		s.internalError(w, r, err)
+		return
+	}
+	// The try is reserved before the slow password check, so requests
+	// arriving at the same moment cannot all get through.
+	reserved, wait, allowed := s.logins.begin(email, found, s.logins.clientKey(r), s.now())
+	if !allowed {
+		tooManyAttempts(w, wait)
 		return
 	}
 	hash := dummyHash()
@@ -202,7 +203,8 @@ func (s *Service) logout(w http.ResponseWriter, r *http.Request) {
 // changePassword sets a new password for the signed-in user after checking
 // the current one, and signs out their other sessions. A wrong current
 // password counts toward the sign-in throttle, so a stolen session cannot
-// be used to guess it.
+// be used to guess it; a right one gives the try back and starts the
+// address's count over, as a sign-in does.
 func (s *Service) changePassword(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		CurrentPassword string `json:"currentPassword"`
@@ -214,7 +216,7 @@ func (s *Service) changePassword(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	user := UserFrom(ctx)
 	session, _ := sessionFrom(ctx)
-	reserved, wait, allowed := s.logins.begin(user.Email, s.logins.clientKey(r), s.now())
+	reserved, wait, allowed := s.logins.begin(user.Email, true, s.logins.clientKey(r), s.now())
 	if !allowed {
 		tooManyAttempts(w, wait)
 		return
@@ -346,8 +348,14 @@ func (s *Service) forgotPassword(w http.ResponseWriter, r *http.Request) {
 		httpjson.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	// Every request counts, link or not: nothing is given back.
-	if _, wait, ok := s.resets.begin(email, s.resets.clientKey(r), s.now()); !ok {
+	// As for logins, an account's address is counted where a flood of
+	// other addresses cannot push it out. Every request counts.
+	_, err := s.db.UserByEmail(r.Context(), email)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		s.internalError(w, r, err)
+		return
+	}
+	if _, wait, ok := s.resets.begin(email, err == nil, s.resets.clientKey(r), s.now()); !ok {
 		tooManyAttempts(w, wait)
 		return
 	}
