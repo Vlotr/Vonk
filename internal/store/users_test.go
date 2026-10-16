@@ -418,3 +418,46 @@ func TestProjects_UpdateRotateDelete(t *testing.T) {
 		t.Errorf("ProjectIDs = %v, %v", ids, err)
 	}
 }
+
+// TestInvites_GoWithTheAdminWhoMadeThem: an admin who is removed or made a
+// member has seen the links of their invites; those that were not used
+// stop working, or the admin could come back through one.
+func TestInvites_GoWithTheAdminWhoMadeThem(t *testing.T) {
+	db := openTestDB(t)
+	ctx := context.Background()
+	first := addUser(t, db, "first@example.com", RoleAdmin)
+	a := addUser(t, db, "a@example.com", RoleAdmin)
+	b := addUser(t, db, "b@example.com", RoleAdmin)
+	invite := func(by User, email, hash string) {
+		t.Helper()
+		_, err := db.CreateInvite(ctx, NewInvite{Email: email, Role: RoleAdmin, TokenHash: hash, CreatedBy: by.ID,
+			Now: userTestNow, ExpiresAt: userTestNow.Add(7 * 24 * time.Hour)})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	invite(a, "back-door@example.com", "by-a")
+	invite(b, "other-door@example.com", "by-b")
+	invite(first, "kept@example.com", "by-first")
+
+	// A is removed: A's invite goes, the others stay.
+	if err := db.DeleteUser(ctx, a.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.AcceptInvite(ctx, "by-a", "hash", userTestNow); !errors.Is(err, ErrNotFound) {
+		t.Errorf("invite of a removed admin: err = %v, want ErrNotFound", err)
+	}
+
+	// B becomes a member: B's invite goes too.
+	member := RoleMember
+	if _, err := db.UpdateUser(ctx, b.ID, UserChange{Role: &member}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.AcceptInvite(ctx, "by-b", "hash", userTestNow); !errors.Is(err, ErrNotFound) {
+		t.Errorf("invite of a demoted admin: err = %v, want ErrNotFound", err)
+	}
+
+	if _, err := db.AcceptInvite(ctx, "by-first", "hash", userTestNow); err != nil {
+		t.Errorf("invite of an admin who stays: %v", err)
+	}
+}

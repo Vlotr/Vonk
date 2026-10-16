@@ -287,3 +287,49 @@ func errorText(body []byte) string {
 	json.Unmarshal(body, &e)
 	return e.Error
 }
+
+// TestInvites_GoneWithTheirAdmin: an admin who is removed (or made a
+// member) has seen the links of their pending invites and could come back
+// through one; those invites stop working.
+func TestInvites_GoneWithTheirAdmin(t *testing.T) {
+	env := newTestEnv(t)
+	invite := func(by *session, email string) string {
+		t.Helper()
+		rec := env.as(t, by, "POST", "/ui/api/settings/invites", fmt.Sprintf(`{"email":%q,"role":"admin","projectIds":[]}`, email))
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("invite = %d %s", rec.Code, rec.Body)
+		}
+		return tokenOf(t, decode[struct {
+			Link string `json:"link"`
+		}](t, rec.Body.Bytes()).Link)
+	}
+	accept := func(token string) int {
+		return env.as(t, nil, "POST", "/ui/api/invite/accept", fmt.Sprintf(`{"token":%q,"password":"a good password"}`, token)).Code
+	}
+
+	removed := env.user(t, "removed@example.com", store.RoleAdmin)
+	backDoor := invite(removed, "back-door@example.com")
+	if rec := env.as(t, env.admin, "DELETE", fmt.Sprintf("/ui/api/settings/users/%d", removed.userID), ""); rec.Code != http.StatusOK {
+		t.Fatalf("remove = %d %s", rec.Code, rec.Body)
+	}
+	if code := accept(backDoor); code != http.StatusNotFound && code != http.StatusGone {
+		t.Errorf("accept the invite of a removed admin = %d, want 404 or 410", code)
+	}
+
+	demoted := env.user(t, "demoted@example.com", store.RoleAdmin)
+	sideDoor := invite(demoted, "side-door@example.com")
+	if rec := env.as(t, env.admin, "PATCH", fmt.Sprintf("/ui/api/settings/users/%d", demoted.userID), `{"role":"member"}`); rec.Code != http.StatusOK {
+		t.Fatalf("demote = %d %s", rec.Code, rec.Body)
+	}
+	if code := accept(sideDoor); code != http.StatusNotFound && code != http.StatusGone {
+		t.Errorf("accept the invite of a demoted admin = %d, want 404 or 410", code)
+	}
+
+	// Invites of admins who stay keep working.
+	if code := accept(invite(env.admin, "welcome@example.com")); code != http.StatusOK {
+		t.Errorf("accept the invite of an admin who stays = %d, want 200", code)
+	}
+	if list := decode[usersResponse](t, env.as(t, env.admin, "GET", "/ui/api/settings/users", "").Body.Bytes()); len(list.Invites) != 0 {
+		t.Errorf("pending invites = %+v, want none", list.Invites)
+	}
+}

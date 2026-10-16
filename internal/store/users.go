@@ -178,8 +178,9 @@ type UserChange struct {
 
 // UpdateUser changes a user's role and projects in one transaction and
 // returns the user as it is afterwards. Making a user admin removes their
-// project rows. It returns ErrNotFound, ErrLastAdmin when the last admin
-// would become a member, or ErrUnknownProject.
+// project rows; making an admin a member removes the invites they made
+// that were not used yet. It returns ErrNotFound, ErrLastAdmin when the
+// last admin would become a member, or ErrUnknownProject.
 func (db *DB) UpdateUser(ctx context.Context, id int64, change UserChange) (User, error) {
 	tx, err := db.write.BeginTx(ctx, nil)
 	if err != nil {
@@ -199,6 +200,9 @@ func (db *DB) UpdateUser(ctx context.Context, id int64, change UserChange) (User
 		}
 		if u.Role == RoleAdmin {
 			if err := checkOtherAdmin(ctx, tx, u.ID); err != nil {
+				return User{}, err
+			}
+			if err := dropPendingInvites(ctx, tx, u.ID); err != nil {
 				return User{}, err
 			}
 		}
@@ -221,8 +225,9 @@ func (db *DB) UpdateUser(ctx context.Context, id int64, change UserChange) (User
 	return u, tx.Commit()
 }
 
-// DeleteUser removes an account with its sessions and project rows. It
-// returns ErrNotFound, or ErrLastAdmin for the last admin.
+// DeleteUser removes an account with its sessions, project rows and the
+// invites it made that were not used yet. It returns ErrNotFound, or
+// ErrLastAdmin for the last admin.
 func (db *DB) DeleteUser(ctx context.Context, id int64) error {
 	tx, err := db.write.BeginTx(ctx, nil)
 	if err != nil {
@@ -238,6 +243,9 @@ func (db *DB) DeleteUser(ctx context.Context, id int64) error {
 		if err := checkOtherAdmin(ctx, tx, u.ID); err != nil {
 			return err
 		}
+	}
+	if err := dropPendingInvites(ctx, tx, u.ID); err != nil {
+		return err
 	}
 	if _, err := tx.ExecContext(ctx, "DELETE FROM users WHERE id = ?", u.ID); err != nil {
 		return err
@@ -258,6 +266,14 @@ func checkOtherAdmin(ctx context.Context, tx *sql.Tx, userID int64) error {
 		return ErrLastAdmin
 	}
 	return nil
+}
+
+// dropPendingInvites deletes the unused invites userID made. Whoever made an
+// invite has seen its link; once they lose their admin role (or their
+// account) the link must not let them, or anyone they gave it to, back in.
+func dropPendingInvites(ctx context.Context, tx *sql.Tx, userID int64) error {
+	_, err := tx.ExecContext(ctx, "DELETE FROM invites WHERE created_by = ? AND used_at IS NULL", userID)
+	return err
 }
 
 // setProjectAccess replaces a user's projects with projectIDs, which must all exist.
