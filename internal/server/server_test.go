@@ -36,6 +36,12 @@ func newTestServer(t *testing.T, devBasicAuth string) http.Handler {
 
 func newTestServerWithLog(t *testing.T, devBasicAuth string, logOutput io.Writer) http.Handler {
 	t.Helper()
+	return New(newTestDeps(t, devBasicAuth, logOutput))
+}
+
+// newTestDeps opens a fresh, migrated database and returns the server's dependencies.
+func newTestDeps(t *testing.T, devBasicAuth string, logOutput io.Writer) Deps {
+	t.Helper()
 	dir := t.TempDir()
 	cfg := config.Config{
 		BaseURL:      "https://monitor.example.com",
@@ -52,13 +58,13 @@ func newTestServerWithLog(t *testing.T, devBasicAuth string, logOutput io.Writer
 		t.Fatalf("Migrate: %v", err)
 	}
 
-	return New(Deps{
+	return Deps{
 		Config:  cfg,
 		DB:      db,
 		Logger:  slog.New(slog.NewTextHandler(logOutput, nil)),
 		Version: "test",
 		SPA:     web.NewHandler(testFiles),
-	})
+	}
 }
 
 // do sends one request from remoteAddr ("" means loopback) and returns the recorded response.
@@ -103,6 +109,24 @@ func TestHealth_OK(t *testing.T) {
 	}
 }
 
+func TestHealth_503WhenDatabaseFails(t *testing.T) {
+	deps := newTestDeps(t, "", io.Discard)
+	h := New(deps)
+	deps.DB.Close()
+
+	rec := do(h, http.MethodGet, "/health", "")
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503 with a closed database; body %s", rec.Code, rec.Body)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("body is not JSON: %v; %s", err, rec.Body)
+	}
+	if body["status"] != "error" || body["db"] != "error" {
+		t.Errorf("body = %v, want status and db \"error\"", body)
+	}
+}
+
 func TestSPA_Fallback(t *testing.T) {
 	h := newTestServer(t, "")
 
@@ -139,8 +163,17 @@ func TestSPA_Fallback(t *testing.T) {
 		}
 	})
 
+	t.Run("client routes with a dot in the last segment get index.html", func(t *testing.T) {
+		for _, path := range []string{"/projects/1/users/jan@example.com", "/releases/v1.2.3", "/favicon.ico"} {
+			rec := do(h, http.MethodGet, path, "")
+			if rec.Code != http.StatusOK || !isHTML(rec) || !strings.Contains(rec.Body.String(), "dashboard-index") {
+				t.Errorf("GET %s = %d %q, want 200 index.html", path, rec.Code, rec.Header().Get("Content-Type"))
+			}
+		}
+	})
+
 	t.Run("missing files are 404, not HTML", func(t *testing.T) {
-		for _, path := range []string{"/assets/missing.js", "/favicon.ico", "/.keep"} {
+		for _, path := range []string{"/assets/missing.js", "/assets/v1.2.3", "/.keep"} {
 			rec := do(h, http.MethodGet, path, "")
 			if rec.Code != http.StatusNotFound || isHTML(rec) {
 				t.Errorf("GET %s = %d %q, want a 404 that is not HTML", path, rec.Code, rec.Header().Get("Content-Type"))
@@ -192,6 +225,24 @@ func TestDashboardGuard(t *testing.T) {
 			}
 			if rec := do(h, http.MethodGet, "/ui/api/nope", addr); rec.Code != http.StatusNotFound {
 				t.Errorf("GET /ui/api/nope from %s = %d, want 404 (allowed through)", addr, rec.Code)
+			}
+		}
+	})
+
+	t.Run("a loopback peer carrying forwarding headers is a proxy and is refused", func(t *testing.T) {
+		h := newTestServer(t, "")
+
+		headers := map[string]string{
+			"Forwarded":       "for=203.0.113.5",
+			"X-Forwarded-For": "203.0.113.5",
+			"X-Real-IP":       "203.0.113.5",
+		}
+		for name, value := range headers {
+			for _, addr := range []string{"127.0.0.1:50000", "[::1]:50000"} {
+				rec := do(h, http.MethodGet, "/", addr, func(r *http.Request) { r.Header.Set(name, value) })
+				if rec.Code != http.StatusForbidden {
+					t.Errorf("GET / from %s with %s = %d, want 403", addr, name, rec.Code)
+				}
 			}
 		}
 	})

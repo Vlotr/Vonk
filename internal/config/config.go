@@ -122,28 +122,53 @@ func checkSecretKey(key string) error {
 
 // parseBaseURL checks that raw is an http(s) URL of a host root and returns
 // it without a trailing slash. Hosting under a subpath is not supported.
+// Errors never repeat a user name or password that raw may contain.
 func parseBaseURL(raw string) (string, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return "", errors.New("BASE_URL is required: set it to the public address of the tool, for example https://monitor.example.com")
 	}
+	shown := redactUserInfo(raw)
 	u, err := url.Parse(raw)
 	if err != nil {
-		return "", fmt.Errorf("BASE_URL %q is not a valid URL: %w", raw, err)
+		// The *url.Error repeats the raw value, so it is not wrapped.
+		return "", fmt.Errorf("BASE_URL %q is not a valid URL", shown)
+	}
+	if u.User != nil {
+		return "", fmt.Errorf("BASE_URL %q must not contain a user name or password", shown)
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
-		return "", fmt.Errorf("BASE_URL %q must start with http:// or https://", raw)
+		return "", fmt.Errorf("BASE_URL %q must start with http:// or https://", shown)
 	}
 	if u.Host == "" {
-		return "", fmt.Errorf("BASE_URL %q has no host", raw)
+		return "", fmt.Errorf("BASE_URL %q has no host", shown)
 	}
-	if u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.ForceQuery {
-		return "", errors.New("BASE_URL must not contain a user, query or fragment")
+	if u.RawQuery != "" || u.Fragment != "" || u.ForceQuery {
+		return "", errors.New("BASE_URL must not contain a query or fragment")
 	}
 	if u.Path != "" && u.Path != "/" {
-		return "", fmt.Errorf("BASE_URL %q must be the root of a host (no path such as %q); hosting under a subpath is not supported", raw, u.Path)
+		return "", fmt.Errorf("BASE_URL %q must be the root of a host (no path such as %q); hosting under a subpath is not supported", shown, u.Path)
 	}
 	return u.Scheme + "://" + u.Host, nil
+}
+
+// redactUserInfo replaces anything before an "@" in the host part of raw with
+// "xxxxx", so "ftp://user:secret@host" becomes "ftp://xxxxx@host". It works on
+// the text, so it also covers values that url.Parse refuses or reads oddly.
+func redactUserInfo(raw string) string {
+	prefix, rest := "", raw
+	if i := strings.Index(raw, "://"); i >= 0 {
+		prefix, rest = raw[:i+3], raw[i+3:]
+	}
+	authority, tail := rest, ""
+	if i := strings.IndexAny(rest, "/?#"); i >= 0 {
+		authority, tail = rest[:i], rest[i:]
+	}
+	at := strings.LastIndex(authority, "@")
+	if at < 0 {
+		return raw
+	}
+	return prefix + "xxxxx" + authority[at:] + tail
 }
 
 func checkDatabaseURL(raw string) error {

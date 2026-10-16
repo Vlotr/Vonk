@@ -66,6 +66,36 @@ func TestOpen_SQLitePragmas(t *testing.T) {
 	if got := db.write.Stats().MaxOpenConnections; got != 1 {
 		t.Errorf("write pool MaxOpenConnections = %d, want 1", got)
 	}
+
+	// The writer commits with synchronous=NORMAL (1): safe in WAL mode and much
+	// faster than FULL. Readers never write, so only the writer matters.
+	var synchronous int
+	if err := db.write.QueryRowContext(ctx, "PRAGMA synchronous").Scan(&synchronous); err != nil {
+		t.Fatal(err)
+	}
+	if synchronous != 1 {
+		t.Errorf("write pool synchronous = %d, want 1 (NORMAL)", synchronous)
+	}
+}
+
+func TestPing_ChecksBothPools(t *testing.T) {
+	ctx := context.Background()
+
+	if err := openTestDB(t).Ping(ctx); err != nil {
+		t.Fatalf("Ping on a working database: %v", err)
+	}
+
+	broken := openTestDB(t)
+	broken.write.Close()
+	if err := broken.Ping(ctx); err == nil {
+		t.Error("Ping with a closed write connection: want error, got nil")
+	}
+
+	broken = openTestDB(t)
+	broken.read.Close()
+	if err := broken.Ping(ctx); err == nil {
+		t.Error("Ping with a closed read pool: want error, got nil")
+	}
 }
 
 func TestOpen_ReadPoolCannotWrite(t *testing.T) {
@@ -208,6 +238,37 @@ func TestCreateProject_RetentionChoices(t *testing.T) {
 	}
 	if short.RetentionDays == nil || *short.RetentionDays != 30 {
 		t.Errorf("RetentionDays = %v, want 30", short.RetentionDays)
+	}
+}
+
+func TestCreateProject_StoresTrackingFlags(t *testing.T) {
+	db := openTestDB(t)
+	ctx := context.Background()
+
+	created, err := db.CreateProject(ctx, NewProject{
+		Name:               "Everything",
+		TracksLaravel:      true,
+		TracksBrowser:      true,
+		TracksPageviews:    true,
+		RateLimitPerMinute: 250,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stored, err := db.ProjectByID(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !stored.TracksLaravel || !stored.TracksBrowser || !stored.TracksPageviews {
+		t.Errorf("tracking flags after reload = %v/%v/%v, want true/true/true",
+			stored.TracksLaravel, stored.TracksBrowser, stored.TracksPageviews)
+	}
+	if stored.RateLimitPerMinute != 250 {
+		t.Errorf("RateLimitPerMinute after reload = %d, want 250", stored.RateLimitPerMinute)
+	}
+	if !reflect.DeepEqual(stored, created) {
+		t.Errorf("reloaded project = %+v, want %+v", stored, created)
 	}
 }
 

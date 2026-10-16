@@ -25,12 +25,12 @@ One line per judgment call: what was decided, and why. Newest task at the bottom
 - Sentry key: 16 random bytes as hex (32 characters). PostHog token: `phc_` plus 32 random bytes in unpadded base64url (43 characters).
 - `ListProjects` sorts by `lower(name)`, then id.
 - `monitor project create` takes only `--name`; it creates the project with 90 days retention, tracking Laravel and browser errors but not page views (the Settings screen changes these later). Output is `Label: value` lines so scripts such as the e2e setup can parse it.
-- Dashboard guard without `DEV_BASIC_AUTH`: only loopback TCP peers (127.0.0.0/8, ::1, IPv4-mapped loopback) get in; `X-Forwarded-For` is ignored because anyone can send it. Behind Docker port mapping the peer is the bridge gateway, so the container needs `DEV_BASIC_AUTH`; the 403 message says so.
+- Dashboard guard without `DEV_BASIC_AUTH`: only loopback TCP peers (127.0.0.0/8, ::1, IPv4-mapped loopback) get in; forwarding headers never let a request in because anyone can send them. Behind Docker port mapping the peer is the bridge gateway, so the container needs `DEV_BASIC_AUTH`; the 403 message says so. (Corrected in Task 2: a proxy on the same host also connects from loopback; see the Task 2 entry.)
 - With `DEV_BASIC_AUTH` set, every client needs the credentials, loopback included; comparison is constant-time on SHA-256 digests.
 - The guard is fail-closed: public routes (`/health`, `/api/...`, later PostHog) are registered on a public mux and everything else falls through the guard to the dashboard mux, so a new `/ui/api` route cannot skip it by accident.
 - The SPA is registered on `/` instead of `GET /` because Go's mux refuses that pattern next to a method-less `/ui/api/`; the SPA handler answers other methods with 405 itself.
 - `/api/` has a public JSON 404 catch-all so SDK traffic never receives HTML, before and after Task 2 adds the envelope route.
-- SPA serving: `/assets/*` gets `Cache-Control: public, max-age=31536000, immutable` (Vite hashes names), `index.html` gets `no-cache`, missing paths under `/assets/` or with an extension get 404, dotfiles such as `.keep` are never served, and a binary built without the web build answers pages with 503 and how to build.
+- SPA serving: `/assets/*` gets `Cache-Control: public, max-age=31536000, immutable` (Vite hashes names), `index.html` gets `no-cache`, missing paths under `/assets/` get 404 (Task 1 also 404'd any path with an extension; Task 2 dropped that), dotfiles such as `.keep` are never served, and a binary built without the web build answers pages with 503 and how to build.
 - Request logging: `slog` text handler on stderr, one line per request with method, path, status, bytes and duration; no query string (SDKs can put keys there) and no client address; `/health` logs at debug because Docker calls it every 30 s.
 - A panic-recovery middleware (500 plus a log line) was added beyond the brief, so a handler bug never drops the connection without a trace.
 - `/health` pings the database with a 2 s timeout and answers `{"status":"ok","version":...,"db":"ok"}` or 503 with `"status":"error"`.
@@ -44,3 +44,14 @@ One line per judgment call: what was decided, and why. Newest task at the bottom
 - The Vitest test renders `App` with `react-dom/server` in the node environment, so no jsdom or Testing Library dependency is needed yet.
 - `make e2e` prints a placeholder until Task 3 adds Playwright; `make dev` builds `bin/monitor-dev` and runs it next to Vite with dev-only settings (`DEV_DATA_DIR=./data`, a fixed dev `SECRET_KEY`, `BASE_URL=http://localhost:8000`), all overridable.
 - Image size (linux/arm64, `docker images`): 22.6 MB on disk, 5.6 MB compressed content; the binary alone is 11.5 MB.
+
+## Task 2: Sentry ingest
+
+Follow-ups from the Task 1 review:
+
+- The loopback guard also refuses a loopback peer that sends `Forwarded`, `X-Forwarded-For` or `X-Real-IP`: such a request was relayed by a proxy on the same host (or a `--network host` container). The headers only ever make the guard stricter. A same-host proxy that strips all three still gets in; `DEV_BASIC_AUTH` is the real protection there, and Task 5 replaces the guard with logins.
+- `BASE_URL` errors never echo user info: every message shows the value with anything before `@` in the host part replaced by `xxxxx`, a URL with user info is refused right after parsing, and a `url.Parse` failure is not wrapped (its `*url.Error` repeats the raw value).
+- The SPA answers 404 only for missing files under `/assets/` and for hidden paths (`/.keep`); every other unknown path, dotted or not (`/releases/v1.2.3`, `/favicon.ico`), gets `index.html`.
+- `monitor project create` refuses extra arguments (exit code 2) and suggests quoting the name.
+- `DB.Ping` (and so `/health`) checks the write connection and the read pool.
+- `serve` restores default signal handling after the first SIGINT/SIGTERM, so a second Ctrl-C ends the process during the 15 s shutdown.

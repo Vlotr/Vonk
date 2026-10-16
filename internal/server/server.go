@@ -4,7 +4,7 @@
 // Sentry, later the PostHog endpoints) and /health; they are registered on the
 // public mux. Every other request falls through to the dashboard mux (the SPA
 // and /ui/api/...), which sits behind a temporary guard until real logins
-// exist: without DEV_BASIC_AUTH only loopback clients get in; with it,
+// exist: without DEV_BASIC_AUTH only direct loopback clients get in; with it,
 // everyone needs those credentials. New dashboard routes are therefore
 // guarded by default; only routes added to the public mux are open.
 package server
@@ -102,7 +102,7 @@ func dashboardGuard(devBasicAuth string) func(http.Handler) http.Handler {
 
 			if !fromLoopback(r) {
 				writeGuardError(w, r, http.StatusForbidden,
-					"the dashboard only answers requests from this machine; set DEV_BASIC_AUTH=user:password to open it to others")
+					"the dashboard only answers requests made directly from this machine (not through a proxy); set DEV_BASIC_AUTH=user:password to open it to others")
 				return
 			}
 			next.ServeHTTP(w, r)
@@ -126,9 +126,21 @@ func equalSecret(got, want string) bool {
 	return subtle.ConstantTimeCompare(g[:], w[:]) == 1
 }
 
-// fromLoopback reports whether the TCP peer is this machine. Forwarding
-// headers such as X-Forwarded-For are ignored on purpose: anyone can send them.
+// forwardingHeaders are set by reverse proxies. A loopback peer that sends one
+// is most likely a proxy on the same host (or a container with --network
+// host) relaying someone else's request.
+var forwardingHeaders = []string{"Forwarded", "X-Forwarded-For", "X-Real-IP"}
+
+// fromLoopback reports whether the request comes from this machine itself:
+// the TCP peer is loopback and no forwarding header is present. The headers
+// can only make the check stricter, never looser: anyone can send them, so a
+// non-loopback peer is refused whatever they say.
 func fromLoopback(r *http.Request) bool {
+	for _, name := range forwardingHeaders {
+		if r.Header.Get(name) != "" {
+			return false
+		}
+	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		host = r.RemoteAddr

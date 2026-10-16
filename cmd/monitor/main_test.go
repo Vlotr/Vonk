@@ -55,6 +55,27 @@ func TestProjectCreate_RequiresName(t *testing.T) {
 	}
 }
 
+func TestProjectCreate_RefusesExtraArguments(t *testing.T) {
+	getenv := envFrom(map[string]string{
+		"SECRET_KEY": "a-long-random-secret-for-tests",
+		"BASE_URL":   "https://monitor.example.com",
+		"DATA_DIR":   t.TempDir(),
+	})
+	var stdout, stderr bytes.Buffer
+
+	// An unquoted name with a space: "portal" would otherwise be dropped silently.
+	code := run([]string{"project", "create", "--name", "Customer", "portal"}, getenv, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("exit code %d, want 2 (stdout %q)", code, stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "portal") || !strings.Contains(stderr.String(), "quote") {
+		t.Errorf("stderr %q does not name the extra argument and suggest quoting", stderr.String())
+	}
+	if strings.Contains(stdout.String(), "Created project") {
+		t.Errorf("a project was created: %q", stdout.String())
+	}
+}
+
 func TestHealthcheck_ExitCodes(t *testing.T) {
 	healthy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/health" {

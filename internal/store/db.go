@@ -92,10 +92,16 @@ func openSQLite(ctx context.Context, path string) (*DB, error) {
 	return &DB{write: write, read: read}, nil
 }
 
-// Ping checks that the database answers a query.
+// Ping checks that both the write connection and the read pool answer a query.
 func (db *DB) Ping(ctx context.Context) error {
 	var one int
-	return db.read.QueryRowContext(ctx, "SELECT 1").Scan(&one)
+	if err := db.write.QueryRowContext(ctx, "SELECT 1").Scan(&one); err != nil {
+		return fmt.Errorf("write connection: %w", err)
+	}
+	if err := db.read.QueryRowContext(ctx, "SELECT 1").Scan(&one); err != nil {
+		return fmt.Errorf("read pool: %w", err)
+	}
+	return nil
 }
 
 // Close closes both pools.

@@ -36,7 +36,7 @@ Container: `docker run -p 8000:8000 -e SECRET_KEY=... -e BASE_URL=http://localho
 | `ADDR` | `:8000` | Listen address. |
 | `DATA_DIR` | `/data` | SQLite file and later backups. |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`. |
-| `DEV_BASIC_AUTH` | empty | `user:password`. Temporary dashboard guard (Tasks 1 to 4, removed in Task 5). Without it, only loopback clients reach the dashboard, so in Docker you need it. |
+| `DEV_BASIC_AUTH` | empty | `user:password`. Temporary dashboard guard (Tasks 1 to 4, removed in Task 5). Without it, only requests made directly from this machine (loopback, no proxy headers) reach the dashboard, so in Docker or behind a proxy you need it. |
 | `TZ` | UTC | Schedules (later tasks). |
 
 ## Layout
@@ -76,5 +76,5 @@ Packages still to come (see the plan): `internal/sentry`, `internal/posthog`, `i
 
 - `vite build` empties `web/dist`; a plugin in `web/vite.config.ts` writes `dist/.keep` back. A binary built without the web build answers dashboard pages with 503 and a hint.
 - `go.mod` has `ignore ./web/node_modules` so `./...` never descends into npm packages.
-- The dashboard guard checks the TCP peer, never `X-Forwarded-For`. Behind Docker port mapping or a proxy the peer is not loopback, so set `DEV_BASIC_AUTH`.
+- Without `DEV_BASIC_AUTH` the dashboard guard lets in only requests made directly from this machine: the TCP peer must be loopback and the request must carry no `Forwarded`, `X-Forwarded-For` or `X-Real-IP` header. A reverse proxy on the same host (or a container with `--network host`) connects from 127.0.0.1 too; the forwarding headers it adds are what gives it away, so a proxy that strips them would still get in. Forwarding headers are never trusted to let a request in. Behind Docker port mapping or any proxy, set `DEV_BASIC_AUTH`.
 - The runtime image is distroless (no shell, no curl); the Docker `HEALTHCHECK` runs `/monitor healthcheck`.

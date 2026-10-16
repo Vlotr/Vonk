@@ -25,10 +25,10 @@ func Handler() http.Handler {
 }
 
 // NewHandler serves the dashboard files in files. Files that exist are served
-// as they are. Any other path that looks like a page, such as
-// /projects/1/issues, gets index.html so the React router can show it. Paths
-// that look like files (under /assets/ or with an extension) get a 404, so a
-// missing script is never answered with HTML.
+// as they are. A missing file under /assets/ gets a 404, so a missing script
+// is never answered with HTML; so do hidden paths such as /.keep. Every other
+// path, such as /projects/1/issues or /releases/v1.2.3, gets index.html so
+// the React router can show it: client routes may contain dots.
 func NewHandler(files fs.FS) http.Handler {
 	index, err := fs.ReadFile(files, "index.html")
 	if err != nil {
@@ -44,17 +44,17 @@ func NewHandler(files fs.FS) http.Handler {
 		}
 
 		name := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
-		looksLikeFile := strings.HasPrefix(name, "assets/") || path.Ext(name) != ""
+		isAsset := strings.HasPrefix(name, "assets/")
 
 		if name != "index.html" && !hidden(name) && isFile(files, name) {
-			if strings.HasPrefix(name, "assets/") {
+			if isAsset {
 				// Vite puts a content hash in every asset name, so they never change.
 				w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 			}
 			fileServer.ServeHTTP(w, r)
 			return
 		}
-		if looksLikeFile && name != "index.html" {
+		if isAsset || hidden(name) {
 			http.NotFound(w, r)
 			return
 		}

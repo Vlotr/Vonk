@@ -36,6 +36,9 @@ func serve(args []string, getenv func(string) string, stderr io.Writer) int {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	// After the first signal, restore the default handling, so a second
+	// Ctrl-C ends the process at once instead of waiting for the shutdown.
+	context.AfterFunc(ctx, stop)
 
 	if err := runServer(ctx, cfg, logger); err != nil {
 		logger.Error("server stopped", "err", err)

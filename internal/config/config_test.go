@@ -140,6 +140,34 @@ func TestLoadConfig_BaseURLMustBeRoot(t *testing.T) {
 	}
 }
 
+func TestLoadConfig_BaseURLErrorsHideCredentials(t *testing.T) {
+	bad := []string{
+		"ftp://admin:secret-pass@monitor.example.com",       // wrong scheme
+		"https://admin:secret-pass@monitor.example.com",     // user info
+		"https://admin:secret-pass@monitor.example.com:x",   // does not parse
+		"https://admin:secret-pass@monitor.example.com/sub", // path
+		"admin:secret-pass@monitor.example.com",             // no scheme
+		"https://admin:secret-pass@",                        // no host
+	}
+	for _, in := range bad {
+		t.Run(in, func(t *testing.T) {
+			vars := validEnv()
+			vars["BASE_URL"] = in
+
+			_, err := Load(env(vars))
+			if err == nil {
+				t.Fatalf("Load with BASE_URL=%q: want error, got nil", in)
+			}
+			if !strings.Contains(err.Error(), "BASE_URL") {
+				t.Errorf("error %q does not name BASE_URL", err)
+			}
+			if strings.Contains(err.Error(), "secret-pass") {
+				t.Errorf("error %q shows the password", err)
+			}
+		})
+	}
+}
+
 func TestLoadConfig_OptionalValues(t *testing.T) {
 	vars := validEnv()
 	vars["ADDR"] = "127.0.0.1:9000"

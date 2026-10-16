@@ -25,6 +25,10 @@ func projectCommand(args []string, getenv func(string) string, stdout, stderr io
 	if err := flags.Parse(args[1:]); err != nil {
 		return 2
 	}
+	if flags.NArg() > 0 {
+		fmt.Fprintf(stderr, "monitor: project create takes only --name, got extra arguments %q; quote a name with spaces: --name \"Customer portal\"\n", flags.Args())
+		return 2
+	}
 	if strings.TrimSpace(*name) == "" {
 		fmt.Fprintln(stderr, "monitor: project create needs --name, for example: monitor project create --name Webshop")
 		return 2
