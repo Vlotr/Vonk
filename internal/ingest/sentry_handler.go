@@ -94,7 +94,7 @@ func (h *SentryHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if key := keyFromRequest(r); key != "" {
 		p, err := authenticate(ctx, h.db, key, projectID)
 		if err != nil {
-			lookupFailed(w, h.logger, "sentry", err)
+			lookupFailed(w, r, h.logger, "sentry", err)
 			return
 		}
 		project = p
@@ -119,7 +119,7 @@ func (h *SentryHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if project.ID == 0 {
 		p, err := authenticate(ctx, h.db, keyFromDSN(env.Header.DSN), projectID)
 		if err != nil {
-			lookupFailed(w, h.logger, "sentry", err)
+			lookupFailed(w, r, h.logger, "sentry", err)
 			return
 		}
 		project = p

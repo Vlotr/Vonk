@@ -1,6 +1,7 @@
 package httpjson
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -55,5 +56,17 @@ func TestRead(t *testing.T) {
 		if ok || rec.Code != tt.code || !strings.HasPrefix(rec.Body.String(), `{"error":`) {
 			t.Errorf("%s: Read = %v, answered %d %s; want %d with a JSON error", tt.name, ok, rec.Code, rec.Body, tt.code)
 		}
+	}
+}
+
+func TestClientGone(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	if ClientGone(r) {
+		t.Error("a request in progress counts as gone")
+	}
+	ctx, cancel := context.WithCancel(r.Context())
+	cancel()
+	if !ClientGone(r.WithContext(ctx)) {
+		t.Error("a request whose client went away does not count as gone")
 	}
 }

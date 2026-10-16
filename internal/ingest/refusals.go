@@ -36,10 +36,15 @@ func (f *fullQueue) answer(w http.ResponseWriter) {
 }
 
 // lookupFailed answers 401 for an unknown DSN key or project token and 503
-// when the lookup itself failed (the database).
-func lookupFailed(w http.ResponseWriter, logger *slog.Logger, prefix string, err error) {
+// when the lookup itself failed (the database), which is logged unless the
+// client went away.
+func lookupFailed(w http.ResponseWriter, r *http.Request, logger *slog.Logger, prefix string, err error) {
 	if errors.Is(err, errUnauthorized) || errors.Is(err, errUnknownToken) {
 		httpjson.Error(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	if httpjson.ClientGone(r) {
+		logger.Debug(prefix+": the client went away", "err", err)
 		return
 	}
 	logger.Error(prefix+": project lookup failed", "err", err)

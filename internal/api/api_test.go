@@ -1,8 +1,10 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -410,5 +412,27 @@ func TestListProjects_EmptyIsAList(t *testing.T) {
 	rec := env.get(t, "/ui/api/projects")
 	if rec.Code != http.StatusOK || rec.Body.String() != "[]\n" {
 		t.Errorf("GET /ui/api/projects = %d %q, want 200 []", rec.Code, rec.Body)
+	}
+}
+
+// A query that fails because the browser went away (it dropped a poll, or
+// the page) is no error of the tool: logged at debug, not as an error.
+// On Postgres such a query is stopped halfway, so this happens.
+func TestInternalError_ClientGoneIsNoError(t *testing.T) {
+	env := newTestEnv(t)
+	var logs bytes.Buffer
+	env.api.log = slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	req := httptest.NewRequest(http.MethodGet, "/ui/api/overview", nil).WithContext(ctx)
+	env.api.internalError(httptest.NewRecorder(), req, context.Canceled)
+	if strings.Contains(logs.String(), "level=ERROR") || !strings.Contains(logs.String(), "client went away") {
+		t.Errorf("logs:\n%s", logs.String())
+	}
+
+	logs.Reset()
+	env.api.internalError(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/ui/api/overview", nil), errors.New("disk I/O error"))
+	if !strings.Contains(logs.String(), "level=ERROR") {
+		t.Errorf("a real failure is not logged as an error:\n%s", logs.String())
 	}
 }

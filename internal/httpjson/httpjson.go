@@ -21,6 +21,16 @@ func Error(w http.ResponseWriter, status int, message string) {
 	Write(w, status, map[string]string{"error": message})
 }
 
+// ClientGone reports whether the request's client went away (it closed
+// the page or the connection; the dashboard drops a poll when a newer one
+// starts), which ends the request's context. A query that failed then is
+// no failure of the tool, so callers log it at debug instead of as an
+// error. Postgres stops a running query when that happens; SQLite queries
+// are seldom slow enough to notice.
+func ClientGone(r *http.Request) bool {
+	return r.Context().Err() != nil
+}
+
 // Read decodes a request body of at most maxBytes that is one JSON value
 // sent as application/json into v. When it is not, Read answers the
 // request itself (415, 413 or 400) and returns false.

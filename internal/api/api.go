@@ -150,6 +150,10 @@ func notFound(w http.ResponseWriter) {
 
 // internalError logs a failed query and answers 500 without details.
 func (h *Handler) internalError(w http.ResponseWriter, r *http.Request, err error) {
+	if httpjson.ClientGone(r) {
+		h.log.Debug("dashboard api: the client went away", "path", r.URL.Path, "err", err)
+		return
+	}
 	h.log.Error("dashboard api", "path", r.URL.Path, "err", err)
 	httpjson.Error(w, http.StatusInternalServerError, "internal error")
 }

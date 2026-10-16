@@ -174,7 +174,7 @@ func (h *PosthogHandler) capture(w http.ResponseWriter, r *http.Request) {
 		if !ok {
 			p, err = h.project(ctx, token)
 			if err != nil {
-				lookupFailed(w, h.logger, "posthog", err)
+				lookupFailed(w, r, h.logger, "posthog", err)
 				return
 			}
 			projects[token] = p
