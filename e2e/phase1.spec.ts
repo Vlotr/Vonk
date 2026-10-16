@@ -79,12 +79,12 @@ test('Laravel and browser errors appear in the issue list and on the issue page'
   await expect(typeError).toHaveCount(1)
   await expect(typeError).toContainText("Cannot read properties of undefined (reading 'price')")
   await expect(typeError).toContainText('Browser')
-  await expect(typeError).toContainText('src/main.js:21')
+  await expect(typeError).toContainText('src/main.ts:21')
   const rejection = rows.filter({ hasText: 'Failed to fetch /api/stock' })
   await expect(rejection).toHaveCount(1)
   await expect(rejection.locator('strong')).toHaveText('Unhandled rejection')
   await expect(rejection).toContainText('Browser')
-  await expect(rejection).toContainText('src/main.js:30')
+  await expect(rejection).toContainText('src/main.ts:28')
 
   await ui.screenshot({ path: join(screenshots, 'phase1-issues.png'), fullPage: true })
 

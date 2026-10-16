@@ -119,7 +119,8 @@ export default async function globalSetup() {
   try {
     run('make', ['build'], root)
     if (!existsSync(join(laravelDir, 'vendor'))) run('composer', ['install', '--no-interaction'], laravelDir)
-    if (!existsSync(join(browserDir, 'node_modules'))) run('npm', ['ci'], browserDir)
+    // The browser example's production build (phase4-sourcemaps) needs @sentry/vite-plugin too.
+    if (!existsSync(join(browserDir, 'node_modules', '@sentry', 'vite-plugin'))) run('npm', ['ci'], browserDir)
     if (!existsSync(join(posthogDir, 'node_modules'))) run('npm', ['ci'], posthogDir)
 
     // The monitor, as an operator would run it.
