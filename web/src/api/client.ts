@@ -587,6 +587,32 @@ export function createResetLink(userId: number): Promise<NewLink & { expiresAt: 
   return send('POST', `/ui/api/settings/users/${userId}/reset-link`, {})
 }
 
+/** APIToken signs sentry-cli and @sentry/vite-plugin in to upload source maps for its projects. */
+export interface APIToken {
+  id: number
+  name: string
+  /** hint is the token's last four characters; the server keeps only a hash of the rest. */
+  hint: string
+  projectIds: number[]
+  createdAt: string
+  /** lastUsedAt is null for a token that was never used. */
+  lastUsedAt: string | null
+}
+
+export function getAPITokens(signal?: AbortSignal): Promise<{ tokens: APIToken[] }> {
+  return getJSON('/ui/api/settings/api-tokens', signal)
+}
+
+/** createAPIToken makes a token; secret is the token itself, in this answer only, and url the address the tools upload to. */
+export function createAPIToken(name: string, projectIds: number[]): Promise<{ token: APIToken; secret: string; url: string }> {
+  return send('POST', '/ui/api/settings/api-tokens', { name, projectIds })
+}
+
+/** deleteAPIToken revokes a token: uploads with it stop working at once. */
+export function deleteAPIToken(tokenId: number): Promise<object> {
+  return send('DELETE', `/ui/api/settings/api-tokens/${tokenId}`)
+}
+
 // Alerts of a project, for everyone who may see it.
 
 export type DigestFrequency = 'daily' | 'weekly' | 'monthly'

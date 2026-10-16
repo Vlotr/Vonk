@@ -125,6 +125,11 @@ function SetupAndKeys() {
               <CopyBlock label="Browser setup" value={browserSnippet(project.dsn)} />
             </li>
           </ol>
+          <p className={form.note}>
+            A production build sends minified code. Upload its source maps with an{' '}
+            <Link to="/settings/api-tokens?new">API token</Link> (sentry-cli or @sentry/vite-plugin), and its errors show your own files
+            and lines.
+          </p>
         </section>
       )}
 
