@@ -391,6 +391,10 @@ func TestWriter_DatabaseFailureIsLoggedNotFatal(t *testing.T) {
 	if strings.Count(logs, "retrying") != 2 || !strings.Contains(logs, "level=ERROR") {
 		t.Errorf("want two retries and one error line:\n%s", logs)
 	}
+	// Admin alerts read these.
+	if st := w.Stats(); st.FailedBatches != 1 || st.LostEvents != 1 || st.LastError == "" {
+		t.Errorf("Stats = %+v, want one failed batch of one event, with its error", st)
+	}
 }
 
 func TestWriter_KeepsSDKFingerprintThroughScrub(t *testing.T) {

@@ -43,6 +43,7 @@ type Queue struct {
 	items    chan Item
 	maxBytes int64
 	bytes    atomic.Int64 // the size of the items waiting
+	refused  atomic.Int64 // items TryEnqueue turned away since the start
 }
 
 // NewQueue returns an empty queue that holds up to capacity items and
@@ -58,6 +59,7 @@ func (q *Queue) TryEnqueue(item Item) bool {
 	// be refused, never both let in.
 	if q.bytes.Add(size) > q.maxBytes {
 		q.bytes.Add(-size)
+		q.refused.Add(1)
 		return false
 	}
 	select {
@@ -65,8 +67,16 @@ func (q *Queue) TryEnqueue(item Item) bool {
 		return true
 	default:
 		q.bytes.Add(-size)
+		q.refused.Add(1)
 		return false
 	}
+}
+
+// Refused returns how many items the queue turned away because it was
+// full, since the start: events the SDKs were told to send again later
+// (429), which admins hear about.
+func (q *Queue) Refused() int64 {
+	return q.refused.Load()
 }
 
 // release frees the bytes of an item the writer took off the queue.

@@ -26,6 +26,9 @@ func TestQueueFull_Returns429(t *testing.T) {
 	if env.queue.TryEnqueue(Item{ProjectID: p.ID}) {
 		t.Fatal("TryEnqueue on a full queue returned true")
 	}
+	if got := env.queue.Refused(); got != 1 {
+		t.Errorf("Refused = %d, want 1 (admins hear about refused events)", got)
+	}
 
 	done := make(chan *httptest.ResponseRecorder, 1)
 	go func() {

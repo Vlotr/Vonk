@@ -46,6 +46,26 @@ type Writer struct {
 	stop      chan struct{}
 	closeOnce sync.Once
 	runOnce   sync.Once
+
+	mu    sync.Mutex
+	stats WriterStats
+}
+
+// WriterStats count what the writer could not store, since the start.
+type WriterStats struct {
+	// FailedBatches are batches the database refused after every retry.
+	FailedBatches int64
+	// LostEvents are the events of those batches; they are not stored.
+	LostEvents int64
+	// LastError is the database's answer to the last failed batch.
+	LastError string
+}
+
+// Stats returns what the writer could not store so far.
+func (w *Writer) Stats() WriterStats {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.stats
 }
 
 // NewWriter returns a writer for queue. hooks hears about new and regressed issues.
@@ -152,6 +172,11 @@ func (w *Writer) flush(ctx context.Context, batch []Item) {
 		}
 		if attempt == len(w.retryDelays) {
 			w.log.Error("ingest: database write failed; events dropped", "events", len(events), "attempts", attempt+1, "err", err)
+			w.mu.Lock()
+			w.stats.FailedBatches++
+			w.stats.LostEvents += int64(len(events))
+			w.stats.LastError = err.Error()
+			w.mu.Unlock()
 			return
 		}
 		w.log.Warn("ingest: database write failed; retrying", "events", len(events), "attempt", attempt+1, "err", err)
