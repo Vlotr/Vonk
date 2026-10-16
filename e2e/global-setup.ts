@@ -2,7 +2,8 @@
 //
 //   1. builds bin/monitor with the dashboard (make build);
 //   2. runs it on a free port with a temp DATA_DIR and DEV_BASIC_AUTH;
-//   3. creates the project "Webshop" with the CLI and reads its DSN;
+//   3. creates the projects "Webshop" and "Customer portal" with the CLI and
+//      reads their DSNs;
 //   4. serves the Laravel example (php artisan serve) with that DSN;
 //   5. serves the browser example (Vite) on another free port.
 //
@@ -131,13 +132,19 @@ export default async function globalSetup() {
     children.push(monitor)
     await waitFor(`${monitorURL}/health`, 'monitor', monitor)
 
-    const created = spawnSync(join(root, 'bin/monitor'), ['project', 'create', '--name', 'Webshop'], {
-      env: monitorEnv,
-      encoding: 'utf8',
-    })
-    const projectId = /^ID:\s+(\d+)$/m.exec(created.stdout)?.[1]
-    const dsn = /^DSN:\s+(\S+)$/m.exec(created.stdout)?.[1]
-    if (created.status !== 0 || !projectId || !dsn) throw new Error(`project create failed: ${created.stdout}${created.stderr}`)
+    const createProject = (name: string) => {
+      const created = spawnSync(join(root, 'bin/monitor'), ['project', 'create', '--name', name], {
+        env: monitorEnv,
+        encoding: 'utf8',
+      })
+      const id = /^ID:\s+(\d+)$/m.exec(created.stdout)?.[1]
+      const dsn = /^DSN:\s+(\S+)$/m.exec(created.stdout)?.[1]
+      if (created.status !== 0 || !id || !dsn) throw new Error(`project create failed: ${created.stdout}${created.stderr}`)
+      return { id, dsn }
+    }
+    const { id: projectId, dsn } = createProject('Webshop')
+    // A second project for the All projects page (phase 2), fed by the browser example.
+    const portal = createProject('Customer portal')
 
     // The Laravel example with the official sentry/sentry-laravel SDK. Real
     // environment variables win over a developer's .env; --no-reload passes
@@ -186,6 +193,8 @@ export default async function globalSetup() {
       MONITOR_PASSWORD: password,
       PROJECT_ID: projectId,
       SENTRY_DSN: dsn,
+      PORTAL_PROJECT_ID: portal.id,
+      PORTAL_DSN: portal.dsn,
       LARAVEL_URL: laravelURL,
       BROWSER_EXAMPLE_URL: browserURL,
     })
