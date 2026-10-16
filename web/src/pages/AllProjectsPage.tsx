@@ -124,7 +124,8 @@ function ProjectRow({ project, busiestHour, isAdmin }: { project: OverviewProjec
               type="button"
               className={styles.addTracking}
               onClick={async () => {
-                await updateProject(project.id, { tracksPageviews: true })
+                // If this fails, the setup page says page views are off and offers to turn them on.
+                await updateProject(project.id, { tracksPageviews: true }).catch(() => {})
                 navigate(`/settings/projects/${project.id}/setup#page-views`)
               }}
             >

@@ -61,8 +61,8 @@ function ManageProjects() {
   }
 
   const addPageViews = async (project: SettingsProject) => {
-    await updateProject(project.id, { tracksPageviews: true })
-    changed()
+    // If this fails, the setup page says page views are off and offers to turn them on.
+    await updateProject(project.id, { tracksPageviews: true }).then(changed, () => {})
     navigate(`/settings/projects/${project.id}/setup#page-views`)
   }
 

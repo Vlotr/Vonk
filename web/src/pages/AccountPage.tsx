@@ -37,11 +37,9 @@ export function AccountPage() {
   }
 
   const signOut = async () => {
-    try {
-      await logout()
-    } finally {
-      window.location.assign('/login')
-    }
+    // Signed out on the server or not (the session may be gone already), the login page is next.
+    await logout().catch(() => {})
+    window.location.assign('/login')
   }
 
   if (!me) return <section aria-busy="true" />
