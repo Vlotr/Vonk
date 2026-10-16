@@ -100,19 +100,29 @@ func (n *Notifier) sendDigest(ctx context.Context, p store.Project, at time.Time
 	if err != nil {
 		return err
 	}
+	// Page views when the project shows them: from the hourly summaries
+	// of the hours that start in the period.
+	var pages *store.RouteStats
+	if p.TracksPageviews {
+		stats, err := n.db.PageStats(ctx, p.ID, period.from, period.to)
+		if err != nil {
+			return err
+		}
+		pages = &stats.Totals
+	}
 	// Claimed last, so a failed query above leaves the period to the next run.
 	claimed, err := n.db.ClaimPeriod(ctx, fmt.Sprintf("digest:%d:%s", p.ID, settings.DigestFrequency), p.ID, period.key, n.now())
 	if err != nil || !claimed {
 		return err
 	}
-	n.send(ctx, p, settings, settings.Digest, n.digestMessage(p, period, total, newCount, newIssues, top, open), store.AlertDigest, false)
+	n.send(ctx, p, settings, settings.Digest, n.digestMessage(p, period, total, newCount, newIssues, top, open, pages), store.AlertDigest, false)
 	return nil
 }
 
 // digestMessage writes a summary: the totals, the new issues and the
-// busiest issues of the period, and how many issues are open now. Page
-// views join it once they are stored (Task 7).
-func (n *Notifier) digestMessage(p store.Project, period digestPeriod, total, newCount int, newIssues []store.Issue, top []store.IssueCount, open int) message {
+// busiest issues of the period, how many issues are open now, and the
+// page views, visitors and average time on a page when pages is not nil.
+func (n *Notifier) digestMessage(p store.Project, period digestPeriod, total, newCount int, newIssues []store.Issue, top []store.IssueCount, open int, pages *store.RouteStats) message {
 	issues := n.link("/projects/%d/issues", p.ID)
 	issueLink := func(i store.Issue) string { return n.link("/projects/%d/issues/%d", p.ID, i.ID) }
 
@@ -122,6 +132,15 @@ func (n *Notifier) digestMessage(p store.Project, period digestPeriod, total, ne
 	var slack strings.Builder
 	fmt.Fprintf(&slack, "*%s of %s* for %s: %s, %s, %s open now.", period.title, slackEscape(p.Name), period.label,
 		plural(total, "error"), plural(newCount, "new issue"), plural(open, "issue"))
+	if pages != nil {
+		fmt.Fprintf(&text, "Page views: %d\nVisitors: %d\n", pages.Views, pages.Visitors)
+		fmt.Fprintf(&slack, "\n%s by %s", plural(int(pages.Views), "page view"), plural(pages.Visitors, "visitor"))
+		if avg, ok := pages.AvgDurationMs(); ok {
+			fmt.Fprintf(&text, "Average time on page: %s\n", formatDuration(avg))
+			fmt.Fprintf(&slack, ", %s on a page on average", formatDuration(avg))
+		}
+		slack.WriteString(".")
+	}
 
 	if len(newIssues) > 0 {
 		text.WriteString("\nNew issues:\n")
@@ -157,4 +176,17 @@ func plural(n int, word string) string {
 		return "1 " + word
 	}
 	return fmt.Sprintf("%d %ss", n, word)
+}
+
+// formatDuration writes a time on a page as the dashboard does: "45s",
+// "1m 12s", "2m 05s", or "1h 02m" from an hour on.
+func formatDuration(ms int64) string {
+	seconds := (ms + 500) / 1000
+	switch {
+	case seconds < 60:
+		return fmt.Sprintf("%ds", seconds)
+	case seconds < 3600:
+		return fmt.Sprintf("%dm %02ds", seconds/60, seconds%60)
+	}
+	return fmt.Sprintf("%dh %02dm", seconds/3600, seconds%3600/60)
 }

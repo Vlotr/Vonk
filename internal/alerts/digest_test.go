@@ -152,3 +152,86 @@ func TestDigest_NoDoubleSend(t *testing.T) {
 		t.Errorf("summaries = %q: Portal has them off", got)
 	}
 }
+
+func TestDigest_PageViewsWhenTracked(t *testing.T) {
+	env := newEnv(t)
+	ctx := context.Background()
+	env.withSlack(t, env.shop.ID)
+	env.withSlack(t, env.portal.ID)
+	for _, p := range []store.Project{env.shop, env.portal} {
+		env.configure(t, p.ID, func(s *store.AlertSettings) {
+			s.Digest = store.Channels{Email: true, Slack: true}
+			s.DigestFrequency = store.DigestDaily
+		})
+	}
+	// Webshop tracks page views; Portal does not show them, whatever comes in.
+	if _, err := env.db.UpdateProject(ctx, env.shop.ID, store.ProjectSettings{Name: "Webshop", TracksLaravel: true, TracksPageviews: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Thursday the 15th: three page views by two visitors, two of them
+	// left after 60 and 90 seconds (75 s on average), one by a bot; and
+	// one page view the day before, which is not in the summary.
+	day := time.Date(2026, 10, 15, 10, 0, 0, 0, time.UTC)
+	view := func(p store.Project, id, user string, at time.Time, bot bool) store.PageEvent {
+		return store.PageEvent{ProjectID: p.ID, PageviewID: id, SessionID: id, WindowID: "w", UserID: user, Route: "/", Path: "/", At: at, IsBot: bot}
+	}
+	leave := func(p store.Project, id string, at time.Time) store.PageEvent {
+		return store.PageEvent{ProjectID: p.ID, Leave: true, EventID: "l" + id, PageviewID: id, SessionID: id, WindowID: "w", At: at}
+	}
+	events := []store.PageEvent{
+		view(env.shop, "a", "u1", day, false), leave(env.shop, "a", day.Add(60*time.Second)),
+		view(env.shop, "b", "u2", day.Add(time.Hour), false), leave(env.shop, "b", day.Add(time.Hour+90*time.Second)),
+		view(env.shop, "c", "u1", day.Add(2*time.Hour), false),
+		view(env.shop, "bot", "crawler", day.Add(2*time.Hour), true),
+		view(env.shop, "old", "u3", day.Add(-24*time.Hour), false),
+		view(env.portal, "p", "u9", day, false),
+	}
+	if _, err := env.db.SavePageEvents(ctx, events); err != nil {
+		t.Fatal(err)
+	}
+	dirty, err := env.db.DirtyHours(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, ph := range dirty {
+		if err := env.db.RecomputeHour(ctx, ph.ProjectID, ph.Hour); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	env.digestJob(t)(time.Date(2026, 10, 16, 8, 0, 0, 0, time.UTC))
+	var shop, portal string
+	for _, m := range env.summaries() {
+		if strings.Contains(m, "Webshop") {
+			shop = m
+		} else {
+			portal = m
+		}
+	}
+	if !strings.Contains(shop, "3 page views by 2 visitors, 1m 15s on a page on average") {
+		t.Errorf("Webshop summary = %q, want its page views", shop)
+	}
+	if strings.Contains(portal, "page view") {
+		t.Errorf("Portal summary = %q, but Portal does not track page views", portal)
+	}
+	_, bodies := env.mails()
+	found := false
+	for _, b := range bodies {
+		b = strings.ReplaceAll(b, "\r\n", "\n")
+		if strings.Contains(b, "Webshop") && strings.Contains(b, "Page views: 3\nVisitors: 2\nAverage time on page: 1m 15s\n") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("no Webshop mail with the page views:\n%s", strings.Join(bodies, "\n---\n"))
+	}
+}
+
+func TestFormatDuration(t *testing.T) {
+	for ms, want := range map[int64]string{0: "0s", 45_000: "45s", 72_000: "1m 12s", 125_400: "2m 05s", 3_725_000: "1h 02m"} {
+		if got := formatDuration(ms); got != want {
+			t.Errorf("formatDuration(%d) = %q, want %q", ms, got, want)
+		}
+	}
+}
