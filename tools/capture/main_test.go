@@ -69,3 +69,36 @@ func TestRecorder_AnswersPreflight(t *testing.T) {
 		t.Errorf("preflight was recorded: %v", entries)
 	}
 }
+
+func TestRecorder_AnswersPerPath(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "answers.json")
+	os.WriteFile(file, []byte(`[
+		{"prefix": "/flags/", "body": {"flags": {}}},
+		{"prefix": "/array/", "body": {"config": true}},
+		{"prefix": "/array/", "suffix": "/config.js", "contentType": "text/javascript", "body": "window.x = 1"}
+	]`), 0o644)
+	answers, err := loadAnswers(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := &recorder{dir: t.TempDir(), response: "{}", answers: answers, logf: t.Logf}
+
+	for path, want := range map[string]string{
+		"/flags/":                `{"flags": {}}`,
+		"/array/phc_x/config":    `{"config": true}`,
+		"/array/phc_x/config.js": "window.x = 1",
+		"/i/v0/e/":               "{}",
+	} {
+		w := httptest.NewRecorder()
+		rec.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))
+		if w.Body.String() != want {
+			t.Errorf("%s answered %q, want %q", path, w.Body, want)
+		}
+	}
+	w := httptest.NewRecorder()
+	rec.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/array/phc_x/config.js", nil))
+	if got := w.Header().Get("Content-Type"); got != "text/javascript" {
+		t.Errorf("config.js Content-Type = %q", got)
+	}
+}

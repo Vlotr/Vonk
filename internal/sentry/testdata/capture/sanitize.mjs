@@ -10,32 +10,13 @@
 // writes <out>.envelope (or <out>.envelope.gz) and <out>.headers.json.
 // `node --test` in this directory runs sanitize.test.mjs.
 import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
-import { hostname, userInfo } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { gunzipSync, gzipSync } from 'node:zlib';
+import { findLeaks, machine } from '../../../../tools/capture/leaks.mjs';
 
-const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-/**
- * findLeaks returns what in text still names this machine: the user name as
- * a whole path segment (/Users/jan/, C:\\Users\\jan\\, also JSON's \/jan\/),
- * the host name or its first label as a whole host token (not "web" inside
- * "web-1", "webshop" or "web.example.com"), and the app directory anywhere.
- * User and host are matched in the exact case the system reports them, as
- * paths and SDKs write them: a host named "mac" is no match for "Mac OS X"
- * in a User-Agent. Whole segments and tokens keep short names such as
- * "www", "web" or "jan" from matching ordinary words; "localhost" is no leak.
- */
-export function findLeaks(text, { user, host, appDir }) {
-  const leaks = [];
-  if (user && new RegExp(`(^|[\\\\/])${escapeRegExp(user)}([\\\\/]|$)`).test(text)) leaks.push(user);
-  for (const name of new Set(host ? [host, host.split('.')[0]] : [])) {
-    if (name === '' || name === 'localhost') continue;
-    if (new RegExp(`(^|[^A-Za-z0-9.-])${escapeRegExp(name)}($|[^A-Za-z0-9.-])`).test(text)) leaks.push(name);
-  }
-  if (appDir && text.includes(appDir)) leaks.push(appDir);
-  return leaks;
-}
+// The leak check lives in tools/capture (all recipes share it); its tests
+// (sanitize.test.mjs) import it from here.
+export { findLeaks };
 
 function main() {
 const [bodyPath, metaPath, out, appDir] = process.argv.slice(2);
@@ -61,7 +42,7 @@ text = text.replace(
     '"kernel_version":"Linux web-1 6.8.0-45-generic #45-Ubuntu SMP PREEMPT_DYNAMIC x86_64"}',
 );
 
-for (const leak of findLeaks(text, { user: userInfo().username, host: hostname(), appDir })) {
+for (const leak of findLeaks(text, { ...machine(), appDir })) {
   console.error(`sanitize: the body still contains ${JSON.stringify(leak)}; extend the replacements`);
   process.exit(1);
 }

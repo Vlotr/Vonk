@@ -11,8 +11,9 @@ node_modules/
 
 # Composer packages (fixture recipes, the Laravel example).
 vendor/
-# Build output of the browser fixture recipe.
+# Build output of the browser fixture recipes.
 /internal/sentry/testdata/capture/browser/dist/
+/internal/posthog/testdata/capture/dist/
 # Vite build output of the browser example.
 /examples/browser/dist/
 # Playwright results and the logs of the processes the e2e setup starts.

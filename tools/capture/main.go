@@ -7,12 +7,14 @@
 //
 // It answers every request with 200 and a small JSON body, and answers CORS
 // preflights (which it does not record) for any origin, so browser SDKs can
-// talk to it too.
+// talk to it too. With -responses it answers some paths the way the real
+// service would (configuration endpoints an SDK reads before it sends).
 //
 // Usage:
 //
 //	go run ./tools/capture -addr 127.0.0.1:9999 -out /tmp/captured
 //	go run ./tools/capture -response '{"flags":{}}'   # a different reply body
+//	go run ./tools/capture -responses answers.json   # per path, see loadAnswers
 package main
 
 import (
@@ -24,6 +26,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -44,12 +47,20 @@ func main() {
 	addr := flag.String("addr", "127.0.0.1:9999", "listen address")
 	out := flag.String("out", "captured", "directory for the recorded requests")
 	response := flag.String("response", "{}", "JSON body sent back for every request")
+	responses := flag.String("responses", "", "JSON file with answers per path prefix (see loadAnswers)")
 	flag.Parse()
 
 	if err := os.MkdirAll(*out, 0o755); err != nil {
 		log.Fatal(err)
 	}
 	rec := &recorder{dir: *out, response: *response, logf: log.Printf}
+	if *responses != "" {
+		answers, err := loadAnswers(*responses)
+		if err != nil {
+			log.Fatal(err)
+		}
+		rec.answers = answers
+	}
 	log.Printf("capture: listening on http://%s, writing to %s", *addr, *out)
 	log.Fatal(http.ListenAndServe(*addr, rec))
 }
@@ -58,6 +69,7 @@ func main() {
 type recorder struct {
 	dir      string
 	response string
+	answers  []answer // longest prefix first
 	logf     func(format string, args ...any)
 
 	mu sync.Mutex
@@ -85,8 +97,59 @@ func (rec *recorder) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	rec.logf("capture: %s %s (%d bytes) -> %s", r.Method, r.URL.Path, len(body), name)
 
+	for _, a := range rec.answers {
+		if strings.HasPrefix(r.URL.Path, a.Prefix) && strings.HasSuffix(r.URL.Path, a.Suffix) {
+			w.Header().Set("Content-Type", a.ContentType)
+			io.WriteString(w, a.body)
+			return
+		}
+	}
 	w.Header().Set("Content-Type", "application/json")
 	io.WriteString(w, rec.response)
+}
+
+// answer is the reply to requests whose path starts with Prefix and ends
+// with Suffix.
+type answer struct {
+	Prefix      string          `json:"prefix"`
+	Suffix      string          `json:"suffix"`
+	ContentType string          `json:"contentType"` // default application/json
+	Body        json.RawMessage `json:"body"`        // a JSON value, or a string sent as it is
+	body        string
+}
+
+// loadAnswers reads a file such as
+//
+//	[{"prefix": "/flags/", "body": {"flags": {}}},
+//	 {"prefix": "/array/", "suffix": "/config.js", "contentType": "text/javascript", "body": "window.x = 1"}]
+//
+// A body that is a JSON string is sent as its text; any other JSON value is
+// sent as JSON. When several answers match a path, the longest prefix wins.
+func loadAnswers(path string) ([]answer, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var answers []answer
+	if err := json.Unmarshal(data, &answers); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	for i := range answers {
+		a := &answers[i]
+		if a.ContentType == "" {
+			a.ContentType = "application/json"
+		}
+		var text string
+		if err := json.Unmarshal(a.Body, &text); err == nil {
+			a.body = text
+		} else {
+			a.body = string(a.Body)
+		}
+	}
+	sort.SliceStable(answers, func(i, j int) bool {
+		return len(answers[i].Prefix)+len(answers[i].Suffix) > len(answers[j].Prefix)+len(answers[j].Suffix)
+	})
+	return answers, nil
 }
 
 // save writes NNNN-METHOD-path.json and .body and returns the base name.
