@@ -9,7 +9,7 @@ DEV_DATA_DIR   ?= ./data
 DEV_SECRET_KEY ?= dev-only-secret-not-for-production
 DEV_BASE_URL   ?= http://localhost:8000
 
-.PHONY: dev test e2e build web-build docker clean
+.PHONY: dev test perf e2e build web-build docker clean
 
 # Install the web dependencies when package.json or the lockfile changes.
 web/node_modules: web/package.json web/package-lock.json
@@ -34,6 +34,10 @@ test: web/node_modules
 	cd web && npm run typecheck && npm test
 	node --test internal/sentry/testdata/capture/sanitize.test.mjs tools/capture/fixtures.test.mjs
 
+# The page statistics' performance check (docs/perf.md): 1 000 000 page
+# views in a temp database, deleted afterwards.
+perf:
+	go test -tags perf ./internal/jobs -run TestPerf -v -timeout 30m
 
 # Install the end-to-end test dependencies when their lockfile changes.
 e2e/node_modules: e2e/package.json e2e/package-lock.json
