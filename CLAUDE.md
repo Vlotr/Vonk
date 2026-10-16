@@ -11,11 +11,12 @@ A self-hosted monitoring tool: one Go binary that pretends to be Sentry (errors)
 | `make e2e` | Playwright end-to-end tests in `e2e/`: builds the binary, starts it with the Laravel, browser and PostHog examples, checks the dashboard in Chromium and saves screenshots. Needs PHP 8.3+ and Composer. |
 | `make build` | Web build into `web/dist`, then `bin/monitor` with the dashboard embedded. |
 | `make docker` | Image `monitor:dev` for this machine's platform. |
+| `make test-postgres` | The Go tests that use a database against Postgres 17: starts `postgres:17-alpine` in Docker (`--rm`, data on a tmpfs, no volume), sets `TEST_DATABASE_URL`, runs store, API, jobs, ingest, auth, alerts, issues, sourcemaps, health, server and cmd with `-race`, and stops the container also when they fail or you press Ctrl-C. About a minute; needs Docker. `POSTGRES_IMAGE=postgres:17` uses the Debian image. |
 | `make perf` | The page statistics' performance check (`go test -tags perf ./internal/jobs -run TestPerf -v`): 1 000 000 page views in a temp database (about 220 MB, deleted afterwards); results and targets in `docs/perf.md`. Not part of `make test`. |
 | `docker compose up -d` | The container as the spec's example runs it (`compose.yaml`: `monitor:dev`, one volume, `TZ=Europe/Amsterdam`); needs `SECRET_KEY` in the environment. |
 | `make clean` | Remove `bin/` and the web build. |
 
-Focused runs while iterating: `go test -race ./internal/store/ -run TestCreateProject`, `go test ./internal/api/`, `go test -race ./internal/alerts/`, `go test ./internal/store/ -run TestDurations`, `go test ./internal/ingest/ -run TestPosthog`, `go test ./internal/sourcemaps/`, `cd web && npm test`, `cd e2e && npx playwright test` (after `make build` once).
+Focused runs while iterating: `go test -race ./internal/store/ -run TestCreateProject`, `go test ./internal/api/`, `go test -race ./internal/alerts/`, `go test ./internal/store/ -run TestDurations`, `go test ./internal/ingest/ -run TestPosthog`, `go test ./internal/sourcemaps/`, `cd web && npm test`, `cd e2e && npx playwright test` (after `make build` once). Against a Postgres you started yourself: `TEST_DATABASE_URL=postgres://user:pass@127.0.0.1:5432/db?sslmode=disable go test ./internal/store/` (each test makes and drops a schema of its own). The e2e suite on Postgres: `E2E_DATABASE_URL=<an empty database> make e2e`.
 
 Run the binary by hand:
 
@@ -66,7 +67,7 @@ Source map fixtures (`internal/sourcemaps/testdata/`, recipe in `internal/source
 | --- | --- | --- |
 | `SECRET_KEY` | required | At least 16 characters; the example values `verander-mij` and `change-me` are refused. |
 | `BASE_URL` | required | Root of a host, such as `https://monitor.example.com`. No subpath. DSNs are built from it. |
-| `DATABASE_URL` | empty | `postgres://...` selects Postgres (not supported until Task 11; startup refuses it). Empty: SQLite at `<DATA_DIR>/monitor.db`. |
+| `DATABASE_URL` | empty | `postgres://` or `postgresql://` (`postgres://user:pass@host:5432/db?sslmode=require`) selects Postgres, through pgx's `database/sql` driver; anything else is refused. Empty: SQLite at `<DATA_DIR>/monitor.db`. The tool backs up only SQLite; on Postgres `serve` warns at every start to use `pg_dump`. Never logged (it holds the password). |
 | `MAIL_URL` | empty | `smtp://user:pass@host:587` (STARTTLS, required except to localhost) or `smtps://user:pass@host:465`, optional `?from=` (default `monitor@<BASE_URL host>`). Parsed at startup by `mail.Parse`; invites, reset links and notifications are mailed when set. |
 | `ADDR` | `:8000` | Listen address. |
 | `DATA_DIR` | `/data` | SQLite file, `backups/` (pre-migration copies) and `sourcemaps/` (uploaded source maps, chunks of uploads under way). Its disk is what the health check measures. |
@@ -80,10 +81,14 @@ Source map fixtures (`internal/sourcemaps/testdata/`, recipe in `internal/source
 ```
 cmd/monitor/            the binary: main.go (command dispatch), serve.go, healthcheck.go, project.go, admin.go
 internal/config/        Load(getenv): reads and validates the settings
-internal/store/         DB (one write connection + read pool), migrations, queries; activity.go (one user's trail: the journey before an error,
+internal/store/         DB (a write pool + a read-only pool; SQLite or Postgres), migrations, queries; dialect.go (placeholders, row and named
+                        locks, the pool and transaction wrappers), activity.go (one user's trail: the journey before an error,
                         user activity), custom_events.go (custom events and their hourly summaries), sourcemaps.go (rows of uploaded
-                        source map files), api_tokens.go (upload API tokens and their projects)
+                        source map files), api_tokens.go (upload API tokens and their projects), concurrency_test.go (every
+                        check-then-write with a second writer at the same moment)
   migrations/sqlite/    NNNN_name.sql, embedded, applied in order at startup
+  migrations/postgres/  the Postgres twin of each file (same name; TestPostgres_MigrationsMatchSQLite compares the schemas)
+  storetest/            DatabaseURL(t): a test's own database (SQLite, or a Postgres schema with TEST_DATABASE_URL)
 internal/project/       project helpers that are not queries (DSN)
 internal/sentry/        Sentry envelopes and events: ParseEnvelope, Event, Fingerprint, Summarize, Source
   testdata/             real SDK requests (fixtures) and the recipes that made them (capture/)
@@ -217,18 +222,18 @@ API tokens are made in Settings → API tokens (admins), shown once, stored as `
 - Webhook URLs are secrets: never logged, never in an error, answered only masked (`https://hooks.slack.com/…/abcd`). They must be https; `DEV_ALLOW_HTTP_WEBHOOKS=true` allows plain http for local fakes (e2e, a container check), never in production. Only admins change a project's alerts; members see the page read-only.
 - `/health` → `{status, version, db, disk, diskFreeBytes, diskTotalBytes, queueDepth, failing}`: 200 with status `ok`, or `degraded` when a check fails but the tool works (a disk under 10 % or 1 GiB free, or one that cannot be read); 503 with status `error` only when it cannot work (the database fails, or the disk is under 1 % or 256 MiB free). The status page and the admin alerts read the same `health.Checker`.
 - Jobs (`internal/jobs`): one scheduler goroutine; retention daily (first a minute after the start) deletes each project's events older than its retention and issues last seen before it, and its page views, page leaves, custom events and hourly page and event summaries from before it, and source maps uploaded before it (files, then rows), 5000 rows per transaction; projects kept indefinitely keep everything. `sourcemaps-cleanup` hourly removes chunks of uploads older than an hour, the chunk directories of tokens that no longer exist, and source map files no row points to (deleted projects). The hourly page statistics are rebuilt every minute (see "How PostHog ingest and page statistics work").
-- Backups: every command opens the database through `openDatabase` (`cmd/monitor/database.go`): when migrations are pending on a database that has data, `store.BackupBeforeMigrate` first writes `VACUUM INTO <DATA_DIR>/backups/pre-migrate-<version>-<time>.db` and keeps the five newest; when that fails, the command stops before migrating (old backups that cannot be removed only give a warning).
+- Backups: every command opens the database through `openDatabase` (`cmd/monitor/database.go`): when migrations are pending on a database that has data, `store.BackupBeforeMigrate` first writes `VACUUM INTO <DATA_DIR>/backups/pre-migrate-<version>-<time>.db` and keeps the five newest; when that fails, the command stops before migrating (old backups that cannot be removed only give a warning). SQLite only: on Postgres it returns `store.ErrNoBackups`, a warning that the update runs without a backup, and Settings → Status shows the `pg_dump` command instead of the last backup (`databaseKind` in the status API).
 - Shutdown: HTTP server (15 s for running requests), jobs, the writer's last batch, the notifier (10 s), the database. `compose.yaml` gives the container `stop_grace_period: 30s` for that; Docker's default of 10 s would cut the last batch off.
 - Tests: `internal/testutil` has a fake SMTP server and a fake Slack webhook; `alerts` tests wait for deliveries with `n.busy.Wait()` and move a fake clock. Health checks take `DiskUsage` so tests never depend on the machine's disk.
 
 ## Conventions
 
-- Simple, idiomatic Go; stdlib first (`net/http` routing, `log/slog`, `embed`, `database/sql`). The team is new to Go: clarity over cleverness. New dependencies need a line in `docs/decisions.md`. Approved: `modernc.org/sqlite`, `golang.org/x/crypto` (argon2id).
+- Simple, idiomatic Go; stdlib first (`net/http` routing, `log/slog`, `embed`, `database/sql`). The team is new to Go: clarity over cleverness. New dependencies need a line in `docs/decisions.md`. Approved: `modernc.org/sqlite`, `golang.org/x/crypto` (argon2id), `github.com/jackc/pgx/v5` (Postgres, its `stdlib` driver).
 - Subcommands: `serve` (default), `healthcheck`, `project create`, `admin reset-password`; later `restore`, `delete-user-data`. One file per subcommand in `cmd/monitor/`. `run(args, getenv, stdout, stderr) int` keeps them testable.
 - Times in the DB are unix milliseconds (`BIGINT`); JSON uses RFC 3339. JSON payloads are `TEXT`. Booleans are `BOOLEAN` with `TRUE`/`FALSE`.
-- SQL stays in the subset SQLite and Postgres share: use `INSERT ... RETURNING id`, not `LastInsertId`. Placeholders are `?` for now (Task 11 adds a dialect helper).
-- Migrations are append-only: never edit a committed file, add `NNNN_name.sql`. Every SQLite migration needs a Postgres twin from Task 11 on. Tracked in `schema_migrations`.
-- All writes go through `db.write` (one connection, `BEGIN IMMEDIATE`); queries use `db.read` (read-only pool).
+- SQL stays in the subset SQLite and Postgres share: use `INSERT ... RETURNING id`, not `LastInsertId`; `SELECT EXISTS (...)`, not `COUNT(*)` of an unnamed subquery; every non-aggregated column in `GROUP BY`. Placeholders are `?`; the dialect rebinds them to `$1`, `$2` for Postgres. What the two cannot share is a method of the dialect (`dialect.go`: `asciiLower`, the locks) or, for the databases' own catalogs (the backup's version check, the database size), one `db.Postgres()` branch.
+- Migrations are append-only: never edit a committed file, add `NNNN_name.sql` to both `migrations/sqlite/` and `migrations/postgres/` (ids `BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY`, `BYTEA` for `BLOB`). Tracked in `schema_migrations`. `make test-postgres` runs `TestPostgres_MigrationsMatchSQLite`.
+- All writes go through `db.write` (`BeginTx(ctx)` gives a `*writeTx`); queries use `db.read` (read-only pool). On SQLite the write pool is one connection and `BEGIN IMMEDIATE` holds the database, so a check and the write after it can never be interleaved. On Postgres writers run side by side: code that reads and then writes on what it read must lock it, with `tx.forUpdate()` on the SELECT when the row exists, or `tx.lock(ctx, name)` (a named lock in `dialect.go`) when the check reads rows that may not exist yet; add a test to `concurrency_test.go` (`whileHeld`) and the place to the list in `docs/decisions.md`.
 - Routing: public routes (SDK ingest, `/health`) go on the public mux in `internal/server`; the sign-in pages and their API (`auth.PublicPages`, `RegisterPublic`) and `/assets/` are open; everything else falls through `auth.RequireUser`. Dashboard API under `/ui/api/`, camelCase JSON, errors as `{"error":"..."}`. Missing access and missing objects both return 404. Error messages meant for people (shown by the UI as they are) start with a capital letter and end with a period.
 - Never store or log IP addresses. Request logs leave out the query string and the client address. Everything an SDK sends goes through `internal/scrub` before it is queued or stored.
 - Frontend: plain CSS, design tokens as CSS variables in `web/src/styles/tokens.css`, CSS modules per component, no UI kit, no chart library. No color, font, radius or line-height literal outside `tokens.css`. Fonts bundled via `@fontsource-variable`. Light theme only. Poll every 60 s. UI copy is English and matches the designs; show only data that exists (no placeholders, no fake numbers). The tool name shows as `[Tool name]`, defined only in `web/src/brand.ts`; Go never reads it.
@@ -244,7 +249,8 @@ API tokens are made in Settings → API tokens (admins), shown once, stored as `
 - argon2id costs about 160 ms per hash under `-race`. `internal/auth` tests lower the cost in `TestMain`; other packages' tests make users with a dummy hash and sign in with `auth.Service.NewSession` instead of the login endpoint.
 - The runtime image is distroless (no shell, no curl); the Docker `HEALTHCHECK` runs `/monitor healthcheck`.
 - Accepted SDK requests are logged at debug (`LOG_LEVEL=debug` to see them); refused ones (401, 413, 429, ...) at info.
-- Only the ingest writer should write ingested data, and code inside a `db.write` transaction must use the `*sql.Tx`, never `db.write` itself: the write pool has one connection, so that would wait forever.
+- Only the ingest writer should write ingested data, and code inside a `db.write` transaction must use the `*writeTx`, never `db.write` itself: on SQLite the write pool has one connection, so that would wait forever.
+- Run one `serve` per database; command-line commands next to it are fine. With two on one Postgres the jobs and the source map check would run in each.
 - `make e2e` rewrites `e2e/screenshots/*.png` on every run (relative times and data differ). Commit them when the dashboard changed on purpose; otherwise `git checkout e2e/screenshots`. Process output of a run is in `e2e/.logs/`.
 - The e2e setup starts each process in its own process group and stops the group, because `php artisan serve` runs `php -S` as a child. It passes the DSN to Laravel as an environment variable with `--no-reload` (without it, artisan serve drops variables that are not in `.env`) and sets `SENTRY_SERVER_NAME=web-1` so screenshots never show this machine's host name.
 - The stack trace marks the error line with `aria-current="true"`; the e2e test finds it that way.
