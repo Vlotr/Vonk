@@ -1,7 +1,7 @@
 import { Link, NavLink } from 'react-router'
 import type { Project } from '../api/client'
 import { TOOL_NAME } from '../brand'
-import { AlertCircleIcon, GridIcon, SettingsIcon } from '../components/Icons'
+import { AlertCircleIcon, BellIcon, GridIcon, SettingsIcon } from '../components/Icons'
 import { Logo } from '../components/Logo'
 import styles from './Sidebar.module.css'
 
@@ -10,7 +10,8 @@ function navClass({ isActive }: { isActive: boolean }): string {
 }
 
 // Sidebar is the navigation on the left, with Settings at the bottom.
-// Pages, Events and Alerts join it in the tasks that build those screens.
+// Pages and Events join it, between Issues and Alerts, in the tasks that
+// build those screens.
 export function Sidebar({ project }: { project?: Project }) {
   return (
     <aside className={styles.sidebar}>
@@ -39,6 +40,10 @@ export function Sidebar({ project }: { project?: Project }) {
                     {project.openIssues}
                   </span>
                 )}
+              </NavLink>
+              <NavLink to={`/projects/${project.id}/alerts`} className={navClass}>
+                <BellIcon className={styles.icon} />
+                Alerts
               </NavLink>
             </div>
           </nav>

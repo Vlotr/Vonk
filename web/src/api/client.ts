@@ -435,3 +435,93 @@ export function deleteUser(userId: number): Promise<object> {
 export function createResetLink(userId: number): Promise<NewLink & { expiresAt: string }> {
   return send('POST', `/ui/api/settings/users/${userId}/reset-link`, {})
 }
+
+// Alerts of a project, for everyone who may see it.
+
+export type DigestFrequency = 'daily' | 'weekly' | 'monthly'
+
+/** AlertChannels says where one kind of alert goes. */
+export interface AlertChannels {
+  email: boolean
+  slack: boolean
+}
+
+export interface AlertKinds {
+  newIssue: AlertChannels
+  regression: AlertChannels
+  /** threshold: alert when the last hour has this many times the usual hourly errors (2 to 100). */
+  spike: AlertChannels & { threshold: number }
+  digest: AlertChannels & { frequency: DigestFrequency }
+}
+
+export interface ProjectAlerts {
+  project: { id: number; name: string }
+  /** mailEnabled is false without MAIL_URL: then nothing is mailed. */
+  mailEnabled: boolean
+  /** recipients is how many people get the project's mail: the admins and the members who see it. */
+  recipients: number
+  /** slackWebhook is the saved webhook, masked ("https://hooks.slack.com/…/abcd"); null when none. */
+  slackWebhook: string | null
+  alerts: AlertKinds
+}
+
+/** AlertsChange changes what is sent; slackWebhookUrl "" removes the webhook. */
+export interface AlertsChange {
+  alerts?: { [K in keyof AlertKinds]?: Partial<AlertKinds[K]> }
+  slackWebhookUrl?: string
+}
+
+export function getProjectAlerts(projectId: number, signal?: AbortSignal): Promise<ProjectAlerts> {
+  return getJSON(`/ui/api/projects/${projectId}/alerts`, signal)
+}
+
+export function updateProjectAlerts(projectId: number, change: AlertsChange): Promise<ProjectAlerts> {
+  return send('PATCH', `/ui/api/projects/${projectId}/alerts`, change)
+}
+
+/** testProjectSlack posts a test message to webhookUrl, or to the saved webhook when it is left out. */
+export function testProjectSlack(projectId: number, webhookUrl?: string): Promise<object> {
+  return send('POST', `/ui/api/projects/${projectId}/alerts/slack-test`, webhookUrl ? { webhookUrl } : {})
+}
+
+// Settings → Status, for admins.
+
+export interface ToolStatus {
+  version: string
+  startedAt: string
+  uptimeSeconds: number
+  /** healthy is what /health says; failing names the checks that failed ("db", "disk"). */
+  healthy: boolean
+  failing: string[]
+  db: 'ok' | 'error'
+  disk: 'ok' | 'low' | 'error'
+  databaseBytes: number
+  diskFreeBytes: number
+  diskTotalBytes: number
+  /** eventsLastHour counts the error events of the last hour, all projects. */
+  eventsLastHour: number
+  queueDepth: number
+  queueCapacity: number
+  /** lastBackup is the newest backup made before a database update. */
+  lastBackup: { name: string; createdAt: string; sizeBytes: number } | null
+  /** adminAlerts are the last alert of each kind about the tool, newest first. */
+  adminAlerts: { kind: string; message: string; sentAt: string }[]
+  /** adminSlackWebhook is masked; null when none is set. */
+  adminSlackWebhook: string | null
+  mailEnabled: boolean
+  /** admins is how many people get the admin mails. */
+  admins: number
+}
+
+export function getToolStatus(signal?: AbortSignal): Promise<ToolStatus> {
+  return getJSON('/ui/api/settings/status', signal)
+}
+
+/** setAdminSlack saves the admins' webhook; "" removes it. */
+export function setAdminSlack(webhookUrl: string): Promise<{ adminSlackWebhook: string | null }> {
+  return send('PUT', '/ui/api/settings/admin-slack', { webhookUrl })
+}
+
+export function testAdminSlack(webhookUrl?: string): Promise<object> {
+  return send('POST', '/ui/api/settings/admin-slack/test', webhookUrl ? { webhookUrl } : {})
+}

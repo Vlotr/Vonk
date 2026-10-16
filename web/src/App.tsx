@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from 'react-router'
 import { AppShell } from './layout/AppShell'
 import { useMe } from './layout/MeContext'
 import { AccountPage } from './pages/AccountPage'
+import { AlertsPage } from './pages/AlertsPage'
 import { AllProjectsPage } from './pages/AllProjectsPage'
 import { ForgotPasswordPage } from './pages/ForgotPasswordPage'
 import { InvitePage } from './pages/InvitePage'
@@ -12,6 +13,7 @@ import { NotFoundPage } from './pages/NotFoundPage'
 import { ProjectSetupPage } from './pages/ProjectSetupPage'
 import { ResetPasswordPage } from './pages/ResetPasswordPage'
 import { SettingsProjectsPage } from './pages/SettingsProjectsPage'
+import { SettingsStatusPage } from './pages/SettingsStatusPage'
 import { SettingsUsersPage } from './pages/SettingsUsersPage'
 import { SetupPage } from './pages/SetupPage'
 
@@ -30,10 +32,12 @@ export function App() {
         <Route index element={<AllProjectsPage />} />
         <Route path="projects/:id/issues" element={<IssuesPage />} />
         <Route path="projects/:id/issues/:issueId" element={<IssueDetailPage />} />
+        <Route path="projects/:id/alerts" element={<AlertsPage />} />
         <Route path="settings" element={<SettingsHome />} />
         <Route path="settings/projects" element={<SettingsProjectsPage />} />
         <Route path="settings/projects/:id/setup" element={<ProjectSetupPage />} />
         <Route path="settings/users" element={<SettingsUsersPage />} />
+        <Route path="settings/status" element={<SettingsStatusPage />} />
         <Route path="settings/account" element={<AccountPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
