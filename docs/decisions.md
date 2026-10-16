@@ -83,7 +83,7 @@ Scrubbing (Step 5):
 
 Grouping (Step 6):
 
-- "Innermost exception" is the first entry of `exception.values`: Sentry lists the oldest cause first and the exception that was thrown last (sentry-php and the JS SDK both do). The title, message and culprit come from the same exception.
+- The main exception is the last entry of `exception.values` (controller ruling 23; the brief's "innermost" was a plan error): Sentry lists the oldest cause first and the exception that was finally thrown last (sentry-php and the JS SDK both do), and the design titles issues after Laravel's outer `QueryException`, not the `PDOException` it wraps. It drives the fingerprint, title, message and culprit.
 - "Top" frames are the last ones in Sentry's frame list, nearest to the throw. Without in-app frames, the top five of all frames are used.
 - A fingerprint is 32 hex characters (the first 128 bits of SHA-256 over its parts). An SDK fingerprint is hashed too, so "used as-is" means only those values decide the group; `{{ default }}` (spaces and case ignored) inside it stands for the computed fingerprint.
 - A frame counts as its module, or else its file normalized: a URL becomes its path (no host, query or fragment), backslashes become slashes, numeric directories become `<n>`, directories of 16+ hex characters become `<hash>`, and build hashes are removed from file names (`index-D8xk2Lp1.js` → `index.js`: a part after the first of 8+ characters with a digit, or a last part of exactly 8 mixed-case letters). Plus the function, with the line removed from PHP closure names (`{closure:/routes/web.php:42}`).

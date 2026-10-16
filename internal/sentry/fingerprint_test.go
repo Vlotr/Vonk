@@ -170,15 +170,40 @@ func TestFingerprint_IgnoresPHPClosureLines(t *testing.T) {
 	}
 }
 
-func TestFingerprint_InnermostException(t *testing.T) {
-	chain := func(outerType string) *sentry.Event {
+func TestFingerprint_MainExceptionIsTheLast(t *testing.T) {
+	// Sentry lists a chain oldest first: the cause, then the exception that wraps it.
+	chain := func(causeType, outerType string) *sentry.Event {
 		return decode(t, `{"exception":{"values":[
-			{"type":"PDOException","value":"SQLSTATE[23000]","stacktrace":{"frames":[{"filename":"/app/Orders.php","function":"save","in_app":true}]}},
+			{"type":"`+causeType+`","value":"SQLSTATE[23000]","stacktrace":{"frames":[{"filename":"/app/Orders.php","function":"save","in_app":true}]}},
 			{"type":"`+outerType+`","value":"wrapped","stacktrace":{"frames":[{"filename":"/app/Other.php","function":"run","in_app":true}]}}
 		]}}`)
 	}
-	if sentry.Fingerprint(chain("QueryException")) != sentry.Fingerprint(chain("WrapperException")) {
-		t.Error("the outer exception of a chain changed the fingerprint; only the innermost should count")
+	if sentry.Fingerprint(chain("PDOException", "QueryException")) != sentry.Fingerprint(chain("OtherCause", "QueryException")) {
+		t.Error("the cause of a chain changed the fingerprint; only the last (outer) exception should count")
+	}
+	if sentry.Fingerprint(chain("PDOException", "QueryException")) == sentry.Fingerprint(chain("PDOException", "ViewException")) {
+		t.Error("a different outer exception gave the same fingerprint")
+	}
+}
+
+func TestSummarize_LaravelQueryExceptionChain(t *testing.T) {
+	// Laravel wraps a PDOException in a QueryException; the issue is named after the QueryException.
+	ev := decode(t, `{"platform":"php","exception":{"values":[
+		{"type":"PDOException","value":"SQLSTATE[23000]: Integrity constraint violation","stacktrace":{"frames":[
+			{"filename":"/vendor/laravel/framework/src/Illuminate/Database/Connection.php","function":"execute","lineno":587,"in_app":false},
+			{"filename":"/app/Repositories/OrderRepository.php","function":"insert","lineno":40,"in_app":true}]}},
+		{"type":"Illuminate\\Database\\QueryException","value":"SQLSTATE[23000]: Integrity constraint violation (Connection: mysql, SQL: insert into orders ...)","stacktrace":{"frames":[
+			{"filename":"/app/Http/Controllers/OrderController.php","function":"store","lineno":28,"in_app":true},
+			{"filename":"/vendor/laravel/framework/src/Illuminate/Database/Connection.php","function":"runQueryCallback","lineno":829,"in_app":false}]}}
+	]}}`)
+
+	want := sentry.Summary{
+		Title:   `Illuminate\Database\QueryException`,
+		Message: "SQLSTATE[23000]: Integrity constraint violation (Connection: mysql, SQL: insert into orders ...)",
+		Culprit: "OrderController.php:28",
+	}
+	if got := sentry.Summarize(ev); got != want {
+		t.Errorf("Summarize = %+v, want %+v", got, want)
 	}
 }
 
@@ -273,8 +298,8 @@ func TestSummarize(t *testing.T) {
 		{"no in-app frame: top frame", `{"exception":{"values":[{"type":"E","stacktrace":{"frames":[
 			{"filename":"/vendor/a/A.php","lineno":3},{"abs_path":"https://cdn.example.com/lib/b.js?v=1","lineno":9}]}}]}}`,
 			sentry.Summary{Title: "E", Culprit: "b.js:9"}},
-		{"innermost exception", `{"exception":{"values":[{"type":"Inner","value":"cause"},{"type":"Outer","value":"wrapped"}]}}`,
-			sentry.Summary{Title: "Inner", Message: "cause"}},
+		{"last exception of a chain", `{"exception":{"values":[{"type":"Inner","value":"cause"},{"type":"Outer","value":"wrapped"}]}}`,
+			sentry.Summary{Title: "Outer", Message: "wrapped"}},
 	}
 	for _, tc := range cases {
 		if got := sentry.Summarize(decode(t, tc.json)); got != tc.want {

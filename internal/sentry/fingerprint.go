@@ -24,8 +24,9 @@ const (
 // Fingerprint returns the group key of an event: 32 hex characters. Events
 // with the same fingerprint in one project become one issue.
 //
-// By default it uses the innermost exception's type and its top five in-app
-// frames (all frames when none is in-app), each as a normalized file or
+// By default it uses the main exception's type (the last one Sentry lists,
+// the exception that was finally thrown) and its top five in-app frames (all
+// frames when none is in-app), each as a normalized file or
 // module plus the function name, without line numbers. Without a stack trace
 // it uses the type and the message with numbers, hex values and UUIDs
 // replaced. A fingerprint set by the SDK is used instead; "{{ default }}" in
@@ -94,13 +95,15 @@ func Summarize(e *Event) Summary {
 	return s
 }
 
-// mainException is the exception an issue is named and grouped by: the
-// innermost one, which Sentry lists first. It returns nil without exceptions.
+// mainException is the exception an issue is named and grouped by: the last
+// one in Sentry's list, which runs from the oldest cause to the exception that
+// was finally thrown (Laravel's QueryException rather than the PDOException it
+// wraps). It returns nil without exceptions.
 func mainException(e *Event) *Exception {
 	if len(e.Exceptions) == 0 {
 		return nil
 	}
-	return &e.Exceptions[0]
+	return &e.Exceptions[len(e.Exceptions)-1]
 }
 
 // groupingFrames returns the top in-app frames, or the top frames when none
