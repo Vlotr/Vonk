@@ -2,7 +2,7 @@
 
 A light, self-hosted tool for errors and page statistics. Your apps keep their existing SDKs: the tool pretends to be Sentry (errors from Laravel and the browser) and PostHog (page views). It runs as one Go binary with the dashboard built in, in one small container with all data on one volume. The name is not decided yet; the dashboard shows `[Tool name]`.
 
-Status: early development (phase 2 of the plan). The first visitor creates the admin account; others join with an invite link, as admins or as members who see only the projects they are given. Projects are made in Settings, which shows the DSN and the setup steps. Point a Sentry SDK at that DSN: errors are stored, grouped into issues, and listed in the dashboard with their stack trace. Issues can be resolved, ignored and reopened; a resolved issue opens again when the error comes back. The All projects page shows which projects have new errors. Each project's Alerts page sends new issues, returning issues, error spikes and a daily, weekly or monthly summary by mail and to Slack; admins hear about problems of the tool itself, such as a disk that runs full. Old data is deleted after each project's retention, the database is backed up before every update, and Settings → Status and `/health` show how the tool is doing. Phase 3 has started: the tool accepts posthog-js page views and builds hourly page statistics (views, visitors, time on page, bots apart, errors per page); the Pages screen comes next.
+Status: early development (phase 3 of the plan). The first visitor creates the admin account; others join with an invite link, as admins or as members who see only the projects they are given. Projects are made in Settings, which shows the DSN and the setup steps. Point a Sentry SDK at that DSN: errors are stored, grouped into issues, and listed in the dashboard with their stack trace. Issues can be resolved, ignored and reopened; a resolved issue opens again when the error comes back. The All projects page shows which projects have new errors. Each project's Alerts page sends new issues, returning issues, error spikes and a daily, weekly or monthly summary by mail and to Slack; admins hear about problems of the tool itself, such as a disk that runs full. Old data is deleted after each project's retention, the database is backed up before every update, and Settings → Status and `/health` show how the tool is doing. Phase 3 adds page views: point posthog-js at the tool and each project's Pages screen shows its pages with views, visitors, the average time on a page and the errors on it (which lead to that page's issues), over 24 hours, 7 or 30 days, with bots counted apart; All projects shows the page views and time of the last 24 hours.
 
 Tested with these SDKs, sending real errors to the tool (see `examples/` and `make e2e`):
 
@@ -11,6 +11,7 @@ Tested with these SDKs, sending real errors to the tool (see `examples/` and `ma
 | `sentry/sentry-laravel` | 4.29.0 (on `sentry/sentry` 4.34.0) | Laravel 13.37, PHP 8.4 |
 | `sentry/sentry` (plain PHP) | 4.34.0 | PHP 8.4 |
 | `@sentry/browser` | 11.8.0 | Chromium (Playwright 1.64.1) |
+| `posthog-js` | 1.438.12 | Chromium (Playwright 1.64.1) |
 
 ## Development quick start
 
@@ -30,13 +31,13 @@ SECRET_KEY=dev-only-secret-not-for-production BASE_URL=http://localhost:8000 DAT
   bin/monitor project create --name Webshop
 ```
 
-Send it some errors with the examples: `examples/laravel/` (sentry-laravel) and `examples/browser/` (`@sentry/browser`). Each has a README with the steps.
+Send it some errors with the examples: `examples/laravel/` (sentry-laravel) and `examples/browser/` (`@sentry/browser`), and page views with `examples/posthog/` (posthog-js and `@sentry/browser` with the same user id). Each has a README with the steps.
 
 Run the tests:
 
 ```sh
 make test   # Go and web unit tests
-make e2e    # the real binary, both examples and the dashboard in Chromium (needs PHP and Composer)
+make e2e    # the real binary, the examples and the dashboard in Chromium (needs PHP and Composer)
 ```
 
 `make e2e` saves `e2e/screenshots/phase1-issues.png`, `phase1-issue-detail.png`, `phase2-all-projects.png`, `phase2-settings.png`, `phase2-alerts.png` and `phase2-status.png`, the dashboard as it looked during the run.
@@ -86,7 +87,7 @@ Forgot your password? With `MAIL_URL` set, the login page mails a reset link. Wi
 
 ## Page views (PostHog)
 
-Point posthog-js at the tool: `api_host` is your `BASE_URL`, the token is the project's PostHog token (Settings → Projects → Setup and keys). Without cookies:
+Turn on page views for the project (Settings → Projects → Add page views), then point posthog-js at the tool: `api_host` is your `BASE_URL`, the token is the project's PostHog token (Setup and keys shows both and this snippet). Without cookies:
 
 ```js
 posthog.init('<project token>', {
@@ -98,7 +99,9 @@ posthog.init('<project token>', {
 })
 ```
 
-The tool answers the endpoints posthog-js calls (`/i/v0/e/`, `/e/`, `/batch/`, `/flags/`, `/decide/`, `/array/<token>/config.js`, …) with no feature flags and recording, surveys, autocapture and heatmaps off. Time on a page runs from its page view to its page leave or the next page view in the same tab; a visit that never closed counts as a view but not in the average time. Known bots (by User-Agent) are counted apart. IP addresses are not stored. Ids, UUIDs, hashes and tokens in paths are grouped into one route automatically (`/orders/1234` counts as `/orders/:id`); route patterns per project (`/products/:slug`) come with the Pages screen.
+The tool answers the endpoints posthog-js calls (`/i/v0/e/`, `/e/`, `/batch/`, `/flags/`, `/decide/`, `/array/<token>/config.js`, …) with no feature flags and recording, surveys, autocapture and heatmaps off. Time on a page runs from its page view to its page leave or the next page view in the same tab; a visit that never closed counts as a view but not in the average time. Known bots (by User-Agent) are counted apart. IP addresses are not stored. Ids, UUIDs, hashes and tokens in paths are grouped into one route automatically (`/orders/1234` counts as `/orders/:id`), and route patterns per project (Edit project, one per line, such as `/products/:slug`) group the rest, for data that comes in after they are saved; Edit project previews recent paths with their routes. UUIDs, hashes and tokens are never stored in a path or an error's URL (a password reset link keeps no token).
+
+With `persistence: 'memory'` posthog-js warns in the browser console that it mints a new distinct ID on every page load: visitors who are not signed in count as new on each page load. Give both SDKs your user id after sign-in (`posthog.identify(String(user.id))` and `Sentry.setUser({ id: String(user.id) })`; Setup and keys has the Laravel side too) so signed-in visitors count once and their errors and page views match.
 
 ## Alerts and health
 

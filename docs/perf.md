@@ -22,4 +22,6 @@ Measured on 2026-10-16 on this Mac: Apple M4 Pro (12 cores), 24 GB, macOS 27.0.1
 
 Other numbers from the same run: the database was 216 MB; visitor sketches had a median of 9 bytes and a largest of 193 bytes (every route-hour had fewer than 4 096 visitors, so all were exact sets; a dense sketch is 16 KiB).
 
+All targets are met. Since Task 8 the test also fails when the overview over 30 days takes 300 ms or more (it checked the 24 hours only before); a run on 2026-10-16 after that change: 132.8 ms over 30 days, 4.4 ms over 24 hours, pages query 170 to 191 ms, writer 49 700 events/s, aggregation 1.9 s. The Pages screen's API uses this same `store.PageStats` query.
+
 All targets are met. The pages query is the closest: its time grows with the number of route-hours in the range (here every one of 200 routes has views in nearly every hour), and it reads every row's sketch to merge visitors. A much slower machine (a small ARM board) could pass 300 ms on data this size; the fix then is a daily rollup of `hourly_stats` for ranges longer than a few days, not needed now.
