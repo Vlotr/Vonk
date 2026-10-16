@@ -202,8 +202,8 @@ func TestPerf(t *testing.T) {
 	if aggTook > time.Minute {
 		t.Errorf("aggregation took %s, target under 60 s", aggTook)
 	}
-	if pagesTook > 300*time.Millisecond || overviewTook > 300*time.Millisecond {
-		t.Errorf("pages query %s, overview %s; target under 300 ms", pagesTook, overviewTook)
+	if pagesTook > 300*time.Millisecond || overviewTook > 300*time.Millisecond || overview30Took > 300*time.Millisecond {
+		t.Errorf("pages query %s, overview %s (24 h) and %s (30 days); target under 300 ms", pagesTook, overviewTook, overview30Took)
 	}
 }
 

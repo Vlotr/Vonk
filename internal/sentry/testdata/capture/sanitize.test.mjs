@@ -23,7 +23,18 @@ test('short user names in ordinary words are no leak', () => {
 test('finds the host name as a whole host token', () => {
   assert.deepEqual(findLeaks('{"server_name":"Jans-MacBook.local"}', { host: 'Jans-MacBook.local' }), ['Jans-MacBook.local']);
   assert.deepEqual(findLeaks('{"server_name":"Jans-MacBook"}', { host: 'Jans-MacBook.local' }), ['Jans-MacBook']);
-  assert.deepEqual(findLeaks('{"kernel":"Darwin web 25.0.0"}', { host: 'web' }), ['web']);
+  assert.deepEqual(findLeaks('{"kernel":"Darwin jansmac 25.0.0"}', { host: 'jansmac' }), ['jansmac']);
+});
+
+test('names that are ordinary words of the recordings, and very short names, are not looked for', () => {
+  const text =
+    '{"abs_path":"/var/www/app/Http/Kernel.php","middleware":["web"],"browser":"Chrome","os":"mac",' +
+    '"path":"/Users/x/Desktop/npm/app","kernel":"Darwin web 25.0.0"}';
+  for (const name of ['app', 'www', 'var', 'web', 'mac', 'chrome', 'Chrome', 'desktop', 'npm', 'x', 'jo']) {
+    assert.deepEqual(findLeaks(text, { user: name, host: name }), [], name);
+  }
+  // A longer name is still found.
+  assert.deepEqual(findLeaks('{"abs_path":"/Users/janneke/app"}', { user: 'janneke' }), ['janneke']);
 });
 
 test('host names inside other names or in another case, and localhost, are no leak', () => {

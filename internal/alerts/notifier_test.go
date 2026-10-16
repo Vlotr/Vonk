@@ -277,18 +277,45 @@ func TestNotifier_CloseTwiceAfterTimeout(t *testing.T) {
 	}
 }
 
+// startedSlack never answers either, and tells when each post started.
+type startedSlack struct{ started chan struct{} }
+
+func (s startedSlack) Post(ctx context.Context, _, _ string) error {
+	select {
+	case s.started <- struct{}{}:
+	default: // the test counts only the first posts
+	}
+	<-ctx.Done()
+	return ctx.Err()
+}
+
 func TestNotifier_FullDeliveryQueueDrops(t *testing.T) {
 	logs := &syncBuffer{}
-	n := New(Options{Slack: stuckSlack{}, Logger: slog.New(slog.NewTextHandler(logs, nil))})
+	slack := startedSlack{started: make(chan struct{}, workers)}
+	n := New(Options{Slack: slack, Logger: slog.New(slog.NewTextHandler(logs, nil))})
 	n.Start()
 	t.Cleanup(func() { n.Close(10 * time.Millisecond) })
+	const webhook = "https://hooks.slack.com/services/T1/B1/x"
+
+	// First every worker takes a message and gets stuck on it, so the
+	// queue's room is known exactly.
+	for range workers {
+		n.post(1, store.AlertDigest, webhook, "summary")
+	}
+	for i := range workers {
+		select {
+		case <-slack.started:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("only %d of %d workers started a post", i, workers)
+		}
+	}
 
 	// The scheduler goroutine queues summaries and suppressed counts; a
 	// full queue must not make it wait.
 	queued := make(chan struct{})
 	go func() {
-		for range queueSize + workers + 3 {
-			n.post(1, store.AlertDigest, "https://hooks.slack.com/services/T1/B1/x", "summary")
+		for range queueSize + 3 {
+			n.post(1, store.AlertDigest, webhook, "summary")
 		}
 		close(queued)
 	}()

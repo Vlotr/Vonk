@@ -3,15 +3,12 @@ package ingest
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"log/slog"
 	"math"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"monitor/internal/bots"
@@ -60,15 +57,15 @@ type PosthogHandler struct {
 	limiter *RateLimiter
 	logger  *slog.Logger
 	now     func() time.Time
-
-	lastQueueFullLog atomic.Int64 // unix nanoseconds
+	full    *fullQueue
 }
 
 // NewPosthogHandler returns the PostHog handler. Accepted page events go
 // on queue, the one the Sentry handler uses; limiter holds the projects'
 // events-per-minute limits for PostHog traffic.
 func NewPosthogHandler(db *store.DB, queue *Queue, limiter *RateLimiter, logger *slog.Logger) *PosthogHandler {
-	return &PosthogHandler{db: db, queue: queue, limiter: limiter, logger: logger, now: time.Now}
+	return &PosthogHandler{db: db, queue: queue, limiter: limiter, logger: logger, now: time.Now,
+		full: &fullQueue{queue: queue, logger: logger, prefix: "posthog"}}
 }
 
 func (h *PosthogHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -165,7 +162,6 @@ func (h *PosthogHandler) capture(w http.ResponseWriter, r *http.Request) {
 	// Each event belongs to the project of its own token, else to the
 	// batch's. One unknown token refuses the whole request.
 	projects := map[string]store.Project{}
-	perProject := map[int64]int{}
 	eventProjects := make([]store.Project, len(batch.Events))
 	for i, ev := range batch.Events {
 		token := ev.Token
@@ -176,41 +172,63 @@ func (h *PosthogHandler) capture(w http.ResponseWriter, r *http.Request) {
 		if !ok {
 			p, err = h.project(ctx, token)
 			if err != nil {
-				h.authFailed(w, err)
+				lookupFailed(w, h.logger, "posthog", err)
 				return
 			}
 			projects[token] = p
 		}
 		eventProjects[i] = p
-		perProject[p.ID]++
 	}
-	for _, p := range projects {
-		if ok, wait := h.limiter.Allow(p.ID, p.RateLimitPerMinute, perProject[p.ID]); !ok {
-			w.Header().Set("Retry-After", strconv.Itoa(max(1, int(math.Ceil(wait.Seconds())))))
-			httpjson.Error(w, http.StatusTooManyRequests, fmt.Sprintf("this project accepts %d events a minute", p.RateLimitPerMinute))
-			return
+
+	// Every event counts against its project's limit; page views and page
+	// leaves are queued (custom events are stored from Task 9 on). A refused
+	// request leaves nothing behind: the queue's room is checked first,
+	// every project's limit before any is counted, and the budgets are given
+	// back when the queue filled up in between.
+	perProject := map[int64]int{}
+	var pages []int // the events to queue
+	var size int64
+	for i, ev := range batch.Events {
+		perProject[eventProjects[i].ID]++
+		if ev.Name == posthog.EventPageview || ev.Name == posthog.EventPageleave {
+			pages = append(pages, i)
+			size += int64(ev.Size)
 		}
+	}
+	if !h.queue.HasRoom(len(pages), size) {
+		h.full.answer(w)
+		return
+	}
+	asks := make([]Ask, 0, len(projects))
+	for _, p := range projects { // one token per project, so each project once
+		asks = append(asks, Ask{ProjectID: p.ID, Limit: p.RateLimitPerMinute, Events: perProject[p.ID]})
+	}
+	minute, ok, wait := h.limiter.AllowAll(asks)
+	if !ok {
+		w.Header().Set("Retry-After", strconv.Itoa(max(1, int(math.Ceil(wait.Seconds())))))
+		httpjson.Error(w, http.StatusTooManyRequests, "over the events a minute of a project in this request; try again after Retry-After")
+		return
 	}
 
 	received := h.now()
 	userAgent := r.Header.Get("User-Agent")
-	for i := range batch.Events {
-		ev := &batch.Events[i]
-		if ev.Name != posthog.EventPageview && ev.Name != posthog.EventPageleave {
-			continue // accepted; custom events are stored from Task 9 on
-		}
-		p := eventProjects[i]
+	items := make([]Item, 0, len(pages))
+	for _, i := range pages {
+		ev, p := &batch.Events[i], eventProjects[i]
 		ev.Scrub()
 		item := Item{ProjectID: p.ID, ReceivedAt: received, Page: ev}
 		if ev.Name == posthog.EventPageview {
 			item.Path = pagePath(ev)
+			// From the stored path, so the raw paths on Edit project preview the routes exactly.
 			item.Route = routes.Normalize(item.Path, p.RoutePatterns)
 			item.IsBot = bots.IsBot(userAgent) || bots.IsBot(ev.RawUserAgent) || ev.BrowserType == "bot"
 		}
-		if !h.queue.TryEnqueue(item) {
-			h.queueFull(w)
-			return
-		}
+		items = append(items, item)
+	}
+	if !h.queue.TryEnqueueAll(items) {
+		h.limiter.Return(minute, asks)
+		h.full.answer(w)
+		return
 	}
 	httpjson.Write(w, http.StatusOK, map[string]string{"status": "Ok"})
 }
@@ -230,17 +248,6 @@ func (h *PosthogHandler) project(ctx context.Context, token string) (store.Proje
 	return p, err
 }
 
-// authFailed answers 401 for an unknown token and 503 when the lookup itself failed.
-func (h *PosthogHandler) authFailed(w http.ResponseWriter, err error) {
-	if errors.Is(err, errUnknownToken) {
-		httpjson.Error(w, http.StatusUnauthorized, err.Error())
-		return
-	}
-	h.logger.Error("posthog: project lookup failed", "err", err)
-	w.Header().Set("Retry-After", dbErrorRetryAfter)
-	httpjson.Error(w, http.StatusServiceUnavailable, "temporarily unavailable")
-}
-
 // bodyError answers 413 for a body over the limit and 400 for anything else.
 func (h *PosthogHandler) bodyError(w http.ResponseWriter, err error) {
 	var maxBytes *http.MaxBytesError
@@ -255,18 +262,6 @@ func (h *PosthogHandler) bodyError(w http.ResponseWriter, err error) {
 	httpjson.Error(w, http.StatusBadRequest, reason)
 }
 
-// queueFull answers 429 and logs a warning, at most once per queueFullLogEvery.
-func (h *PosthogHandler) queueFull(w http.ResponseWriter) {
-	now := time.Now().UnixNano()
-	last := h.lastQueueFullLog.Load()
-	if now-last >= int64(queueFullLogEvery) && h.lastQueueFullLog.CompareAndSwap(last, now) {
-		h.logger.Warn("posthog: ingest queue is full; answering 429 until the writer catches up",
-			"items", h.queue.Len(), "capacity", h.queue.Cap(), "bytes", h.queue.Bytes(), "max_bytes", h.queue.maxBytes)
-	}
-	w.Header().Set("Retry-After", queueFullRetryAfter)
-	httpjson.Error(w, http.StatusTooManyRequests, "too busy; try again in a few seconds")
-}
-
 // readBody reads the request body, undoing Content-Encoding, within
 // MaxBodyBytes before and after decompression.
 func readBody(w http.ResponseWriter, r *http.Request) ([]byte, error) {
@@ -277,25 +272,12 @@ func readBody(w http.ResponseWriter, r *http.Request) ([]byte, error) {
 	return io.ReadAll(reader)
 }
 
-// maxPathBytes is the longest page path stored.
-const maxPathBytes = 1000
-
-// pagePath returns the path of the page an event happened on: the path of
-// $current_url, else $pathname; never the query or fragment.
+// pagePath returns the path of the page an event happened on, as it is
+// stored: from $current_url, else $pathname; never the query or fragment,
+// segments decoded, and the secrets in it masked (routes.Path, ruling 38).
 func pagePath(ev *posthog.Event) string {
-	path := ""
-	if u, err := url.Parse(ev.URL); err == nil && ev.URL != "" {
-		path = u.Path
+	if ev.URL != "" {
+		return routes.Path(ev.URL)
 	}
-	if path == "" {
-		path, _, _ = strings.Cut(ev.Pathname, "?")
-		path, _, _ = strings.Cut(path, "#")
-	}
-	if path == "" {
-		path = "/"
-	}
-	if len(path) > maxPathBytes {
-		path = path[:maxPathBytes]
-	}
-	return path
+	return routes.Path(ev.Pathname)
 }

@@ -15,7 +15,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"monitor/internal/httpjson"
@@ -54,13 +53,13 @@ type SentryHandler struct {
 	limiter *RateLimiter
 	logger  *slog.Logger
 	now     func() time.Time
-
-	lastQueueFullLog atomic.Int64 // unix nanoseconds
+	full    *fullQueue
 }
 
 // NewSentryHandler returns the envelope handler. Accepted events go on queue.
 func NewSentryHandler(db *store.DB, queue *Queue, limiter *RateLimiter, logger *slog.Logger) *SentryHandler {
-	return &SentryHandler{db: db, queue: queue, limiter: limiter, logger: logger, now: time.Now}
+	return &SentryHandler{db: db, queue: queue, limiter: limiter, logger: logger, now: time.Now,
+		full: &fullQueue{queue: queue, logger: logger, prefix: "sentry"}}
 }
 
 func (h *SentryHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -87,7 +86,7 @@ func (h *SentryHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if key := keyFromRequest(r); key != "" {
 		p, err := authenticate(ctx, h.db, key, projectID)
 		if err != nil {
-			h.authFailed(w, err)
+			lookupFailed(w, h.logger, "sentry", err)
 			return
 		}
 		project = p
@@ -112,7 +111,7 @@ func (h *SentryHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if project.ID == 0 {
 		p, err := authenticate(ctx, h.db, keyFromDSN(env.Header.DSN), projectID)
 		if err != nil {
-			h.authFailed(w, err)
+			lookupFailed(w, h.logger, "sentry", err)
 			return
 		}
 		project = p
@@ -125,7 +124,20 @@ func (h *SentryHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if ok, wait := h.limiter.Allow(project.ID, project.RateLimitPerMinute, len(env.Events)); !ok {
+	// A refused envelope leaves nothing behind: the queue's room is checked
+	// before the budget is counted, and the budget is given back when the
+	// queue filled up in between.
+	var size int64
+	for _, ev := range env.Events {
+		size += int64(ev.Size)
+	}
+	if !h.queue.HasRoom(len(env.Events), size) {
+		h.full.answer(w)
+		return
+	}
+	asks := []Ask{{ProjectID: project.ID, Limit: project.RateLimitPerMinute, Events: len(env.Events)}}
+	minute, ok, wait := h.limiter.AllowAll(asks)
+	if !ok {
 		seconds := strconv.Itoa(max(1, int(math.Ceil(wait.Seconds()))))
 		w.Header().Set("Retry-After", seconds)
 		w.Header().Set("X-Sentry-Rate-Limits", seconds+"::project")
@@ -135,16 +147,18 @@ func (h *SentryHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	received := h.now()
-	for _, ev := range env.Events {
+	items := make([]Item, len(env.Events))
+	for i, ev := range env.Events {
 		if ev.EventID == "" {
 			ev.SetEventID(newEventID())
 		}
 		scrub.Event(ev)
-		item := Item{ProjectID: project.ID, ReceivedAt: received, Event: ev, Route: errorRoute(ev, project.RoutePatterns)}
-		if !h.queue.TryEnqueue(item) {
-			h.queueFull(w)
-			return
-		}
+		items[i] = Item{ProjectID: project.ID, ReceivedAt: received, Event: ev, Route: errorRoute(ev, project.RoutePatterns)}
+	}
+	if !h.queue.TryEnqueueAll(items) {
+		h.limiter.Return(minute, asks)
+		h.full.answer(w)
+		return
 	}
 	httpjson.Write(w, http.StatusOK, map[string]string{"id": env.Events[0].EventID})
 }
@@ -161,29 +175,6 @@ func errorRoute(ev *sentry.Event, patterns []string) string {
 		return ""
 	}
 	return routes.Normalize(page, patterns)
-}
-
-// authFailed answers 401 for a bad key and 503 when the lookup itself failed.
-func (h *SentryHandler) authFailed(w http.ResponseWriter, err error) {
-	if errors.Is(err, errUnauthorized) {
-		httpjson.Error(w, http.StatusUnauthorized, err.Error())
-		return
-	}
-	h.logger.Error("sentry: project lookup failed", "err", err)
-	w.Header().Set("Retry-After", dbErrorRetryAfter)
-	httpjson.Error(w, http.StatusServiceUnavailable, "temporarily unavailable")
-}
-
-// queueFull answers 429 and logs a warning, at most once per queueFullLogEvery.
-func (h *SentryHandler) queueFull(w http.ResponseWriter) {
-	now := time.Now().UnixNano()
-	last := h.lastQueueFullLog.Load()
-	if now-last >= int64(queueFullLogEvery) && h.lastQueueFullLog.CompareAndSwap(last, now) {
-		h.logger.Warn("sentry: ingest queue is full; answering 429 until the writer catches up",
-			"items", h.queue.Len(), "capacity", h.queue.Cap(), "bytes", h.queue.Bytes(), "max_bytes", h.queue.maxBytes)
-	}
-	w.Header().Set("Retry-After", queueFullRetryAfter)
-	httpjson.Error(w, http.StatusTooManyRequests, "too busy; try again in a few seconds")
 }
 
 // decodeBody returns the request body, decompressed per Content-Encoding and

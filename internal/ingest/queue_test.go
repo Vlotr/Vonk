@@ -132,3 +132,34 @@ func TestWriter_ReleasesQueuedBytes(t *testing.T) {
 		t.Errorf("queued bytes after the writer took everything = %d, want 0", got)
 	}
 }
+
+// TryEnqueueAll queues every item or none.
+func TestQueue_TryEnqueueAllIsAllOrNothing(t *testing.T) {
+	q := NewQueue(3)
+	if !q.TryEnqueueAll([]Item{{ProjectID: 1}, {ProjectID: 2}}) {
+		t.Fatal("two items in an empty queue of three were refused")
+	}
+	if q.TryEnqueueAll([]Item{{ProjectID: 3}, {ProjectID: 4}}) {
+		t.Fatal("two items with room for one were accepted")
+	}
+	if q.Len() != 2 || q.Refused() != 2 {
+		t.Errorf("len %d, refused %d; want 2 and 2 (the whole refused batch)", q.Len(), q.Refused())
+	}
+	if !q.HasRoom(1, 0) || q.HasRoom(2, 0) {
+		t.Errorf("HasRoom with one place left: 1 = %v, 2 = %v", q.HasRoom(1, 0), q.HasRoom(2, 0))
+	}
+
+	// The byte limit counts the whole batch too.
+	q = NewQueue(10)
+	q.maxBytes = 100
+	big := Item{Event: &sentry.Event{Size: 60}}
+	if q.TryEnqueueAll([]Item{big, big}) {
+		t.Fatal("120 bytes in a queue of 100 were accepted")
+	}
+	if q.Len() != 0 || q.Bytes() != 0 {
+		t.Errorf("after a refused batch: len %d, bytes %d", q.Len(), q.Bytes())
+	}
+	if !q.TryEnqueueAll([]Item{big}) || q.HasRoom(1, 60) {
+		t.Error("one item of 60 bytes should fit, a second should not")
+	}
+}

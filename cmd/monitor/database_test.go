@@ -2,13 +2,17 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	_ "modernc.org/sqlite"
+
+	"monitor/internal/store"
 )
 
 // olderDatabase writes a database that ran only the first migration (and
@@ -87,5 +91,32 @@ func TestStartup_BacksUpBeforeTheUpdate(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "backed up the database") {
 		t.Errorf("stderr does not name the backup:\n%s", stderr.String())
+	}
+}
+
+// Old backups that cannot be removed are a warning: the command goes on,
+// updates the database and does its work.
+func TestStartup_WarnsAndContinuesWhenOldBackupsStay(t *testing.T) {
+	dir := t.TempDir()
+	backupBeforeMigrate = func(*store.DB, context.Context) (string, error) {
+		return filepath.Join(dir, "backups", "pre-migrate-0004-20261016T120000Z.db"),
+			fmt.Errorf("%w: remove pre-migrate-0001-20261001T120000Z.db: permission denied", store.ErrOldBackupsKept)
+	}
+	t.Cleanup(func() { backupBeforeMigrate = (*store.DB).BackupBeforeMigrate })
+	getenv := envFrom(map[string]string{
+		"SECRET_KEY": "a-long-random-secret-for-tests",
+		"BASE_URL":   "https://monitor.example.com",
+		"DATA_DIR":   dir,
+	})
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"project", "create", "--name", "Webshop"}, getenv, &stdout, &stderr); code != 0 {
+		t.Fatalf("project create = %d; stderr:\n%s", code, stderr.String())
+	}
+	if out := stderr.String(); !strings.Contains(out, "backed up the database to") ||
+		!strings.Contains(out, "warning: old backups could not be removed: remove pre-migrate-0001") {
+		t.Errorf("stderr does not name the backup and warn about the old ones:\n%s", out)
+	}
+	if !strings.Contains(stdout.String(), "Webshop") {
+		t.Errorf("the project was not created after the warning:\n%s", stdout.String())
 	}
 }

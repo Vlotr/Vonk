@@ -237,3 +237,38 @@ func TestAggregate_LateEventRecomputesHour(t *testing.T) {
 		t.Errorf("dirty hours left after the run: %v", dirty)
 	}
 }
+
+// A page view at 10:59 closed by its leave at 11:01: the leave marks the
+// page view's hour (a leave counts nowhere else), so a run that rebuilds
+// only the dirty hours (the current hour is long past both) gives 10:00
+// its time on the page.
+func TestAggregate_CloserInALaterHour(t *testing.T) {
+	db := openDB(t)
+	p := projectKeeping(t, db, "Webshop", 90)
+	view := time.Date(2026, 10, 16, 10, 59, 0, 0, time.UTC)
+	savePageEvents(t, db, store.PageEvent{ProjectID: p.ID, PageviewID: "a", SessionID: "s", WindowID: "w", UserID: "u1", Route: "/cart", Path: "/cart", At: view})
+	aggregator(db, testNow).Run(context.Background(), testNow)
+	if before := pageStats(t, db, p.ID, view.Truncate(time.Hour), testNow).Totals; before.Views != 1 || before.DurationCount != 0 {
+		t.Fatalf("before the leave = %+v", before)
+	}
+
+	savePageEvents(t, db, store.PageEvent{ProjectID: p.ID, Leave: true, EventID: "l", PageviewID: "a", SessionID: "s", WindowID: "w", At: view.Add(2 * time.Minute)})
+	dirty, err := db.DirtyHours(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var hours []string
+	for _, d := range dirty {
+		hours = append(hours, d.Hour.Format("15:04"))
+	}
+	sort.Strings(hours)
+	if fmt.Sprint(hours) != "[10:00]" {
+		t.Errorf("dirty hours after the leave = %v, want [10:00], the page view's hour", hours)
+	}
+	aggregator(db, testNow).Run(context.Background(), testNow) // 12:00: neither hour is the current one
+
+	ten := pageStats(t, db, p.ID, view.Truncate(time.Hour), view.Truncate(time.Hour).Add(time.Hour)).Totals
+	if ten.Views != 1 || ten.DurationCount != 1 || ten.TotalDurationMs != 120_000 {
+		t.Errorf("10:00 = %+v, want 1 view of 2 minutes", ten)
+	}
+}

@@ -17,12 +17,26 @@
 // letters and digits. A project fixes what the rules get wrong with a
 // pattern ("/products/:slug"). Patterns and rules apply when data comes
 // in; changing a pattern leaves the routes already stored as they are.
+//
+// Segments are compared decoded, so "/zoeken/caf%C3%A9" (as Sentry SDKs
+// send a URL) and "/zoeken/café" (as browsers show it) are one route; an
+// encoded "/" and "%" stay encoded, so they never add a segment.
+//
+// Path and MaskURL keep a page's address without the secrets in it (ruling
+// 38): segments that look like a UUID, a hash or a token are masked before
+// anything is stored, so a password reset link never keeps its token.
 package routes
 
-import "strings"
+import (
+	"net/url"
+	"strings"
+)
 
 // MaxLength is the longest route, in bytes; longer ones are cut.
 const MaxLength = 300
+
+// MaxPathLength is the longest stored path, in bytes; longer ones are cut.
+const MaxPathLength = 1000
 
 // Normalize returns the route of path (a path, or a whole URL) for a
 // project with these route patterns, such as "/products/:slug", in which
@@ -42,8 +56,51 @@ func Normalize(path string, patterns []string) string {
 	return join(segments)
 }
 
-// split returns the segments of a path or URL, without the scheme and
-// host, the query, the fragment and empty segments.
+// Path returns the path of a page (a path, or a whole URL) as it is
+// stored: without scheme, host, query, fragment and empty segments, each
+// segment decoded, and segments that look like secrets masked (:uuid,
+// :hash, :token); digits and words stay, so it still names the page. It
+// is cut at MaxPathLength bytes. Normalize(Path(p)) is the route of p.
+func Path(s string) string {
+	segments := split(s)
+	for i, seg := range segments {
+		if mask := secret(seg); mask != "" {
+			segments[i] = mask
+		}
+	}
+	return cut("/"+strings.Join(segments, "/"), MaxPathLength)
+}
+
+// MaskURL returns a URL (or a path) as it was sent, but with the segments
+// of its path that look like secrets masked (:uuid, :hash, :token). The
+// scheme, host, query and fragment stay; the query's values are scrubbed
+// by key elsewhere.
+func MaskURL(s string) string {
+	start := 0 // where the path begins
+	if i := strings.Index(s, "://"); i >= 0 && !strings.ContainsAny(s[:i], "/?#") {
+		start = i + 3
+		start += strings.IndexAny(s[start:]+"/", "/?#")
+	} else if strings.HasPrefix(s, "//") {
+		start = 2 + strings.IndexAny(s[2:]+"/", "/?#")
+	}
+	end := len(s)
+	if i := strings.IndexAny(s[start:], "?#"); i >= 0 {
+		end = start + i
+	}
+	if start >= end {
+		return s
+	}
+	segments := strings.Split(s[start:end], "/")
+	for i, seg := range segments {
+		if mask := secret(decode(seg)); mask != "" {
+			segments[i] = mask
+		}
+	}
+	return s[:start] + strings.Join(segments, "/") + s[end:]
+}
+
+// split returns the segments of a path or URL, decoded, without the scheme
+// and host, the query, the fragment and empty segments.
 func split(path string) []string {
 	path = strings.TrimSpace(path)
 	if i := strings.IndexAny(path, "?#"); i >= 0 {
@@ -59,18 +116,40 @@ func split(path string) []string {
 	var segments []string
 	for s := range strings.SplitSeq(path, "/") {
 		if s != "" {
-			segments = append(segments, s)
+			segments = append(segments, decode(s))
 		}
 	}
 	return segments
 }
 
-func join(segments []string) string {
-	route := "/" + strings.Join(segments, "/")
-	if len(route) > MaxLength {
-		route = route[:MaxLength]
+// decode returns a segment with its percent-encoding undone, except for
+// "%" and "/", which stay encoded: so decoding never adds a segment, and a
+// decoded segment decodes to itself. A segment with an invalid escape
+// ("100%") stays as it is.
+func decode(segment string) string {
+	if !strings.Contains(segment, "%") {
+		return segment
 	}
-	return route
+	decoded, err := url.PathUnescape(segment)
+	if err != nil {
+		return segment
+	}
+	return strings.NewReplacer("%", "%25", "/", "%2F").Replace(decoded)
+}
+
+func join(segments []string) string {
+	return cut("/"+strings.Join(segments, "/"), MaxLength)
+}
+
+// cut shortens s to at most n bytes, without splitting a character.
+func cut(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && s[n]&0xc0 == 0x80 { // a continuation byte of a UTF-8 character
+		n--
+	}
+	return s[:n]
 }
 
 // matches reports whether a pattern's segments match a path's: the same
@@ -90,9 +169,19 @@ func matches(pattern, segments []string) bool {
 // replace returns the placeholder for a segment that looks like an id, or
 // the segment itself.
 func replace(s string) string {
-	switch {
-	case isDigits(s):
+	if isDigits(s) {
 		return ":id"
+	}
+	if mask := secret(s); mask != "" {
+		return mask
+	}
+	return s
+}
+
+// secret returns the placeholder for a segment that may be a secret (a
+// UUID, a hash, a token), or "".
+func secret(s string) string {
+	switch {
 	case isUUID(s):
 		return ":uuid"
 	case len(s) >= 16 && isHex(s):
@@ -100,7 +189,7 @@ func replace(s string) string {
 	case isToken(s):
 		return ":token"
 	}
-	return s
+	return ""
 }
 
 func isDigits(s string) bool {

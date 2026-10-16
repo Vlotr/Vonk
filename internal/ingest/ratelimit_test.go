@@ -91,3 +91,54 @@ func TestRateLimiter_Window(t *testing.T) {
 		t.Error("the count did not start over in the next minute")
 	}
 }
+
+// AllowAll counts the events of every project or of none.
+func TestRateLimiter_AllowAllCountsAllOrNothing(t *testing.T) {
+	clock := &fakeClock{t: time.Date(2026, 10, 16, 12, 0, 10, 0, time.UTC)}
+	l := NewRateLimiter()
+	l.now = clock.Now
+	_, ok, wait := l.AllowAll([]Ask{{ProjectID: 1, Limit: 10, Events: 4}, {ProjectID: 2, Limit: 3, Events: 4}})
+	if ok || wait != 50*time.Second {
+		t.Fatalf("over project 2's limit: ok %v, wait %s", ok, wait)
+	}
+	// Project 1 kept its whole budget.
+	minute, ok, _ := l.AllowAll([]Ask{{ProjectID: 1, Limit: 10, Events: 10}})
+	if !ok {
+		t.Fatal("project 1 lost budget to a refused request")
+	}
+	if ok, _ := l.Allow(1, 10, 1); ok {
+		t.Error("project 1 is over its 10 now")
+	}
+
+	// Return gives back what a request counted.
+	l.Return(minute, []Ask{{ProjectID: 1, Limit: 10, Events: 3}})
+	if ok, _ := l.Allow(1, 10, 3); !ok {
+		t.Error("returned events were not given back")
+	}
+	// Events counted in a minute that is over do not come back to the next one.
+	clock.Advance(time.Minute)
+	if ok, _ := l.Allow(1, 10, 10); !ok {
+		t.Fatal("a new minute has the whole budget")
+	}
+	l.Return(minute, []Ask{{ProjectID: 1, Limit: 10, Events: 5}})
+	if ok, _ := l.Allow(1, 10, 1); ok {
+		t.Error("events of the minute before were given back to this one")
+	}
+}
+
+// An envelope the full queue refused spends none of the project's budget.
+func TestRateLimit_FullQueueSpendsNoBudget(t *testing.T) {
+	env := newTestEnv(t, 2)
+	p := env.project(t, "Webshop", 2)
+	env.queue.TryEnqueue(Item{ProjectID: p.ID})
+	env.queue.TryEnqueue(Item{ProjectID: p.ID})
+	if rec := env.post(envelopePath(p), envelope(eventIDN(1), ""), authHeader(p.SentryKey)); rec.Code != http.StatusTooManyRequests || rec.Header().Get("Retry-After") != "5" {
+		t.Fatalf("full queue = %d, Retry-After %q", rec.Code, rec.Header().Get("Retry-After"))
+	}
+	env.drain()
+	for i := range 2 {
+		if rec := env.post(envelopePath(p), envelope(eventIDN(i+2), ""), authHeader(p.SentryKey)); rec.Code != http.StatusOK {
+			t.Errorf("envelope %d of the budget of 2 = %d", i+1, rec.Code)
+		}
+	}
+}

@@ -9,6 +9,10 @@ import (
 	"monitor/internal/store"
 )
 
+// backupBeforeMigrate is store's DB.BackupBeforeMigrate; tests replace it
+// to make a failure that the disk cannot.
+var backupBeforeMigrate = (*store.DB).BackupBeforeMigrate
+
 // openDatabase opens the database and brings it up to date, as every
 // command does at its start. When the update would change a database that
 // has data, a backup comes first (<DATA_DIR>/backups/pre-migrate-…); if
@@ -20,7 +24,7 @@ func openDatabase(ctx context.Context, cfg config.Config, backedUp func(path str
 	if err != nil {
 		return nil, err
 	}
-	path, err := db.BackupBeforeMigrate(ctx)
+	path, err := backupBeforeMigrate(db, ctx)
 	var pruneErr error
 	if errors.Is(err, store.ErrOldBackupsKept) {
 		pruneErr, err = err, nil

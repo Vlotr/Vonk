@@ -6,6 +6,7 @@
 package ingest
 
 import (
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -59,6 +60,10 @@ type Queue struct {
 	maxBytes int64
 	bytes    atomic.Int64 // the size of the items waiting
 	refused  atomic.Int64 // items TryEnqueue turned away since the start
+
+	// adding is held while a batch is checked and added, so the room it
+	// saw is still there: only the writer takes items off meanwhile.
+	adding sync.Mutex
 }
 
 // NewQueue returns an empty queue that holds up to capacity items and
@@ -69,22 +74,35 @@ func NewQueue(capacity int) *Queue {
 
 // TryEnqueue adds item and reports whether there was room. It never waits.
 func (q *Queue) TryEnqueue(item Item) bool {
-	size := item.size()
-	// Reserve the bytes first; two handlers racing near the limit may both
-	// be refused, never both let in.
-	if q.bytes.Add(size) > q.maxBytes {
-		q.bytes.Add(-size)
-		q.refused.Add(1)
+	return q.TryEnqueueAll([]Item{item})
+}
+
+// TryEnqueueAll adds every item when there is room for all of them, else
+// none, and reports which. It never waits (only for another handler that is
+// adding a batch, which takes microseconds).
+func (q *Queue) TryEnqueueAll(items []Item) bool {
+	var size int64
+	for _, it := range items {
+		size += it.size()
+	}
+	q.adding.Lock()
+	defer q.adding.Unlock()
+	if !q.HasRoom(len(items), size) {
+		q.refused.Add(int64(len(items)))
 		return false
 	}
-	select {
-	case q.items <- item:
-		return true
-	default:
-		q.bytes.Add(-size)
-		q.refused.Add(1)
-		return false
+	q.bytes.Add(size)
+	for _, it := range items {
+		q.items <- it // there is room: only the writer takes items off meanwhile
 	}
+	return true
+}
+
+// HasRoom reports whether n more items of size bytes fit now. Handlers ask
+// before counting a request against its rate limit, so a full queue spends
+// no budget.
+func (q *Queue) HasRoom(n int, size int64) bool {
+	return cap(q.items)-len(q.items) >= n && q.bytes.Load()+size <= q.maxBytes
 }
 
 // Refused returns how many items the queue turned away because it was

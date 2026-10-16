@@ -170,6 +170,34 @@ func TestScrub_URLQuery(t *testing.T) {
 	}
 }
 
+// The page's URL loses the secrets in its path before it is stored (ruling
+// 38): Laravel's /reset-password/{64 hex} must never keep its live token.
+func TestScrub_URLPathSecrets(t *testing.T) {
+	token := "4f8c2a9e7b1d3f5a6c8e0b2d4f6a8c0e2b4d6f8a0c2e4b6d8f0a2c4e6b8d0f2a"
+	ev, data := scrubbed(t, `{"request":{"url":"https://shop.example.com/reset-password/`+token+`?email=jan%40example.com&token=`+token+`"},
+		"tags":{"url":"https://shop.example.com/invite/550e8400-e29b-41d4-a716-446655440000","route":"/orders/12345"}}`)
+	assertNotContains(t, data, token, "550e8400-e29b-41d4-a716-446655440000")
+	if want := "https://shop.example.com/reset-password/:hash?email=jan%40example.com&token=[Filtered]"; ev.Request.URL != want {
+		t.Errorf("url = %q, want %q", ev.Request.URL, want)
+	}
+	if got := ev.Tags["url"]; got != "https://shop.example.com/invite/:uuid" {
+		t.Errorf("url tag = %q", got)
+	}
+	if got := ev.Tags["route"]; got != "/orders/12345" {
+		t.Errorf("other tags change: route = %q", got)
+	}
+
+	// Digits and words stay; tags as a list of pairs are masked too.
+	ev, _ = scrubbed(t, `{"request":{"url":"https://shop.example.com/orders/12345/summer-sale-2026"},
+		"tags":[["url","/reset-password/`+token+`"],["release","1.0"]]}`)
+	if ev.Request.URL != "https://shop.example.com/orders/12345/summer-sale-2026" {
+		t.Errorf("url = %q", ev.Request.URL)
+	}
+	if got := ev.Tags["url"]; got != "/reset-password/:hash" {
+		t.Errorf("url tag in pairs = %q", got)
+	}
+}
+
 func TestScrub_URLUserInfo(t *testing.T) {
 	ev, data := scrubbed(t, `{
 		"breadcrumbs":[{"category":"http","data":{"url":"https://user:secret-1@api.example.com/v1/orders?page=2"}}],

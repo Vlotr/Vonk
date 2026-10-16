@@ -367,7 +367,7 @@ func TestPosthog_BadBodies(t *testing.T) {
 }
 
 func TestPosthog_RateLimitAndFullQueue(t *testing.T) {
-	env := newTestEnv(t, 3)
+	env := newTestEnv(t, 5)
 	p := env.project(t, "Webshop", 4)
 	batch := func(n int) string {
 		events := make([]string, n)
@@ -384,8 +384,12 @@ func TestPosthog_RateLimitAndFullQueue(t *testing.T) {
 	if rec.Code != http.StatusTooManyRequests || rec.Header().Get("Retry-After") != "50" {
 		t.Errorf("over the limit = %d, Retry-After %q; want 429 and 50 s to the next minute", rec.Code, rec.Header().Get("Retry-After"))
 	}
-	// The queue holds 3 and is full: 429 with Retry-After 5.
-	rec = env.capture("/batch/", batch(1))
+	if rec := env.capture("/batch/", batch(1)); rec.Code != http.StatusOK {
+		t.Errorf("the last event of the budget = %d", rec.Code)
+	}
+	// The queue holds 5 and has room for 1: 429 with Retry-After 5, checked
+	// before the budget (which is spent too, but says 50 s).
+	rec = env.capture("/batch/", batch(2))
 	if rec.Code != http.StatusTooManyRequests || rec.Header().Get("Retry-After") != "5" {
 		t.Errorf("full queue = %d, Retry-After %q", rec.Code, rec.Header().Get("Retry-After"))
 	}
@@ -446,5 +450,113 @@ func TestWriter_PageEventsAndErrorRoutes(t *testing.T) {
 	dirty, _ := env.db.DirtyHours(context.Background())
 	if len(dirty) != 1 || !dirty[0].Hour.Equal(time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)) {
 		t.Errorf("dirty hours = %v, want 12:00 once", dirty)
+	}
+}
+
+// Stored page paths and error URLs never keep the secrets in their path
+// (ruling 38): Laravel's reset link /reset-password/{64 hex} is stored as
+// /reset-password/:hash, from Sentry and from PostHog. Digits and words
+// stay. A page Sentry sends percent-encoded and PostHog decoded is one route.
+func TestIngest_MasksSecretsInStoredPaths(t *testing.T) {
+	env := newTestEnv(t, 100)
+	p := env.project(t, "Webshop", 1000)
+	const token = "4f8c2a9e7b1d3f5a6c8e0b2d4f6a8c0e2b4d6f8a0c2e4b6d8f0a2c4e6b8d0f2a"
+	resetURL := "https://shop.example.com/reset-password/" + token
+
+	envelopeFor := func(id, pageURL string) []byte {
+		event := `{"event_id":"` + id + `","platform":"php","timestamp":1792152010,` +
+			`"exception":{"values":[{"type":"RuntimeException","value":"Reset failed"}]},"request":{"url":"` + pageURL + `"}}`
+		return []byte(`{"event_id":"` + id + `"}` + "\n" + `{"type":"event"}` + "\n" + event + "\n")
+	}
+	for i, u := range []string{resetURL + "?email=jan%40example.com", "https://shop.example.com/zoeken/caf%C3%A9"} {
+		if rec := env.post(envelopePath(p), envelopeFor(eventIDN(i+1), u), authHeader(p.SentryKey)); rec.Code != http.StatusOK {
+			t.Fatalf("envelope %d = %d %s", i, rec.Code, rec.Body)
+		}
+	}
+	pageview := func(uuid, pageURL string) string {
+		return `{"event":"$pageview","uuid":"` + uuid + `","timestamp":"2026-10-16T12:00:00Z","properties":{"$current_url":"` + pageURL + `","distinct_id":"42"}}`
+	}
+	body := `{"api_key":"` + p.PosthogToken + `","batch":[` + pageview("v1", resetURL) + `,` +
+		pageview("v2", "https://shop.example.com/zoeken/caf%C3%A9") + `,` + pageview("v3", "https://shop.example.com/orders/12345") + `]}`
+	if rec := env.capture("/batch/", body); rec.Code != http.StatusOK {
+		t.Fatalf("capture = %d %s", rec.Code, rec.Body)
+	}
+	for _, it := range env.drain() {
+		env.queue.TryEnqueue(it)
+	}
+	NewWriter(env.db, env.queue, &recordingHooks{}, env.logger).Close()
+
+	ev, err := env.db.ErrorEventByEventID(context.Background(), p.ID, eventIDN(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(ev.URL+ev.Data, token) {
+		t.Errorf("the error event keeps the reset token: url %q, data %s", ev.URL, ev.Data)
+	}
+	if ev.URL != "https://shop.example.com/reset-password/:hash?email=jan%40example.com" || ev.Route != "/reset-password/:hash" {
+		t.Errorf("error event url %q, route %q", ev.URL, ev.Route)
+	}
+	accented, _ := env.db.ErrorEventByEventID(context.Background(), p.ID, eventIDN(2))
+
+	views := pageviewRows(t, env, p)
+	if len(views) != 3 {
+		t.Fatalf("page views = %+v", views)
+	}
+	want := []pageviewRow{
+		{route: "/reset-password/:hash", path: "/reset-password/:hash"},
+		{route: "/zoeken/café", path: "/zoeken/café"},
+		{route: "/orders/:id", path: "/orders/12345"},
+	}
+	for i, w := range want {
+		if views[i].route != w.route || views[i].path != w.path {
+			t.Errorf("page view %d: route %q, path %q; want %q, %q", i, views[i].route, views[i].path, w.route, w.path)
+		}
+	}
+	if accented.Route != views[1].route {
+		t.Errorf("the same page from Sentry (%q) and PostHog (%q) is two routes", accented.Route, views[1].route)
+	}
+}
+
+// A refused batch leaves nothing behind: no event of it is queued and no
+// project's budget is spent, whichever limit refused it.
+func TestPosthog_RefusedBatchSpendsNothing(t *testing.T) {
+	env := newTestEnv(t, 4)
+	shop := env.project(t, "Webshop", 10)
+	portal := env.project(t, "Portal", 2)
+	views := func(token string, n int) string {
+		events := make([]string, n)
+		for i := range events {
+			events[i] = `{"event":"$pageview","properties":{"token":"` + token + `","$current_url":"/"}}`
+		}
+		return strings.Join(events, ",")
+	}
+	// Webshop's events come first and fit; Portal's three do not fit in its 2.
+	rec := env.capture("/batch/", `{"batch":[`+views(shop.PosthogToken, 2)+`,`+views(portal.PosthogToken, 3)+`]}`)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("over Portal's limit = %d %s, want 429", rec.Code, rec.Body)
+	}
+	if n := env.queue.Len(); n != 0 {
+		t.Errorf("%d events queued from a refused batch", n)
+	}
+	// Webshop still has its whole budget of 10: the queue (4) is the limit now.
+	// A batch of 5 does not fit in the queue: refused whole, nothing spent.
+	if rec := env.capture("/batch/", `{"batch":[`+views(shop.PosthogToken, 5)+`]}`); rec.Code != http.StatusTooManyRequests || rec.Header().Get("Retry-After") != "5" {
+		t.Fatalf("a batch larger than the queue's room = %d, Retry-After %q", rec.Code, rec.Header().Get("Retry-After"))
+	}
+	if n := env.queue.Len(); n != 0 {
+		t.Errorf("%d events queued from a batch the queue had no room for", n)
+	}
+	for i := range 2 {
+		if rec := env.capture("/batch/", `{"batch":[`+views(shop.PosthogToken, 4)+`]}`); rec.Code != http.StatusOK {
+			t.Fatalf("batch %d of 4 = %d %s", i, rec.Code, rec.Body)
+		}
+		env.drain()
+	}
+	// 8 of Webshop's 10 are spent, by the batches that were accepted only.
+	if rec := env.capture("/batch/", `{"batch":[`+views(shop.PosthogToken, 3)+`]}`); rec.Code != http.StatusTooManyRequests || rec.Header().Get("Retry-After") != "50" {
+		t.Errorf("over the rest of the budget = %d, Retry-After %q; want 429 and 50", rec.Code, rec.Header().Get("Retry-After"))
+	}
+	if rec := env.capture("/batch/", `{"batch":[`+views(shop.PosthogToken, 2)+`]}`); rec.Code != http.StatusOK {
+		t.Errorf("the last 2 of the budget = %d", rec.Code)
 	}
 }

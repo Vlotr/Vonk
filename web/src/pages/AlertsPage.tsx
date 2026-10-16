@@ -33,13 +33,15 @@ const FREQUENCIES: { value: DigestFrequency; label: string }[] = [
 // and to Slack, the spike threshold, how often the summary comes, and the
 // Slack webhook. Everyone who sees the project reads them; admins change
 // them (ruling 35), and a change saves at once. Members see the same page
-// with every control disabled and the webhook masked.
+// with every control disabled and the webhook masked. The page waits for
+// the signed-in user (as AdminOnly does), so an admin never sees it read
+// only first.
 export function AlertsPage() {
   const projectId = Number(useParams().id)
   const polled = usePolling((signal) => getProjectAlerts(projectId, signal), `alerts-${projectId}`)
   const [failed, setFailed] = useState('')
-  // Read only until the user is known, and for members.
-  const canChange = useMe()?.role === 'admin'
+  const me = useMe()
+  const canChange = me?.role === 'admin'
 
   const change = async (c: AlertsChange) => {
     setFailed('')
@@ -56,6 +58,7 @@ export function AlertsPage() {
   const { data, error } = polled
   if (error instanceof ApiError && error.status === 404) return <NotFoundPage what="Project" />
   if (!data) return <section aria-busy={!error}>{error ? <LoadError /> : null}</section>
+  if (!me) return <section aria-busy="true" />
 
   return (
     <section>
