@@ -213,7 +213,8 @@ func normalizePath(p string) string {
 			segments[i] = withoutBuildHash(segment)
 		case isDigits(segment):
 			segments[i] = "<n>"
-		case len(segment) >= 16 && isHex(segment):
+		case len(segment) >= 16 && isHex(segment), segment == ":hash":
+			// ":hash" is the same directory masked before storage (routes.MaskURL).
 			segments[i] = "<hash>"
 		}
 	}

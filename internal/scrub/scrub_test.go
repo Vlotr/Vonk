@@ -238,6 +238,55 @@ func TestScrub_URLPathSecretsInRefererAndBreadcrumbs(t *testing.T) {
 	}
 }
 
+// A browser frame of an inline <script> names the page's URL, and with
+// tracing the transaction can be the page's path: both lose the secrets
+// in their path as page URLs do. The minified frames symbolication keeps
+// (raw_stacktrace) and the debug image of the file get the same mask, so
+// they still match the frames. Paths of files on a server stay as they are.
+func TestScrub_URLPathSecretsInFramesAndTransaction(t *testing.T) {
+	token := "4f8c2a9e7b1d3f5a6c8e0b2d4f6a8c0e2b4d6f8a0c2e4b6d8f0a2c4e6b8d0f2a"
+	page := "https://shop.example.com/reset-password/" + token
+	ev, data := scrubbed(t, `{"platform":"javascript","transaction":"/reset-password/`+token+`",
+		"exception":{"values":[{"type":"TypeError",
+			"stacktrace":{"frames":[{"filename":"`+page+`","abs_path":"`+page+`?step=2","function":"onSubmit","lineno":12,"colno":5},
+				{"filename":"https://shop.example.com/assets/index-D8xk2Lp1.js","function":"e","lineno":1,"colno":99}]},
+			"raw_stacktrace":{"frames":[{"filename":"`+page+`","function":"a","lineno":3}]}}]},
+		"threads":{"values":[{"stacktrace":{"frames":[{"abs_path":"`+page+`","lineno":1}]}}]},
+		"debug_meta":{"images":[{"type":"sourcemap","code_file":"`+page+`","debug_id":"c5bc0f5b-2a6f-50f4-aafe-19e667444d31"}]}}`)
+	assertNotContains(t, data, token)
+	masked := "https://shop.example.com/reset-password/:hash"
+	frames := sentry.MainException(ev).Frames
+	if frames[0].Filename != masked || frames[0].AbsPath != masked+"?step=2" {
+		t.Errorf("inline script frame = %q, %q", frames[0].Filename, frames[0].AbsPath)
+	}
+	if frames[1].Filename != "https://shop.example.com/assets/index-D8xk2Lp1.js" {
+		t.Errorf("bundle frame = %q, want it as it was", frames[1].Filename)
+	}
+	if got := at(ev.Raw, "exception", "values", 0, "raw_stacktrace", "frames", 0, "filename"); got != masked {
+		t.Errorf("raw frame = %v", got)
+	}
+	if got := at(ev.Raw, "threads", "values", 0, "stacktrace", "frames", 0, "abs_path"); got != masked {
+		t.Errorf("thread frame = %v", got)
+	}
+	if ev.DebugImages[0].CodeFile != masked {
+		t.Errorf("debug image = %q", ev.DebugImages[0].CodeFile)
+	}
+	if got := ev.Raw["transaction"]; got != "/reset-password/:hash" {
+		t.Errorf("transaction = %v", got)
+	}
+
+	// A transaction that is a name, and server paths, stay.
+	ev, _ = scrubbed(t, `{"transaction":"App\\Http\\Controllers\\CheckoutController@store",
+		"exception":{"values":[{"type":"RuntimeException","stacktrace":{"frames":[
+			{"filename":"/var/www/webshop/storage/framework/views/4f8c2a9e7b1d3f5a6c8e0b2d4f6a8c0e.php","lineno":3}]}}]}}`)
+	if got := ev.Raw["transaction"]; got != `App\Http\Controllers\CheckoutController@store` {
+		t.Errorf("transaction name = %v", got)
+	}
+	if got := sentry.MainException(ev).Frames[0].Filename; got != "/var/www/webshop/storage/framework/views/4f8c2a9e7b1d3f5a6c8e0b2d4f6a8c0e.php" {
+		t.Errorf("server file = %q", got)
+	}
+}
+
 func TestScrub_URLUserInfo(t *testing.T) {
 	ev, data := scrubbed(t, `{
 		"breadcrumbs":[{"category":"http","data":{"url":"https://user:secret-1@api.example.com/v1/orders?page=2"}}],

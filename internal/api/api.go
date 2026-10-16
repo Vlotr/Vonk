@@ -8,6 +8,7 @@
 package api
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -18,6 +19,7 @@ import (
 	"monitor/internal/health"
 	"monitor/internal/httpjson"
 	"monitor/internal/issues"
+	"monitor/internal/sentry"
 	"monitor/internal/store"
 )
 
@@ -41,6 +43,10 @@ type Options struct {
 	// AllowHTTPWebhooks accepts plain http webhooks (DEV_ALLOW_HTTP_WEBHOOKS,
 	// for local fakes); otherwise they must be https.
 	AllowHTTPWebhooks bool
+	// Symbolicate maps minified frames of events stored before their
+	// source map was uploaded (sourcemaps.Service.Symbolicate); nil leaves
+	// them as stored.
+	Symbolicate func(ctx context.Context, projectID int64, ev *sentry.Event) bool
 }
 
 // Handler serves the dashboard API.
@@ -54,14 +60,17 @@ type Handler struct {
 	started   time.Time
 	stored    func() int
 	allowHTTP bool
-	log       *slog.Logger
-	now       func() time.Time // the clock; tests set it
+	// symbolicate is Options.Symbolicate.
+	symbolicate func(ctx context.Context, projectID int64, ev *sentry.Event) bool
+	log         *slog.Logger
+	now         func() time.Time // the clock; tests set it
 }
 
 // New returns the API handler.
 func New(o Options) *Handler {
 	h := &Handler{db: o.DB, auth: o.Auth, baseURL: o.BaseURL, health: o.Health, slack: o.Slack,
-		started: o.Started, stored: o.StoredLastHour, allowHTTP: o.AllowHTTPWebhooks, log: o.Logger, now: time.Now}
+		started: o.Started, stored: o.StoredLastHour, allowHTTP: o.AllowHTTPWebhooks, symbolicate: o.Symbolicate,
+		log: o.Logger, now: time.Now}
 	if h.stored == nil {
 		h.stored = func() int { return 0 }
 	}

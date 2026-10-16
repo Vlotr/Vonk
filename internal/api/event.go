@@ -60,13 +60,18 @@ type runtimeJSON struct {
 	Version string `json:"version"`
 }
 
-// eventDetail reads a stored event for the issue page. When the stored JSON
-// cannot be read it still returns the id and time, with the error.
-func eventDetail(stored store.ErrorEvent) (*eventJSON, error) {
+// eventDetail reads a stored event for the issue page. symbolicate (nil
+// for none) maps the frames of an event stored before its source map was
+// uploaded; the stored event stays as it is. When the stored JSON cannot be
+// read it still returns the id and time, with the error.
+func eventDetail(stored store.ErrorEvent, symbolicate func(*sentry.Event)) (*eventJSON, error) {
 	out := &eventJSON{EventID: stored.EventID, Timestamp: stored.Timestamp, Route: stored.Route, Frames: []frameJSON{}}
 	ev, err := sentry.DecodeEvent([]byte(stored.Data))
 	if err != nil {
 		return out, err
+	}
+	if symbolicate != nil {
+		symbolicate(ev)
 	}
 
 	if exc := sentry.MainException(ev); exc != nil {

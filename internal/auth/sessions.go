@@ -38,7 +38,7 @@ func (s *Service) NewSession(ctx context.Context, userID int64) (*http.Cookie, s
 		return nil, store.Session{}, err
 	}
 	now := s.now()
-	session, err := s.db.CreateSession(ctx, userID, s.hashToken(token), csrf, now, now.Add(sessionTTL))
+	session, err := s.db.CreateSession(ctx, userID, s.hash(token), csrf, now, now.Add(sessionTTL))
 	if err != nil {
 		return nil, store.Session{}, err
 	}
@@ -88,7 +88,7 @@ func (s *Service) currentSession(r *http.Request) (string, store.Session, store.
 	if err != nil || cookie.Value == "" {
 		return "", store.Session{}, store.User{}, errNoSession
 	}
-	session, u, err := s.db.SessionByTokenHash(r.Context(), s.hashToken(cookie.Value))
+	session, u, err := s.db.SessionByTokenHash(r.Context(), s.hash(cookie.Value))
 	if errors.Is(err, store.ErrNotFound) {
 		return "", store.Session{}, store.User{}, errNoSession
 	}

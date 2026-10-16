@@ -64,7 +64,7 @@ type Options struct {
 // Service holds sessions, logins, invites and password resets.
 type Service struct {
 	db         *store.DB
-	tokenKey   []byte
+	hash       func(token string) string // TokenHasher
 	baseURL    string
 	host       string // BASE_URL's host, for mail
 	secure     bool
@@ -88,21 +88,16 @@ func New(o Options) *Service {
 	if now == nil {
 		now = time.Now
 	}
-	// A key of its own for token hashes, derived from SECRET_KEY, so other
-	// uses of SECRET_KEY never share it.
-	key := hmac.New(sha256.New, []byte(o.SecretKey))
-	key.Write([]byte("monitor/auth/token-hash/v1"))
-
 	s := &Service{
-		db:       o.DB,
-		tokenKey: key.Sum(nil),
-		baseURL:  o.BaseURL,
-		mailer:   o.Mailer,
-		log:      o.Logger,
-		now:      now,
-		logins:   newThrottle(failuresPerEmail, failuresPerClient, throttleWindow),
-		resets:   newThrottle(failuresPerEmail, failuresPerClient, throttleWindow),
-		verify:   VerifyPassword,
+		db:      o.DB,
+		hash:    TokenHasher(o.SecretKey),
+		baseURL: o.BaseURL,
+		mailer:  o.Mailer,
+		log:     o.Logger,
+		now:     now,
+		logins:  newThrottle(failuresPerEmail, failuresPerClient, throttleWindow),
+		resets:  newThrottle(failuresPerEmail, failuresPerClient, throttleWindow),
+		verify:  VerifyPassword,
 	}
 	if u, err := url.Parse(o.BaseURL); err == nil {
 		s.host = u.Host
@@ -131,11 +126,23 @@ func newToken() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
-// hashToken is what the database stores for a token: an HMAC keyed with
-// SECRET_KEY, so neither a copy of the database nor a write to it is enough
-// to sign in.
-func (s *Service) hashToken(token string) string {
-	h := hmac.New(sha256.New, s.tokenKey)
-	h.Write([]byte(token))
-	return hex.EncodeToString(h.Sum(nil))
+// TokenHasher returns what the database stores for a token: an HMAC-SHA256
+// keyed with a key derived from SECRET_KEY, so neither a copy of the
+// database nor a write to it is enough to sign in. Sessions, invite and
+// reset links and the upload API's tokens are all stored this way.
+func TokenHasher(secretKey string) func(token string) string {
+	// A key of its own for token hashes, so other uses of SECRET_KEY never share it.
+	key := hmac.New(sha256.New, []byte(secretKey))
+	key.Write([]byte("monitor/auth/token-hash/v1"))
+	tokenKey := key.Sum(nil)
+	return func(token string) string {
+		h := hmac.New(sha256.New, tokenKey)
+		h.Write([]byte(token))
+		return hex.EncodeToString(h.Sum(nil))
+	}
+}
+
+// HashToken is TokenHasher with this service's SECRET_KEY.
+func (s *Service) HashToken(token string) string {
+	return s.hash(token)
 }

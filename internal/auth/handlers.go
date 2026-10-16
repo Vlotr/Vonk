@@ -272,7 +272,7 @@ func (s *Service) findInvite(w http.ResponseWriter, r *http.Request, token strin
 		httpjson.Error(w, http.StatusNotFound, inviteUnknown)
 		return store.Invite{}, false
 	}
-	inv, err := s.db.InviteByTokenHash(r.Context(), s.hashToken(token))
+	inv, err := s.db.InviteByTokenHash(r.Context(), s.hash(token))
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		httpjson.Error(w, http.StatusNotFound, inviteUnknown)
@@ -326,7 +326,7 @@ func (s *Service) acceptInvite(w http.ResponseWriter, r *http.Request) {
 	}
 	// AcceptInvite checks the invite again inside its transaction: two
 	// accepts at once cannot both succeed.
-	u, err := s.db.AcceptInvite(ctx, s.hashToken(req.Token), hash, s.now())
+	u, err := s.db.AcceptInvite(ctx, s.hash(req.Token), hash, s.now())
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		httpjson.Error(w, http.StatusNotFound, inviteUnknown)
@@ -385,7 +385,7 @@ func (s *Service) findReset(w http.ResponseWriter, r *http.Request, token string
 		httpjson.Error(w, http.StatusNotFound, resetUnknown)
 		return store.User{}, false
 	}
-	reset, u, err := s.db.PasswordResetByTokenHash(r.Context(), s.hashToken(token))
+	reset, u, err := s.db.PasswordResetByTokenHash(r.Context(), s.hash(token))
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		httpjson.Error(w, http.StatusNotFound, resetUnknown)
@@ -434,7 +434,7 @@ func (s *Service) resetPassword(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, r, err)
 		return
 	}
-	u, err := s.db.UsePasswordReset(ctx, s.hashToken(req.Token), hash, s.now())
+	u, err := s.db.UsePasswordReset(ctx, s.hash(req.Token), hash, s.now())
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		httpjson.Error(w, http.StatusNotFound, resetUnknown)

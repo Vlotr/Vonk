@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 	"monitor/internal/jobs"
 	"monitor/internal/mail"
 	"monitor/internal/server"
+	"monitor/internal/sourcemaps"
 )
 
 // shutdownTimeout is how long running requests get to finish after SIGTERM.
@@ -111,8 +113,12 @@ func runServer(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 		ws := writer.Stats()
 		return alerts.IngestStats{QueueRefused: queue.Refused(), FailedBatches: ws.FailedBatches, LostEvents: ws.LostEvents, LastError: ws.LastError}
 	})
+	// Source maps: uploads through the API, symbolication at ingest and on the issue page.
+	maps := sourcemaps.New(sourcemaps.Options{DB: db, Dir: filepath.Join(cfg.DataDir, "sourcemaps"), BaseURL: cfg.BaseURL,
+		HashToken: auth.TokenHasher(cfg.SecretKey), Logger: logger})
 	scheduler := jobs.New(nil, logger)
-	scheduler.Add((&jobs.Retention{DB: db, Log: logger}).Job())
+	scheduler.Add((&jobs.Retention{DB: db, Log: logger, SourceMaps: maps}).Job())
+	scheduler.Add(jobs.Job{Name: "sourcemaps-cleanup", Schedule: jobs.Every(time.Hour), FirstRun: 10 * time.Minute, Run: maps.CleanUp})
 	scheduler.Add((&jobs.Aggregate{DB: db, Log: logger}).Job())
 	for _, job := range notifier.Jobs() {
 		scheduler.Add(job)
@@ -141,6 +147,7 @@ func runServer(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			Health:         checker,
 			Started:        started,
 			StoredLastHour: writer.StoredLastHour,
+			SourceMaps:     maps,
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       60 * time.Second,

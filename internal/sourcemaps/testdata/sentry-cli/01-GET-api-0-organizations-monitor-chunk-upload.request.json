@@ -1,0 +1,18 @@
+{
+  "method": "GET",
+  "path": "/api/0/organizations/monitor/chunk-upload/",
+  "query": "",
+  "host": "127.0.0.1:19998",
+  "headers": {
+    "Accept": [
+      "*/*"
+    ],
+    "Authorization": [
+      "Bearer sntrys_fixture"
+    ],
+    "User-Agent": [
+      "sentry-cli/3.8.0"
+    ]
+  },
+  "bodySize": 0
+}

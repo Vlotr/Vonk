@@ -1,8 +1,9 @@
 // Package server wires the HTTP routes and the middleware around them.
 //
 // Routes fall in two groups. Public routes are SDK traffic (/api/... for
-// Sentry, /i/v0/e/, /flags/ and the other PostHog paths) and /health; they
-// are registered on the public mux. Every other request is the dashboard: the sign-in pages
+// Sentry, /i/v0/e/, /flags/ and the other PostHog paths), the source map
+// upload API (/api/0/..., signed in with API tokens) and /health; they are
+// registered on the public mux. Every other request is the dashboard: the sign-in pages
 // and their API (auth.PublicPages, auth.RegisterPublic) and the app's
 // assets are open, and everything else falls through auth.RequireUser to
 // the dashboard mux (the SPA and /ui/api/...). New dashboard routes are
@@ -12,6 +13,7 @@ package server
 import (
 	"log/slog"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -22,6 +24,7 @@ import (
 	"monitor/internal/health"
 	"monitor/internal/httpjson"
 	"monitor/internal/ingest"
+	"monitor/internal/sourcemaps"
 	"monitor/internal/store"
 	"monitor/internal/web"
 )
@@ -52,6 +55,9 @@ type Deps struct {
 	Started time.Time
 	// StoredLastHour counts the events stored in the last hour, for the status page.
 	StoredLastHour func() int
+	// SourceMaps takes source map uploads (/api/0/...) and symbolicates
+	// browser errors with them; nil means one under Config.DataDir.
+	SourceMaps *sourcemaps.Service
 }
 
 // New returns the handler for the whole server.
@@ -72,6 +78,12 @@ func New(deps Deps) http.Handler {
 		Logger:    deps.Logger,
 	})
 
+	maps := deps.SourceMaps
+	if maps == nil {
+		maps = sourcemaps.New(sourcemaps.Options{DB: deps.DB, Dir: filepath.Join(deps.Config.DataDir, "sourcemaps"),
+			BaseURL: deps.Config.BaseURL, HashToken: auth.TokenHasher(deps.Config.SecretKey), Logger: deps.Logger})
+	}
+
 	// Signed in: the JSON API and the dashboard's pages.
 	dashboard := http.NewServeMux()
 	accounts.Register(dashboard)
@@ -85,6 +97,7 @@ func New(deps Deps) http.Handler {
 		Started:           deps.Started,
 		StoredLastHour:    deps.StoredLastHour,
 		AllowHTTPWebhooks: deps.Config.AllowHTTPWebhooks,
+		Symbolicate:       maps.Symbolicate,
 	}).Register(dashboard)
 	dashboard.HandleFunc("/ui/api/", notFoundJSON)
 	// "/" rather than "GET /": Go's mux refuses a method-only catch-all next to
@@ -117,7 +130,10 @@ func New(deps Deps) http.Handler {
 	// Public: SDK traffic and the health check. Anything else is the dashboard.
 	public := http.NewServeMux()
 	public.HandleFunc("GET /health", health.Handler(checker))
-	public.Handle(ingest.SentryEnvelopePattern, ingest.NewSentryHandler(deps.DB, deps.Queue, deps.Limiter, deps.Logger))
+	envelopes := ingest.NewSentryHandler(deps.DB, deps.Queue, deps.Limiter, deps.Logger)
+	envelopes.Symbolicate = maps.Symbolicate
+	public.Handle(ingest.SentryEnvelopePattern, envelopes)
+	maps.Register(public) // the source map upload API, signed in with API tokens
 	ingest.RegisterPosthog(public, ingest.NewPosthogHandler(deps.DB, deps.Queue, ingest.NewRateLimiter(), deps.Logger))
 	public.HandleFunc("/api/", notFoundJSON)
 	public.Handle("/", dashboardHeaders(sameOrigin.Handler(ui)))

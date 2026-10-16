@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"monitor/internal/sentry"
 	"monitor/internal/store"
 )
 
@@ -361,5 +362,41 @@ func TestEnvelopeHandler_CorrectsClockBySentAt(t *testing.T) {
 		if !ev.Timestamp.Equal(c.want) {
 			t.Errorf("%s: stored %v, want %v", c.name, ev.Timestamp.Format(time.TimeOnly), c.want.Format(time.TimeOnly))
 		}
+	}
+}
+
+// Source maps are applied before the event is scrubbed: symbolication
+// looks the minified file up by the URL the SDK sent, and the frame URLs
+// are masked afterwards (an inline script's page keeps no token).
+func TestSentry_SymbolicatesBeforeScrubbing(t *testing.T) {
+	env := newTestEnv(t, 100)
+	p := env.project(t, "Webshop", 1000)
+	token := "4f8c2a9e7b1d3f5a6c8e0b2d4f6a8c0e2b4d6f8a0c2e4b6d8f0a2c4e6b8d0f2a"
+	page := "https://shop.example.com/reset-password/" + token
+
+	var seen []string
+	env.sentry.Symbolicate = func(_ context.Context, projectID int64, ev *sentry.Event) bool {
+		if projectID != p.ID {
+			t.Errorf("symbolicated for project %d", projectID)
+		}
+		seen = append(seen, sentry.MainException(ev).Frames[0].Filename)
+		ev.Raw["symbolicated"] = true
+		return true
+	}
+	event := `{"event_id":"` + eventIDN(1) + `","platform":"javascript","exception":{"values":[{"type":"TypeError",` +
+		`"stacktrace":{"frames":[{"filename":"` + page + `","function":"onSubmit","lineno":3,"colno":9}]}}]}}`
+	body := []byte(`{"event_id":"` + eventIDN(1) + `"}` + "\n" + `{"type":"event"}` + "\n" + event + "\n")
+	if rec := env.post(envelopePath(p)+"?sentry_key="+p.SentryKey, body); rec.Code != http.StatusOK {
+		t.Fatalf("status = %d %s", rec.Code, rec.Body)
+	}
+	if len(seen) != 1 || seen[0] != page {
+		t.Fatalf("symbolication saw %q, want the URL as sent", seen)
+	}
+	items := env.drain()
+	if len(items) != 1 || items[0].Event.Raw["symbolicated"] != true {
+		t.Fatalf("queued = %+v", items)
+	}
+	if got := sentry.MainException(items[0].Event).Frames[0].Filename; got != "https://shop.example.com/reset-password/:hash" {
+		t.Errorf("stored frame file = %q, want it masked", got)
 	}
 }

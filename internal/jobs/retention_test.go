@@ -3,11 +3,13 @@ package jobs
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"monitor/internal/config"
+	"monitor/internal/sourcemaps"
 	"monitor/internal/store"
 )
 
@@ -215,5 +217,50 @@ func TestRetention_CustomEvents(t *testing.T) {
 	}
 	if got := count(short); got != 1 {
 		t.Errorf("after rebuilding the old hour Short has %d events, want 1 (its raw rows are gone)", got)
+	}
+}
+
+// Source maps follow the project's retention, counted from their upload
+// (not from the release or the errors they map): the files go from the
+// disk and their rows from the database.
+func TestRetention_SourceMapsCountFromUpload(t *testing.T) {
+	db := openDB(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+	short := projectKeeping(t, db, "Short", 30)
+	forever := projectKeeping(t, db, "Forever", 0)
+	maps := sourcemaps.New(sourcemaps.Options{DB: db, Dir: dir, Logger: quietLogger(), Now: func() time.Time { return testNow }})
+
+	upload := func(p store.Project, name string, age time.Duration) string {
+		rel := fmt.Sprintf("%d/%s", p.ID, name)
+		os.MkdirAll(filepath.Join(dir, fmt.Sprint(p.ID)), 0o750)
+		if err := os.WriteFile(filepath.Join(dir, rel), []byte("{}"), 0o640); err != nil {
+			t.Fatal(err)
+		}
+		_, err := db.SaveSourceMapFiles(ctx, []store.SourceMapFile{{ProjectID: p.ID, File: "~/" + name, Kind: store.SourceMapKind,
+			Bundle: name, Path: rel, Size: 2, UploadedAt: testNow.Add(-age)}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return filepath.Join(dir, rel)
+	}
+	old := upload(short, "old.js.map", 40*day)
+	recent := upload(short, "recent.js.map", 2*day)
+	kept := upload(forever, "old.js.map", 400*day)
+
+	r := &Retention{DB: db, Log: quietLogger(), Now: func() time.Time { return testNow }, BatchSize: 1, SourceMaps: maps}
+	r.Run(ctx, testNow)
+
+	if _, err := os.Stat(old); !os.IsNotExist(err) {
+		t.Errorf("the 40-day-old map is still on disk: %v", err)
+	}
+	for _, path := range []string{recent, kept} {
+		if _, err := os.Stat(path); err != nil {
+			t.Errorf("%s was deleted: %v", path, err)
+		}
+	}
+	paths, _ := db.SourceMapPaths(ctx)
+	if len(paths) != 2 {
+		t.Errorf("rows left = %v, want the recent and the kept one", paths)
 	}
 }

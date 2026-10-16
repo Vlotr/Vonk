@@ -161,6 +161,19 @@ func TestFingerprint_NormalizesBrowserFileNames(t *testing.T) {
 	}
 }
 
+// Frame URLs are masked before they are stored (a hex directory becomes
+// :hash, as page URLs do), and grouping stays what it was before masking.
+func TestFingerprint_MaskedHashDirectoryGroupsAsBefore(t *testing.T) {
+	file := func(dir string) []frame {
+		return []frame{{"https://cdn.example.com/" + dir + "/app.js", "renderCart", 10, true}}
+	}
+	sent := stackEvent(t, "TypeError", "x", file("0123456789abcdef0123")...)
+	masked := stackEvent(t, "TypeError", "x", file(":hash")...)
+	if sentry.Fingerprint(sent) != sentry.Fingerprint(masked) {
+		t.Error("masking a hash directory changes the fingerprint")
+	}
+}
+
 func TestFingerprint_IgnoresPHPClosureLines(t *testing.T) {
 	closure := func(line int) []frame {
 		return []frame{{"/routes/web.php", fmt.Sprintf("{closure:/routes/web.php:%d}", line), line + 1, true}}

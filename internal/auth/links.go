@@ -59,7 +59,7 @@ func (s *Service) Invite(ctx context.Context, byUserID int64, email, role string
 	}
 	now := s.now()
 	inv, err := s.db.CreateInvite(ctx, store.NewInvite{
-		Email: email, Role: role, ProjectIDs: projectIDs, TokenHash: s.hashToken(token),
+		Email: email, Role: role, ProjectIDs: projectIDs, TokenHash: s.hash(token),
 		CreatedBy: byUserID, Now: now, ExpiresAt: now.Add(inviteTTL),
 	})
 	if err != nil {
@@ -110,7 +110,7 @@ func (s *Service) newResetLink(ctx context.Context, u store.User) (ResetLink, er
 	}
 	now := s.now()
 	link := ResetLink{URL: s.baseURL + "/reset-password#token=" + token, ExpiresAt: now.Add(resetTTL)}
-	if err := s.db.CreatePasswordReset(ctx, u.ID, s.hashToken(token), now, link.ExpiresAt); err != nil {
+	if err := s.db.CreatePasswordReset(ctx, u.ID, s.hash(token), now, link.ExpiresAt); err != nil {
 		return ResetLink{}, err
 	}
 	return link, nil

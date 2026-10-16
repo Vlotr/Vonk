@@ -68,6 +68,7 @@ type testEnv struct {
 	logs    *syncBuffer
 	logger  *slog.Logger
 	mux     *http.ServeMux
+	sentry  *SentryHandler
 }
 
 func newTestEnv(t *testing.T, queueCapacity int) *testEnv {
@@ -101,6 +102,7 @@ func newTestEnv(t *testing.T, queueCapacity int) *testEnv {
 	env.limiter.now = clock.Now
 	h := NewSentryHandler(db, env.queue, env.limiter, logger)
 	h.now = clock.Now
+	env.sentry = h
 	env.mux.Handle(SentryEnvelopePattern, h)
 	// PostHog traffic has limits of its own, on the same queue.
 	posthogLimiter := NewRateLimiter()

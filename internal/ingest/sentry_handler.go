@@ -5,6 +5,7 @@ import (
 	"compress/flate"
 	"compress/gzip"
 	"compress/zlib"
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -54,6 +55,13 @@ type SentryHandler struct {
 	logger  *slog.Logger
 	now     func() time.Time
 	full    *fullQueue
+
+	// Symbolicate, when set, maps an accepted event's minified frames back
+	// to the original code with the project's source maps
+	// (sourcemaps.Service.Symbolicate). It runs before scrubbing, while
+	// the frames still have the URLs the maps were uploaded for, so the
+	// writer groups the event by its original frames.
+	Symbolicate func(ctx context.Context, projectID int64, ev *sentry.Event) bool
 }
 
 // NewSentryHandler returns the envelope handler. Accepted events go on queue.
@@ -152,6 +160,9 @@ func (h *SentryHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	for i, ev := range env.Events {
 		if ev.EventID == "" {
 			ev.SetEventID(newEventID())
+		}
+		if h.Symbolicate != nil {
+			h.Symbolicate(ctx, project.ID, ev)
 		}
 		scrub.Event(ev)
 		items[i] = Item{ProjectID: project.ID, ReceivedAt: received, SentAt: sentAt, Event: ev, Route: errorRoute(ev, project.RoutePatterns)}

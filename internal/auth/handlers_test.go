@@ -60,7 +60,7 @@ func TestSetup_OnlyWhenNoUsers(t *testing.T) {
 	if _, _, err := env.db.SessionByTokenHash(context.Background(), c.Value); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("session found by the raw cookie value: err = %v", err)
 	}
-	if _, _, err := env.db.SessionByTokenHash(context.Background(), env.svc.hashToken(c.Value)); err != nil {
+	if _, _, err := env.db.SessionByTokenHash(context.Background(), env.svc.HashToken(c.Value)); err != nil {
 		t.Errorf("session by the token's hash: %v", err)
 	}
 	// The password is stored as an argon2id hash.

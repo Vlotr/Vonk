@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"monitor/internal/httpjson"
+	"monitor/internal/sentry"
 	"monitor/internal/store"
 )
 
@@ -280,7 +281,11 @@ func (h *Handler) issueDetail(w http.ResponseWriter, r *http.Request) {
 		h.internalError(w, r, err)
 		return
 	default:
-		ev, err := eventDetail(stored)
+		var symbolicate func(*sentry.Event)
+		if h.symbolicate != nil {
+			symbolicate = func(ev *sentry.Event) { h.symbolicate(ctx, row.ProjectID, ev) }
+		}
+		ev, err := eventDetail(stored, symbolicate)
 		if err != nil {
 			// Stored events were valid JSON when they arrived; log rather than fail the page.
 			h.log.Warn("dashboard api: stored event cannot be read", "issue", id, "event", stored.EventID, "err", err)

@@ -13,7 +13,9 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
+	"monitor/internal/auth"
 	"monitor/internal/config"
 	"monitor/internal/health"
 	"monitor/internal/ingest"
@@ -348,6 +350,42 @@ func TestDashboard_HealthAndIngestNeedNoSession(t *testing.T) {
 	})
 	if rec.Code != http.StatusOK {
 		t.Errorf("POST envelope from another site = %d %s, want 200", rec.Code, rec.Body)
+	}
+}
+
+// The source map upload API is public: it signs in with API tokens, not
+// sessions, answers JSON (401 without a token, never the sign-in page),
+// and other paths under /api/0/ get the JSON 404.
+func TestUploadAPI_MountedWithTokens(t *testing.T) {
+	deps := newTestDeps(t, io.Discard)
+	h := New(deps)
+	ctx := context.Background()
+	p, err := deps.DB.CreateProject(ctx, store.NewProject{Name: "Webshop"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	admin, err := deps.DB.CreateFirstAdmin(ctx, "admin@example.com", "not-a-real-hash", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	const token = "sntrys_server-test"
+	if _, err := deps.DB.CreateAPIToken(ctx, store.NewAPIToken{Name: "CI", TokenHash: auth.TokenHasher(deps.Config.SecretKey)(token),
+		ProjectIDs: []int64{p.ID}, CreatedBy: admin.ID, Now: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	const path = "/api/0/organizations/monitor/chunk-upload/"
+
+	rec := do(h, http.MethodGet, path, "203.0.113.5:40000")
+	if rec.Code != http.StatusUnauthorized || isHTML(rec) {
+		t.Errorf("without a token = %d %s, want a JSON 401", rec.Code, rec.Body)
+	}
+	rec = do(h, http.MethodGet, path, "203.0.113.5:40000", func(r *http.Request) { r.Header.Set("Authorization", "Bearer "+token) })
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"url":"https://monitor.example.com`+path+`"`) {
+		t.Errorf("with a token = %d %s", rec.Code, rec.Body)
+	}
+	rec = do(h, http.MethodGet, "/api/0/projects/monitor/webshop/files/dsyms/", "203.0.113.5:40000")
+	if rec.Code != http.StatusNotFound || isHTML(rec) {
+		t.Errorf("another /api/0/ path = %d %s, want the JSON 404", rec.Code, rec.Body)
 	}
 }
 
