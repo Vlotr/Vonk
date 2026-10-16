@@ -18,10 +18,14 @@ import (
 //     never be interleaved by another writer. Postgres runs write
 //     transactions side by side (READ COMMITTED), so code that reads and
 //     then writes based on what it read locks what it read: forUpdate
-//     locks the rows a SELECT returns, and writeTx.lock takes a named lock
-//     when there is no row to lock yet (the first account, a new slug).
-//     On SQLite both are no-ops.
-//   - a few expressions (asciiLower) and the database's own catalog.
+//     locks the rows a SELECT returns (forKeyShare only keeps them from
+//     being deleted), and writeTx.lock takes a named lock when there is no
+//     row to lock yet (the first account, a new slug). On SQLite they are
+//     no-ops.
+//   - a few expressions (asciiLower).
+//
+// The databases' own catalogs (the backup's version check, the database
+// size) are told apart with DB.Postgres where they are read.
 //
 // Upserts need no help: both understand INSERT ... ON CONFLICT (...) DO
 // NOTHING / DO UPDATE SET x = excluded.x, and both accept RETURNING.
