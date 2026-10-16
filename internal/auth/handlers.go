@@ -123,9 +123,9 @@ func (s *Service) setup(w http.ResponseWriter, r *http.Request) {
 	s.signIn(w, r, u)
 }
 
-// login checks an address and password. Wrong ones count toward the
-// throttle; an unknown address is checked against a dummy hash, so it
-// answers the same, as slowly.
+// login checks an address and password. Every try is reserved in the
+// throttle first and stays counted when it fails; an unknown address is
+// checked against a dummy hash, so it answers the same, as slowly.
 func (s *Service) login(w http.ResponseWriter, r *http.Request) {
 	var req credentials
 	if !httpjson.Read(w, r, maxAuthBody, &req) {
@@ -133,8 +133,16 @@ func (s *Service) login(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 	email := store.NormalizeEmail(req.Email)
-	client := s.logins.clientKey(r)
-	if wait := s.logins.retryAfter(email, client, s.now()); wait > 0 {
+	// An address that cannot have an account is refused before it counts:
+	// the throttle only ever tracks real-looking addresses.
+	if err := CheckEmail(email); err != nil {
+		httpjson.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	// The try is reserved before the slow password check, so requests
+	// arriving at the same moment cannot all get through.
+	reserved, wait, allowed := s.logins.begin(email, s.logins.clientKey(r), s.now())
+	if !allowed {
 		tooManyAttempts(w, wait)
 		return
 	}
@@ -157,11 +165,11 @@ func (s *Service) login(w http.ResponseWriter, r *http.Request) {
 		s.log.Error("auth: stored password hash cannot be read", "user", u.ID, "err", err)
 	}
 	if !found || !ok {
-		s.logins.record(email, client, s.now())
+		// The reserved try stays: it was a failure.
 		httpjson.Error(w, http.StatusUnauthorized, "The email or password is wrong.")
 		return
 	}
-	s.logins.forget(email)
+	s.logins.succeeded(reserved)
 	s.signIn(w, r, u)
 }
 
@@ -206,8 +214,8 @@ func (s *Service) changePassword(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	user := UserFrom(ctx)
 	session, _ := sessionFrom(ctx)
-	client := s.logins.clientKey(r)
-	if wait := s.logins.retryAfter(user.Email, client, s.now()); wait > 0 {
+	reserved, wait, allowed := s.logins.begin(user.Email, s.logins.clientKey(r), s.now())
+	if !allowed {
 		tooManyAttempts(w, wait)
 		return
 	}
@@ -217,10 +225,10 @@ func (s *Service) changePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if ok, _ := VerifyPassword(ctx, stored.PasswordHash, req.CurrentPassword); !ok {
-		s.logins.record(user.Email, client, s.now())
-		httpjson.Error(w, http.StatusBadRequest, "The current password is wrong.")
+		httpjson.Error(w, http.StatusBadRequest, "The current password is wrong.") // the try counts
 		return
 	}
+	s.logins.succeeded(reserved)
 	if err := CheckPassword(req.NewPassword); err != nil {
 		httpjson.Error(w, http.StatusBadRequest, err.Error())
 		return
@@ -338,13 +346,11 @@ func (s *Service) forgotPassword(w http.ResponseWriter, r *http.Request) {
 		httpjson.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	client := s.resets.clientKey(r)
-	now := s.now()
-	if wait := s.resets.retryAfter(email, client, now); wait > 0 {
+	// Every request counts, link or not: nothing is given back.
+	if _, wait, ok := s.resets.begin(email, s.resets.clientKey(r), s.now()); !ok {
 		tooManyAttempts(w, wait)
 		return
 	}
-	s.resets.record(email, client, now)
 	if s.mailer != nil {
 		s.mailForgotten(email)
 	}

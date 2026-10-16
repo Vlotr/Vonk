@@ -327,3 +327,10 @@ Dashboard:
 End-to-end:
 
 - `global-setup.ts` creates the first admin on the setup page in Chromium and stores its session (`ADMIN_STATE`) for the specs, instead of `DEV_BASIC_AUTH`. `phase2-access.spec.ts` deletes the project it creates, because `phase2-issues` counts the two example projects. New screenshot `phase2-settings.png` (Settings → Projects with the New project form open).
+
+Fix round 1 (review of Task 5):
+
+- The login throttle reserves each try before the password check (`throttle.begin`: check and count in one step, both limits under one lock), so simultaneous requests cannot all get past the limit; before, every request that arrived before the first recorded failure was checked (60 at once: 60 checked). A sign-in that works gives its try back (`succeeded`: the address starts over, the client's try is removed); a failed one keeps it. A try whose request then fails for another reason (the database, the client leaving) also stays counted. The forgot-password throttle uses the same reservation.
+- Controller ruling 30: behind a trusted proxy (loopback or private peer) the client is the right-most `X-Forwarded-For` entry that is not itself loopback or private; the left-most entries, which the client writes, are ignored, and an entry that is not an address ends the walk (the last proxy seen counts). All header lines are read as one list. IPv6 addresses count per /64.
+- Controller ruling 30: login answers 400 for anything that is not one valid address of at most 254 characters, before the throttle sees it. Address keys are salted SHA-256 hashes like client keys, so a key never holds the address and never grows with it. Each limiter tracks at most 10 000 keys; a new key in a full limiter looks at 32 keys (Go visits a map in random order), drops those whose tries all left the window, and else the one used longest ago. No call scans every key any more.
+- Controller ruling 30a: removing an admin or making them a member deletes the unused invites they made, in the same transaction (they have seen those links and could come back through one). Used invites stay for the record.
