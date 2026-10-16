@@ -1,9 +1,11 @@
 package ingest
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
+	"net/http"
 	"strings"
 	"sync"
 	"testing"
@@ -355,5 +357,43 @@ func TestWriter_DatabaseFailureIsLoggedNotFatal(t *testing.T) {
 	logs := env.logs.String()
 	if strings.Count(logs, "retrying") != 2 || !strings.Contains(logs, "level=ERROR") {
 		t.Errorf("want two retries and one error line:\n%s", logs)
+	}
+}
+
+func TestWriter_KeepsSDKFingerprintThroughScrub(t *testing.T) {
+	// The handler scrubs before the writer groups, so a fingerprint with a
+	// sensitive-looking word must reach the writer unchanged.
+	env := newTestEnv(t, 100)
+	p := env.project(t, "Webshop", 0)
+
+	withFingerprint := func(n int, fingerprint, function string) []byte {
+		body := envelope(eventIDN(n), "")
+		body = bytes.Replace(body, []byte(`"function":"charge"`), []byte(`"function":"`+function+`"`), 1)
+		return bytes.Replace(body, []byte(`"platform":"php",`), []byte(`"platform":"php","fingerprint":`+fingerprint+`,`), 1)
+	}
+	bodies := [][]byte{
+		withFingerprint(1, `["auth-failure","{{ default }}"]`, "charge"), // same SDK fingerprint,
+		withFingerprint(2, `["auth-failure","{{ default }}"]`, "refund"), // different stacks: two issues
+		withFingerprint(3, `["card-declined","checkout"]`, "charge"),     // different custom values:
+		withFingerprint(4, `["card-declined","signup"]`, "charge"),       // two issues
+	}
+	for _, body := range bodies {
+		if rec := env.post(envelopePath(p), body, authHeader(p.SentryKey)); rec.Code != http.StatusOK {
+			t.Fatalf("status = %d; body %s", rec.Code, rec.Body)
+		}
+	}
+	w := NewWriter(env.db, env.queue, &recordingHooks{}, env.logger)
+	w.Close() // writes the queue
+
+	issues, err := env.db.ListIssues(context.Background(), p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(issues) != 4 {
+		t.Errorf("got %d issues, want 4: scrubbing changed the SDK fingerprints", len(issues))
+	}
+	stored, _ := env.db.ErrorEventByEventID(context.Background(), p.ID, eventIDN(3))
+	if !strings.Contains(stored.Data, `"fingerprint":["card-declined","checkout"]`) {
+		t.Errorf("stored fingerprint changed: %s", stored.Data)
 	}
 }

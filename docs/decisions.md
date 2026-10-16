@@ -75,7 +75,8 @@ Parser (Step 2):
 
 Scrubbing (Step 5):
 
-- The key and URL rules run over the whole event at any depth, not only the places the brief lists, so fields SDKs add later are covered too.
+- The key and URL rules run over the whole event at any depth, not only the places the brief lists, so fields SDKs add later are covered too. Two parts are left out: the SDK's `fingerprint`, which decides grouping and is computed after scrubbing (`"auth-failure"` contains `auth`), and the frames' source lines (`pre_context`, `context_line`, `post_context`), which are code.
+- The [key, value] pair rule applies only to the fields SDKs send as pair lists: `request.headers`, `request.query_string`, `request.env`, `request.data` and `tags` (cookies are dropped). Elsewhere a two-item list such as `["card-declined", "checkout"]` is just a list. IP headers and env variables are dropped in both the object and the pair-list shape.
 - Keys match ignoring case and `-`, `_`, `.` and spaces (`X-Api-Key` matches `api_key`). "credit card" in the brief's list is taken as two substrings, `credit` and `card` (stricter). Accepted false positives: `author` (auth), `className` (ssn).
 - Query and fragment parameters are filtered in every string without whitespace that has a `?` or `#` (URLs and paths; `#access_token=` too); keys are percent-decoded before matching. Source lines in frames have whitespace and are left alone.
 - A request body sent as text is filtered by key when it is JSON or a form, and replaced whole when it is other text that contains a sensitive word.

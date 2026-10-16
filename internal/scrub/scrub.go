@@ -5,10 +5,14 @@
 // body, extra, contexts, tags, breadcrumbs, frame vars, and fields SDKs add
 // later):
 //
-//   - a value whose key looks sensitive (IsSensitiveKey) becomes "[Filtered]",
-//     also inside lists of [key, value] pairs;
+//   - a value whose key looks sensitive (IsSensitiveKey) becomes "[Filtered]";
 //   - in a string that is a URL or path, sensitive query and fragment
 //     parameters become "[Filtered]".
+//
+// The fields SDKs may send as lists of [key, value] pairs (request headers,
+// query string, env and body, and tags) get the key rule per pair. Two things
+// are never changed: the SDK's fingerprint, which decides grouping, and the
+// source lines around a frame, which are code.
 //
 // On top of that, request cookies are dropped, and so is every IP address the
 // SDKs send: user.ip_address, IP headers such as X-Forwarded-For, REMOTE_ADDR
@@ -51,6 +55,9 @@ var ipKeys = map[string]bool{
 	"xclusterclientip": true, "fastlyclientip": true, "xoriginalforwardedfor": true,
 }
 
+// sourceContextKeys hold a frame's source lines, which are left as they are.
+var sourceContextKeys = map[string]bool{"pre_context": true, "context_line": true, "post_context": true}
+
 // Event scrubs ev in place, in Raw and in the typed fields.
 func Event(ev *sentry.Event) {
 	raw := ev.Raw
@@ -60,7 +67,18 @@ func Event(ev *sentry.Event) {
 	if req, ok := raw["request"].(map[string]any); ok {
 		scrubRequest(req)
 	}
+	if tags, ok := raw["tags"]; ok {
+		raw["tags"] = scrubPairs(tags)
+	}
+
+	// The fingerprint is set by the developer to group events; scrubbing it
+	// would merge issues ("auth-failure" contains "auth").
+	fingerprint, hasFingerprint := raw["fingerprint"]
+	delete(raw, "fingerprint")
 	Value(raw)
+	if hasFingerprint {
+		raw["fingerprint"] = fingerprint
+	}
 	ev.Refresh()
 }
 
@@ -75,8 +93,9 @@ func IsSensitiveKey(key string) bool {
 	return false
 }
 
-// Value scrubs a decoded JSON value (objects are changed in place) and
-// returns the result.
+// Value scrubs a decoded JSON value with the key and URL rules (objects are
+// changed in place) and returns the result. Source lines (pre_context,
+// context_line, post_context) are left alone.
 func Value(v any) any {
 	switch v := v.(type) {
 	case map[string]any:
@@ -86,18 +105,14 @@ func Value(v any) any {
 				delete(v, k)
 			case IsSensitiveKey(k):
 				v[k] = Filtered
+			case sourceContextKeys[k]:
+				// code, shown as it is
 			default:
 				v[k] = Value(child)
 			}
 		}
 		return v
 	case []any:
-		if len(v) == 2 {
-			if k, ok := v[0].(string); ok && IsSensitiveKey(k) {
-				v[1] = Filtered // a [key, value] pair, such as a header
-				return v
-			}
-		}
 		out := v[:0]
 		for _, child := range v {
 			if !isAutoIP(child) {
@@ -114,34 +129,54 @@ func Value(v any) any {
 // scrubRequest handles the request fields that need more than the general rules.
 func scrubRequest(req map[string]any) {
 	delete(req, "cookies")
-	if env, ok := req["env"].(map[string]any); ok {
-		for k := range env {
-			if isIPKey(k) {
-				delete(env, k)
-			}
+	for _, field := range []string{"headers", "env"} {
+		if v, ok := req[field]; ok {
+			req[field] = dropIPKeys(v)
 		}
 	}
-	req["headers"] = dropIPHeaders(req["headers"])
 	if qs, ok := req["query_string"].(string); ok {
 		req["query_string"] = scrubQuery(qs)
 	}
 	if body, ok := req["data"].(string); ok {
 		req["data"] = scrubBody(body)
 	}
+	for _, field := range []string{"headers", "query_string", "env", "data"} {
+		if v, ok := req[field]; ok {
+			req[field] = scrubPairs(v)
+		}
+	}
 }
 
-// dropIPHeaders removes IP headers from headers sent as an object or as a list of pairs.
-func dropIPHeaders(headers any) any {
-	switch h := headers.(type) {
+// scrubPairs filters the values of sensitive [key, value] pairs in a list.
+// Only fields that SDKs send as pair lists go through it: elsewhere a list
+// of two strings ("card-declined", "checkout") is just a list.
+func scrubPairs(v any) any {
+	list, ok := v.([]any)
+	if !ok {
+		return v
+	}
+	for _, item := range list {
+		if pair, ok := item.([]any); ok && len(pair) == 2 {
+			if key, ok := pair[0].(string); ok && IsSensitiveKey(key) {
+				pair[1] = Filtered
+			}
+		}
+	}
+	return list
+}
+
+// dropIPKeys removes IP headers or env variables from an object or a list of pairs.
+func dropIPKeys(v any) any {
+	switch m := v.(type) {
 	case map[string]any:
-		for k := range h {
+		for k := range m {
 			if isIPKey(k) {
-				delete(h, k)
+				delete(m, k)
 			}
 		}
 	case []any:
-		out := h[:0]
-		for _, pair := range h {
+		out := m[:0]
+		for _, pair := range m {
 			if p, ok := pair.([]any); ok && len(p) > 0 {
 				if name, ok := p[0].(string); ok && isIPKey(name) {
 					continue
@@ -151,7 +186,7 @@ func dropIPHeaders(headers any) any {
 		}
 		return out
 	}
-	return headers
+	return v
 }
 
 // scrubBody filters a request body the SDK sent as text: JSON and form

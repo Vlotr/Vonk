@@ -110,6 +110,9 @@ func TestScrub_DropsCookies(t *testing.T) {
 	if has(ev.Raw, "request", "cookies") {
 		t.Errorf("request.cookies kept: %s", data)
 	}
+	if has(ev.Raw, "request", "headers") || has(ev.Raw, "request", "env") {
+		t.Errorf("scrubbing added request fields the SDK did not send: %s", data)
+	}
 	assertNotContains(t, data, "dark", "abc")
 }
 
@@ -213,18 +216,69 @@ func TestScrub_Breadcrumbs(t *testing.T) {
 
 func TestScrub_FrameVars(t *testing.T) {
 	frames := `{"frames":[{"function":"login","in_app":true,"context_line":"$token = request('token');",
-		"vars":{"password":"pw-123","input":{"email":"jan@example.com","password":"pw-456"},"orderId":"1234","pairs":[["secret","s-123"]]}}]}`
+		"vars":{"password":"pw-123","input":{"email":"jan@example.com","password":"pw-456"},"orderId":"1234"}}]}`
 	ev, data := scrubbed(t, `{"exception":{"values":[{"type":"E","stacktrace":`+frames+`}]},
 		"threads":{"values":[{"stacktrace":`+frames+`}]},
 		"stacktrace":`+frames+`}`)
 
-	assertNotContains(t, data, "pw-123", "pw-456", "s-123")
+	assertNotContains(t, data, "pw-123", "pw-456")
 	vars := ev.Exceptions[0].Frames[0].Vars
 	if vars["orderId"] != "1234" || at(vars, "input", "email") != "jan@example.com" {
 		t.Errorf("harmless vars changed: %v", vars)
 	}
 	if ev.Exceptions[0].Frames[0].ContextLine != "$token = request('token');" {
 		t.Errorf("source line changed: %q", ev.Exceptions[0].Frames[0].ContextLine)
+	}
+}
+
+func TestScrub_PairLists(t *testing.T) {
+	// SDKs may send these fields as lists of [key, value] pairs.
+	ev, data := scrubbed(t, `{
+		"request":{
+			"headers":[["Authorization","Bearer sk-123"],["X-Forwarded-For","198.51.100.7"],["Accept","*/*"]],
+			"query_string":[["token","tok-123"],["page","2"]],
+			"env":[["REMOTE_ADDR","203.0.113.9"],["SECRET_KEY","env-123"],["SERVER_NAME","web-1"]],
+			"data":[["password","pw-123"],["email","jan@example.com"]]},
+		"tags":[["session_id","sess-123"],["browser","Chrome"]]}`)
+
+	assertNotContains(t, data, "sk-123", "198.51.100.7", "tok-123", "203.0.113.9", "env-123", "pw-123", "sess-123")
+	for _, keep := range []string{`["Accept","*/*"]`, `["page","2"]`, `["SERVER_NAME","web-1"]`, `["email","jan@example.com"]`, `["browser","Chrome"]`} {
+		if !strings.Contains(data, keep) {
+			t.Errorf("harmless pair %s lost: %s", keep, data)
+		}
+	}
+	if ev.Tags["session_id"] != "[Filtered]" || ev.Tags["browser"] != "Chrome" {
+		t.Errorf("tags = %v", ev.Tags)
+	}
+}
+
+func TestScrub_KeepsFingerprintAndSourceLines(t *testing.T) {
+	// The fingerprint decides grouping and is computed after scrubbing, and
+	// source lines are code: neither may change, even when they look sensitive.
+	ev, data := scrubbed(t, `{
+		"fingerprint":["auth-failure","{{ default }}"],
+		"exception":{"values":[{"type":"E","stacktrace":{"frames":[{"function":"login","in_app":true,
+			"pre_context":["$password = request('password');","$url = '/reset?token='.$t;"],
+			"context_line":"return redirect('/login?next=/account');",
+			"post_context":["// cookie","$session = null;"]}]}}]},
+		"extra":{"steps":["card-declined","checkout"]}}`)
+
+	if got := strings.Join(ev.Fingerprint, "|"); got != "auth-failure|{{ default }}" {
+		t.Errorf("fingerprint = %q, want it unchanged", got)
+	}
+	f := ev.Exceptions[0].Frames[0]
+	if strings.Join(f.PreContext, "|") != "$password = request('password');|$url = '/reset?token='.$t;" ||
+		f.ContextLine != "return redirect('/login?next=/account');" ||
+		strings.Join(f.PostContext, "|") != "// cookie|$session = null;" {
+		t.Errorf("source lines changed: %+v", f)
+	}
+	if !strings.Contains(data, `"steps":["card-declined","checkout"]`) {
+		t.Errorf("a two-item list outside the pair fields was treated as a pair: %s", data)
+	}
+
+	_, data = scrubbed(t, `{"fingerprint":["card-declined","checkout"]}`)
+	if !strings.Contains(data, `"fingerprint":["card-declined","checkout"]`) {
+		t.Errorf("fingerprint changed: %s", data)
 	}
 }
 
