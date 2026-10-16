@@ -215,6 +215,19 @@ func TestSPA_Fallback(t *testing.T) {
 	})
 }
 
+func TestDashboardAPI_Mounted(t *testing.T) {
+	h := newTestServer(t, "dev:secret-password")
+
+	rec := do(h, http.MethodGet, "/ui/api/projects", "", func(r *http.Request) { r.SetBasicAuth("dev", "secret-password") })
+	if rec.Code != http.StatusOK || rec.Body.String() != "[]\n" {
+		t.Errorf("GET /ui/api/projects = %d %q, want 200 []", rec.Code, rec.Body)
+	}
+	// Behind the guard like every dashboard route.
+	if rec := do(h, http.MethodGet, "/ui/api/projects", ""); rec.Code != http.StatusUnauthorized {
+		t.Errorf("GET /ui/api/projects without credentials = %d, want 401", rec.Code)
+	}
+}
+
 func TestSPA_NotBuilt(t *testing.T) {
 	h := web.NewHandler(fstest.MapFS{".keep": {Data: nil}})
 

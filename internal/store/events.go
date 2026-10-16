@@ -133,17 +133,22 @@ func projectExists(ctx context.Context, tx *sql.Tx, id int64) (bool, error) {
 	return n > 0, err
 }
 
+// errorEventColumns lists the columns scanErrorEvent expects, in order.
+const errorEventColumns = `id, issue_id, project_id, event_id, timestamp, received_at,
+	user_id, url, route, release, environment, platform, data`
+
 // ErrorEventByEventID returns the event a project stored under this event id, or ErrNotFound.
 func (db *DB) ErrorEventByEventID(ctx context.Context, projectID int64, eventID string) (ErrorEvent, error) {
+	return scanErrorEvent(db.read.QueryRowContext(ctx,
+		"SELECT "+errorEventColumns+" FROM error_events WHERE project_id = ? AND event_id = ?", projectID, eventID))
+}
+
+func scanErrorEvent(s scanner) (ErrorEvent, error) {
 	var (
 		ev                    ErrorEvent
 		timestamp, receivedAt int64
 	)
-	err := db.read.QueryRowContext(ctx, `
-		SELECT id, issue_id, project_id, event_id, timestamp, received_at,
-			user_id, url, route, release, environment, platform, data
-		FROM error_events WHERE project_id = ? AND event_id = ?`, projectID, eventID,
-	).Scan(&ev.ID, &ev.IssueID, &ev.ProjectID, &ev.EventID, &timestamp, &receivedAt,
+	err := s.Scan(&ev.ID, &ev.IssueID, &ev.ProjectID, &ev.EventID, &timestamp, &receivedAt,
 		&ev.UserID, &ev.URL, &ev.Route, &ev.Release, &ev.Environment, &ev.Platform, &ev.Data)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrorEvent{}, ErrNotFound

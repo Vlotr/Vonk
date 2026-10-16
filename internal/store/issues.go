@@ -141,14 +141,16 @@ func insertIssue(ctx context.Context, tx *sql.Tx, ev NewErrorEvent) (*Issue, err
 	return issue, nil
 }
 
-func scanIssue(s scanner) (Issue, error) {
+// scanIssue reads the issueColumns, then any extra columns into extra.
+func scanIssue(s scanner, extra ...any) (Issue, error) {
 	var (
 		issue               Issue
 		firstSeen, lastSeen int64
 		resolvedAt          sql.NullInt64
 	)
-	err := s.Scan(&issue.ID, &issue.ProjectID, &issue.Fingerprint, &issue.Title, &issue.Message, &issue.Culprit,
-		&issue.Source, &issue.Level, &issue.Status, &firstSeen, &lastSeen, &resolvedAt, &issue.TimesSeen)
+	dest := []any{&issue.ID, &issue.ProjectID, &issue.Fingerprint, &issue.Title, &issue.Message, &issue.Culprit,
+		&issue.Source, &issue.Level, &issue.Status, &firstSeen, &lastSeen, &resolvedAt, &issue.TimesSeen}
+	err := s.Scan(append(dest, extra...)...)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Issue{}, ErrNotFound
 	}

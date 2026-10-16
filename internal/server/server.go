@@ -21,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	"monitor/internal/api"
 	"monitor/internal/config"
 	"monitor/internal/ingest"
 	"monitor/internal/store"
@@ -50,9 +51,8 @@ func New(deps Deps) http.Handler {
 
 	// Dashboard: the JSON API and the single-page app.
 	dashboard := http.NewServeMux()
-	dashboard.HandleFunc("/ui/api/", func(w http.ResponseWriter, r *http.Request) {
-		writeError(w, http.StatusNotFound, "not found")
-	})
+	api.New(deps.DB, deps.Logger).Register(dashboard)
+	dashboard.HandleFunc("/ui/api/", notFoundJSON)
 	// "/" rather than "GET /": Go's mux refuses a method-only catch-all next to
 	// "/ui/api/". The SPA handler answers other methods with 405 itself.
 	dashboard.Handle("/", spa)
@@ -62,9 +62,7 @@ func New(deps Deps) http.Handler {
 	public := http.NewServeMux()
 	public.HandleFunc("GET /health", healthHandler(deps))
 	public.Handle(ingest.SentryEnvelopePattern, ingest.NewSentryHandler(deps.DB, deps.Queue, deps.Limiter, deps.Logger))
-	public.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
-		writeError(w, http.StatusNotFound, "not found")
-	})
+	public.HandleFunc("/api/", notFoundJSON)
 	public.Handle("/", dashboardGuard(deps.Config.DevBasicAuth)(dashboard))
 
 	return logRequests(deps.Logger, recoverPanics(deps.Logger, public))
@@ -229,6 +227,11 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+// notFoundJSON answers unknown API paths, so SDKs and the dashboard never get HTML.
+func notFoundJSON(w http.ResponseWriter, _ *http.Request) {
+	writeError(w, http.StatusNotFound, "not found")
 }
 
 // writeError writes the {"error":"..."} body every JSON endpoint uses for errors.

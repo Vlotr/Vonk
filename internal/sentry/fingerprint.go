@@ -46,7 +46,7 @@ func Fingerprint(e *Event) string {
 }
 
 func defaultFingerprint(e *Event) string {
-	exc := mainException(e)
+	exc := MainException(e)
 	if exc == nil {
 		return hash([]string{"message", normalizeMessage(e.Message)})
 	}
@@ -71,7 +71,7 @@ type Summary struct {
 // Summarize returns the title, message and culprit of an event, from the
 // same exception that Fingerprint uses.
 func Summarize(e *Event) Summary {
-	exc := mainException(e)
+	exc := MainException(e)
 	if exc == nil {
 		title, _, _ := strings.Cut(strings.TrimSpace(e.Message), "\n")
 		if title == "" {
@@ -95,11 +95,11 @@ func Summarize(e *Event) Summary {
 	return s
 }
 
-// mainException is the exception an issue is named and grouped by: the last
+// MainException is the exception an issue is named and grouped by: the last
 // one in Sentry's list, which runs from the oldest cause to the exception that
 // was finally thrown (Laravel's QueryException rather than the PDOException it
 // wraps). It returns nil without exceptions.
-func mainException(e *Event) *Exception {
+func MainException(e *Event) *Exception {
 	if len(e.Exceptions) == 0 {
 		return nil
 	}
