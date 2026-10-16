@@ -156,6 +156,31 @@ func TestConcurrent_LastAdminStays(t *testing.T) {
 	}
 }
 
+// An admin deleted while the other admin is being made a member: the
+// deletion sees the demotion and is refused.
+func TestConcurrent_LastAdminNotDeleted(t *testing.T) {
+	db := openTestDB(t)
+	ctx := context.Background()
+	one := addUser(t, db, "one@example.com", RoleAdmin)
+	two := addUser(t, db, "two@example.com", RoleAdmin)
+
+	err := whileHeld(t, db, func(ctx context.Context, tx *writeTx) error {
+		if err := tx.lock(ctx, lockAccounts); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, "UPDATE users SET role = ? WHERE id = ?", RoleMember, one.ID)
+		return err
+	}, func() error {
+		return db.DeleteUser(ctx, two.ID)
+	})
+	if !errors.Is(err, ErrLastAdmin) {
+		t.Errorf("deletion: %v, want ErrLastAdmin", err)
+	}
+	if admins, _ := db.AdminEmails(ctx); len(admins) != 1 {
+		t.Errorf("admins = %v, want one", admins)
+	}
+}
+
 // Two setup pages sent at once make one account.
 func TestConcurrent_FirstAdminOnce(t *testing.T) {
 	db := openTestDB(t)
