@@ -9,9 +9,9 @@
 // X-CSRF-Token header.
 //
 // RequireUser guards the dashboard; handlers read the signed-in user with
-// UserFrom and must check every project id against CanAccessProject (or
-// list only AccessibleProjectIDs). A member who asks for another project
-// gets the same 404 as for a project that does not exist.
+// UserFrom and must check every project id against CanAccessProject (a
+// list across projects keeps only those it allows). A member who asks for
+// another project gets the same 404 as for a project that does not exist.
 package auth
 
 import (

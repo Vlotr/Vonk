@@ -228,14 +228,6 @@ func (db *DB) UpdateAlertSettings(ctx context.Context, projectID int64, change f
 	return s, tx.Commit()
 }
 
-// SaveAlertSettings replaces all of a project's notification choices and
-// its Slack webhook, or returns ErrNotFound. The spike threshold and the
-// digest frequency are stored on both channels' rows.
-func (db *DB) SaveAlertSettings(ctx context.Context, projectID int64, s AlertSettings) error {
-	_, err := db.UpdateAlertSettings(ctx, projectID, func(old *AlertSettings) { *old = s })
-	return err
-}
-
 // ProjectRecipients returns the addresses of everyone who may see the
 // project: every admin, and the members given access to it.
 func (db *DB) ProjectRecipients(ctx context.Context, projectID int64) ([]string, error) {

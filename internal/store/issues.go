@@ -56,26 +56,6 @@ func (db *DB) IssueByID(ctx context.Context, id int64) (Issue, error) {
 	return scanIssue(db.read.QueryRowContext(ctx, "SELECT "+issueColumns+" FROM issues WHERE id = ?", id))
 }
 
-// ListIssues returns all issues of a project, the most recently seen first.
-func (db *DB) ListIssues(ctx context.Context, projectID int64) ([]Issue, error) {
-	rows, err := db.read.QueryContext(ctx,
-		"SELECT "+issueColumns+" FROM issues WHERE project_id = ? ORDER BY last_seen DESC, id DESC", projectID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var issues []Issue
-	for rows.Next() {
-		issue, err := scanIssue(rows)
-		if err != nil {
-			return nil, err
-		}
-		issues = append(issues, issue)
-	}
-	return issues, rows.Err()
-}
-
 // issueKey identifies an issue within a batch.
 type issueKey struct {
 	projectID   int64

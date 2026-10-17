@@ -148,12 +148,6 @@ func (db *DB) SaveErrorEvents(ctx context.Context, events []NewErrorEvent) (Save
 const errorEventColumns = `id, issue_id, project_id, event_id, timestamp, received_at,
 	user_id, url, route, release, environment, platform, data`
 
-// ErrorEventByEventID returns the event a project stored under this event id, or ErrNotFound.
-func (db *DB) ErrorEventByEventID(ctx context.Context, projectID int64, eventID string) (ErrorEvent, error) {
-	return scanErrorEvent(db.read.QueryRowContext(ctx,
-		"SELECT "+errorEventColumns+" FROM error_events WHERE project_id = ? AND event_id = ?", projectID, eventID))
-}
-
 func scanErrorEvent(s scanner) (ErrorEvent, error) {
 	var (
 		ev                    ErrorEvent
@@ -170,11 +164,4 @@ func scanErrorEvent(s scanner) (ErrorEvent, error) {
 	ev.Timestamp = time.UnixMilli(timestamp).UTC()
 	ev.ReceivedAt = time.UnixMilli(receivedAt).UTC()
 	return ev, nil
-}
-
-// CountErrorEvents returns how many events a project has stored.
-func (db *DB) CountErrorEvents(ctx context.Context, projectID int64) (int, error) {
-	var n int
-	err := db.read.QueryRowContext(ctx, "SELECT COUNT(*) FROM error_events WHERE project_id = ?", projectID).Scan(&n)
-	return n, err
 }

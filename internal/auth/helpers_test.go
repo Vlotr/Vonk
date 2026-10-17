@@ -98,7 +98,18 @@ func newAuthEnv(t *testing.T, opts ...envOption) *authEnv {
 	// Stand-ins for the dashboard API and pages.
 	guarded.HandleFunc("GET /ui/api/ping", func(w http.ResponseWriter, r *http.Request) {
 		u := UserFrom(r.Context())
-		httpjson.Write(w, http.StatusOK, map[string]any{"email": u.Email, "projects": AccessibleProjectIDs(r.Context(), u)})
+		ids, err := db.ProjectIDs(r.Context())
+		if err != nil {
+			httpjson.Error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		visible := []int64{}
+		for _, id := range ids {
+			if CanAccessProject(r.Context(), u, id) {
+				visible = append(visible, id)
+			}
+		}
+		httpjson.Write(w, http.StatusOK, map[string]any{"email": u.Email, "projects": visible})
 	})
 	guarded.HandleFunc("POST /ui/api/ping", func(w http.ResponseWriter, r *http.Request) {
 		httpjson.Write(w, http.StatusOK, map[string]string{"changed": "yes"})

@@ -89,7 +89,9 @@ internal/config/        Load(getenv): reads and validates the settings
 internal/store/         DB (a write pool + a read-only pool; SQLite or Postgres), migrations, queries; dialect.go (placeholders, row and named
                         locks, the pool and transaction wrappers), activity.go (one user's trail: the journey before an error,
                         user activity), custom_events.go (custom events and their hourly summaries), sourcemaps.go (rows of uploaded
-                        source map files), api_tokens.go (upload API tokens and their projects), backup.go (the automatic backups,
+                        source map files), api_tokens.go (upload API tokens and their projects), testutil.go (shortcuts only tests call:
+                        ListIssues, CountErrorEvents, ErrorEventByEventID, CountPageRows, SaveAlertSettings, UpdateProject; in a
+                        plain file because other packages' tests use them), backup.go (the automatic backups,
                         Snapshot for downloads), restore.go (checking, staging and applying a restore), privacy.go (DeleteUserData),
                         concurrency_test.go (every check-then-write with a second writer at the same moment)
   migrations/sqlite/    NNNN_name.sql, embedded, applied in order at startup
@@ -202,7 +204,7 @@ The first account is made on `/setup` (an admin); after that `POST /ui/api/setup
 - Reset links: by mail from the login page (same answer for unknown addresses; the mail goes out in the background), by an admin for a member in Settings → Users (also mailed when mail is on), or `monitor admin reset-password`. One hour, once; using one signs the account out everywhere. A newer link replaces older ones.
 - Links carry their token after `#token=`: browsers never send it, so no server or proxy log sees it; the pages post it in a body.
 
-Every project-scoped handler must check access with `auth.CanAccessProject(ctx, auth.UserFrom(ctx), projectID)` (404 when false, the same as a missing object) or limit queries to `auth.AccessibleProjectIDs`; a request without a user can see nothing (fail closed). Admin-only API routes go through `adminOnly` in `internal/api` (404 for members). Add each new route to `TestAccessMatrix` in `internal/api/access_matrix_test.go`. Tests act as a user with `auth.Service.NewSession`.
+Every project-scoped handler must check access with `auth.CanAccessProject(ctx, auth.UserFrom(ctx), projectID)` (404 when false, the same as a missing object); a list across projects keeps only the projects it allows (`visibleProjects` in `internal/api`); a request without a user can see nothing (fail closed). Admin-only API routes go through `adminOnly` in `internal/api` (404 for members). Add each new route to `TestAccessMatrix` in `internal/api/access_matrix_test.go`. Tests act as a user with `auth.Service.NewSession`.
 
 Auth API: public `GET /ui/api/auth/status` → `{setupNeeded, mailEnabled}`, `POST /ui/api/setup`, `/ui/api/login`, `/ui/api/invite/check`, `/ui/api/invite/accept`, `/ui/api/password/forgot`, `/ui/api/password/reset/check`, `/ui/api/password/reset`; signed in `GET /ui/api/me` → `{id, email, role, csrfToken, mailEnabled}`, `POST /ui/api/logout`, `POST /ui/api/me/password`. The sign-in calls answer like `/me` and set the cookie.
 
@@ -251,7 +253,7 @@ API tokens are made in Settings → API tokens (admins), shown once, stored as `
 - Deleting a user's data (`store.DeleteUserData`, Settings → Privacy, `monitor delete-user-data`): by the exact user id, in the chosen projects (each in one write transaction, retried on a deadlock): error events, page views, their page leaves (by `pageview_id`, and leaves without one that closed the user's page view in its tab) and custom events, each `DELETE ... RETURNING` what went; then each touched issue, locked: removed when no event is left, else `times_seen` minus the deleted events, `first_seen`/`last_seen` moved only when the deleted events were the first or last, and the newest remaining event's text (`issues.EventText`) when the newest was the user's. The hours are marked dirty, so `jobs.Aggregate` rebuilds `hourly_stats` and `event_hourly` (with the visitor sketches) within a minute. One INFO line: the admin's id (or `by=command-line`) and the counts, never the user id. Backups made before keep the data.
 - SQLite connections (both pools, the snapshot's, the check's) run in defensive mode with `trusted_schema` off. `sourcemaps.Service.pathOf` reads or removes a source map file only when its row's path has the shape the tool stores (`<project id>/<24 hex>`, in the row's project); another row is logged once, deleted by retention, and its "file" left alone.
 - Shutdown: HTTP server (15 s for running requests), jobs, the writer's last batch (it waits at most 5 s more for a database it cannot reach), the notifier (10 s), the database. `compose.yaml` gives the container `stop_grace_period: 30s` for that; Docker's default of 10 s would cut the last batch off.
-- Tests: `internal/testutil` has a fake SMTP server and a fake Slack webhook; `alerts` tests wait for deliveries with `n.busy.Wait()` and move a fake clock. Health checks take `DiskUsage` so tests never depend on the machine's disk.
+- Tests: `internal/testutil` has a fake SMTP server and a fake Slack webhook; `internal/store/testutil.go` the store shortcuts tests use (never call them from the tool); `alerts` tests wait for deliveries with `n.busy.Wait()` and move a fake clock. Health checks take `DiskUsage` so tests never depend on the machine's disk.
 
 ## Conventions
 

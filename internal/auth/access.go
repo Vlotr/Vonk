@@ -2,7 +2,6 @@ package auth
 
 import (
 	"context"
-	"sort"
 
 	"monitor/internal/store"
 )
@@ -28,17 +27,6 @@ func (u User) IsAdmin() bool {
 // the signature so a later check can look something up.
 func CanAccessProject(_ context.Context, user User, projectID int64) bool {
 	return user.projects[projectID]
-}
-
-// AccessibleProjectIDs returns the ids of the projects user may see, sorted;
-// empty for a zero User. Pass them to queries that span projects.
-func AccessibleProjectIDs(_ context.Context, user User) []int64 {
-	ids := make([]int64, 0, len(user.projects))
-	for id := range user.projects {
-		ids = append(ids, id)
-	}
-	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
-	return ids
 }
 
 // requestUser is what RequireUser puts in the request context.

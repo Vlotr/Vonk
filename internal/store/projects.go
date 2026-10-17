@@ -322,20 +322,6 @@ type ProjectSettings struct {
 	RoutePatterns *[]string
 }
 
-// UpdateProject replaces a project's settings (and its route patterns,
-// when s has them) in one write, and returns the project as it is
-// afterwards, or ErrNotFound. When anything is refused nothing changes.
-// The slug stays as it was created.
-func (db *DB) UpdateProject(ctx context.Context, id int64, s ProjectSettings) (Project, error) {
-	return db.ChangeProject(ctx, id, func(old *ProjectSettings) error {
-		if s.RateLimitPerMinute == 0 {
-			s.RateLimitPerMinute = old.RateLimitPerMinute // left out: kept
-		}
-		*old = s
-		return nil
-	})
-}
-
 // ChangeProject changes a project's settings in one write transaction: it
 // locks the project's row (FOR NO KEY UPDATE: the change leaves its id,
 // slug and keys alone, so ingest batches that keep the project go on),

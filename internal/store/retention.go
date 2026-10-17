@@ -77,12 +77,3 @@ func deleteRows(ctx context.Context, tx *writeTx, table, column string, projectI
 	}
 	return res.RowsAffected()
 }
-
-// CountPageRows returns how many page views and page leaves a project has stored.
-func (db *DB) CountPageRows(ctx context.Context, projectID int64) (int, error) {
-	var n int
-	err := db.read.QueryRowContext(ctx,
-		"SELECT (SELECT COUNT(*) FROM pageviews WHERE project_id = ?) + (SELECT COUNT(*) FROM pageleaves WHERE project_id = ?)",
-		projectID, projectID).Scan(&n)
-	return n, err
-}
