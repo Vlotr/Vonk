@@ -481,6 +481,8 @@ export interface SettingsProject {
   tracksPageviews: boolean
   /** routePatterns such as /products/:slug turn paths into routes before the automatic rules. */
   routePatterns: string[]
+  /** rateLimitPerMinute is how many events a minute ingest accepts (10 to 100 000; 1000 by default). */
+  rateLimitPerMinute: number
 }
 
 /** ProjectKeys is a project with what its Setup and keys page shows. */
@@ -506,7 +508,10 @@ export function getProjectKeys(projectId: number, signal?: AbortSignal): Promise
 }
 
 /** updateProject changes the settings that are given; the others stay. Route patterns apply to new data only. */
-export function updateProject(projectId: number, change: Partial<ProjectSettings & { routePatterns: string[] }>): Promise<ProjectKeys> {
+export function updateProject(
+  projectId: number,
+  change: Partial<ProjectSettings & { routePatterns: string[]; rateLimitPerMinute: number }>,
+): Promise<ProjectKeys> {
   return send('PATCH', `/ui/api/settings/projects/${projectId}`, change)
 }
 

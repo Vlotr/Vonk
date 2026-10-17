@@ -18,7 +18,7 @@ A project is one app, or one app's errors and page views together. Settings → 
 - **Keep data for**: 30, 90 (the default), 180 days, 1 year, or indefinitely. Once a day, older errors, issues, page views, custom events, their statistics and source maps are deleted.
 - **What to track**: errors from Laravel, errors from the browser, page views. This decides which steps Setup and keys shows and whether the sidebar shows Pages; the tool accepts data from any SDK with the project's keys either way.
 
-"Setup and keys" shows the project's **DSN** (for Sentry SDKs) and **PostHog token** (for PostHog SDKs), with the steps below filled in. Edit project changes the settings and the [route patterns](#page-views-with-posthog-js); "Keys" makes new ones (the old ones stop at once, so update your apps); Delete project removes it and all its data.
+"Setup and keys" shows the project's **DSN** (for Sentry SDKs) and **PostHog token** (for PostHog SDKs), with the steps below filled in, and its events-per-minute limit. Edit project changes the settings, the [route patterns](#page-views-with-posthog-js) and the **events per minute** (1000 by default, 10 to 100 000; see [Configuration](configuration.md#per-project-settings), and keep it low for a public site); "Keys" makes new ones (the old ones stop at once, so update your apps); Delete project removes it and all its data.
 
 On the command line: `docker compose exec app /monitor project create --name Webshop` makes a project (90 days, Laravel and browser errors) and prints its DSN and PostHog token.
 

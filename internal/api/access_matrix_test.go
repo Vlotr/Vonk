@@ -148,6 +148,11 @@ func TestAccessMatrix(t *testing.T) {
 		}
 	}
 
+	limitUnchanged := func(t *testing.T) {
+		if got, err := env.db.ProjectByID(ctx, shop.ID); err != nil || got.RateLimitPerMinute != shop.RateLimitPerMinute {
+			t.Errorf("events-per-minute limit after a refused change = %d, %v", got.RateLimitPerMinute, err)
+		}
+	}
 	patternsUnchanged := func(t *testing.T) {
 		if got, err := env.db.ProjectByID(ctx, shop.ID); err != nil || len(got.RoutePatterns) != 0 {
 			t.Errorf("route patterns after a refused change = %v, %v", got.RoutePatterns, err)
@@ -232,6 +237,8 @@ func TestAccessMatrix(t *testing.T) {
 		{name: "settings: one project", method: "GET", path: fmt.Sprintf("/ui/api/settings/projects/%d", shop.ID), adminOnly: true, adminCode: 200},
 		{name: "settings: edit project", method: "PATCH", path: fmt.Sprintf("/ui/api/settings/projects/%d", shop.ID),
 			body: `{"name":"Taken over"}`, adminOnly: true, unchanged: projectUnchanged},
+		{name: "settings: events per minute", method: "PATCH", path: fmt.Sprintf("/ui/api/settings/projects/%d", shop.ID),
+			body: `{"rateLimitPerMinute":100000}`, adminOnly: true, unchanged: limitUnchanged},
 		{name: "settings: route patterns", method: "PATCH", path: fmt.Sprintf("/ui/api/settings/projects/%d", shop.ID),
 			body: `{"routePatterns":["/secret-shop-page/:x"]}`, adminOnly: true, unchanged: patternsUnchanged},
 		{name: "settings: route preview", method: "POST", path: fmt.Sprintf("/ui/api/settings/projects/%d/route-preview", shop.ID),

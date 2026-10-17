@@ -21,9 +21,11 @@ type settingsProjectResponse struct {
 	TracksBrowser   bool      `json:"tracksBrowser"`
 	TracksPageviews bool      `json:"tracksPageviews"`
 	RoutePatterns   []string  `json:"routePatterns"`
-	DSN             string    `json:"dsn"`
-	PosthogToken    string    `json:"posthogToken"`
-	PosthogHost     string    `json:"posthogHost"`
+	// RateLimitPerMinute is the project's events-per-minute limit.
+	RateLimitPerMinute int    `json:"rateLimitPerMinute"`
+	DSN                string `json:"dsn"`
+	PosthogToken       string `json:"posthogToken"`
+	PosthogHost        string `json:"posthogHost"`
 }
 
 func days(p *int) string {
@@ -139,6 +141,61 @@ func TestSettingsProjects_EditRotateDelete(t *testing.T) {
 	}
 	if rec := env.as(t, env.admin, "DELETE", path, ""); rec.Code != http.StatusNotFound {
 		t.Errorf("DELETE twice = %d, want 404", rec.Code)
+	}
+}
+
+// The events-per-minute limit (1000 by default) is changed on Edit
+// project, from 10 to 100 000; the limiter reads it with the project at
+// every request, so it applies at once.
+func TestSettingsProjects_RateLimit(t *testing.T) {
+	env := newTestEnv(t)
+	p := env.project(t, "Webshop")
+	path := fmt.Sprintf("/ui/api/settings/projects/%d", p.ID)
+
+	got := decode[settingsProjectResponse](t, env.as(t, env.admin, "GET", path, "").Body.Bytes())
+	if got.RateLimitPerMinute != 1000 {
+		t.Errorf("default limit = %d, want 1000", got.RateLimitPerMinute)
+	}
+	rec := env.as(t, env.admin, "PATCH", path, `{"rateLimitPerMinute":250}`)
+	got = decode[settingsProjectResponse](t, rec.Body.Bytes())
+	if rec.Code != http.StatusOK || got.RateLimitPerMinute != 250 || got.Name != "Webshop" {
+		t.Errorf("PATCH limit = %d %+v", rec.Code, got)
+	}
+	if stored, err := env.db.ProjectByID(context.Background(), p.ID); err != nil || stored.RateLimitPerMinute != 250 {
+		t.Errorf("stored limit = %d (%v), want 250", stored.RateLimitPerMinute, err)
+	}
+	// Other changes keep it.
+	rec = env.as(t, env.admin, "PATCH", path, `{"name":"Web shop","routePatterns":["/p/:slug"]}`)
+	if got := decode[settingsProjectResponse](t, rec.Body.Bytes()); got.RateLimitPerMinute != 250 {
+		t.Errorf("limit after another change = %d, want 250", got.RateLimitPerMinute)
+	}
+	for _, limit := range []string{"10", "100000"} {
+		rec := env.as(t, env.admin, "PATCH", path, `{"rateLimitPerMinute":`+limit+`}`)
+		if got := decode[settingsProjectResponse](t, rec.Body.Bytes()); rec.Code != http.StatusOK || fmt.Sprint(got.RateLimitPerMinute) != limit {
+			t.Errorf("PATCH limit %s = %d %s", limit, rec.Code, rec.Body)
+		}
+	}
+	for _, limit := range []string{"9", "100001", "0", "-5", "50.5", `"500"`} {
+		rec := env.as(t, env.admin, "PATCH", path, `{"rateLimitPerMinute":`+limit+`}`)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("PATCH limit %s = %d %s, want 400", limit, rec.Code, rec.Body)
+		}
+	}
+	if rec := env.as(t, env.admin, "PATCH", path, `{"rateLimitPerMinute":9}`); !strings.Contains(rec.Body.String(), "10 to 100 000") {
+		t.Errorf("refusal = %s, want it to name the range", rec.Body)
+	}
+	// The list and a new project carry it too.
+	list := decode[[]settingsProjectResponse](t, env.as(t, env.admin, "GET", "/ui/api/settings/projects", "").Body.Bytes())
+	if len(list) != 1 || list[0].RateLimitPerMinute != 100000 {
+		t.Errorf("list = %+v", list)
+	}
+	rec = env.as(t, env.admin, "POST", "/ui/api/settings/projects", `{"name":"Portal"}`)
+	if got := decode[settingsProjectResponse](t, rec.Body.Bytes()); rec.Code != http.StatusCreated || got.RateLimitPerMinute != 1000 {
+		t.Errorf("new project = %d %+v, want the default 1000", rec.Code, got)
+	}
+	// Members cannot change it (the access matrix holds every settings route).
+	if rec := env.as(t, env.member(t, "member@example.com", p.ID), "PATCH", path, `{"rateLimitPerMinute":50}`); rec.Code != http.StatusNotFound {
+		t.Errorf("member PATCH = %d, want 404", rec.Code)
 	}
 }
 

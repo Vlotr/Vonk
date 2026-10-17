@@ -17,7 +17,7 @@ import (
 // Settings → Projects, for admins:
 //
 //	GET    /ui/api/settings/projects                  every project with its settings
-//	POST   /ui/api/settings/projects                  create: {name, retentionDays, tracksLaravel, tracksBrowser, tracksPageviews}
+//	POST   /ui/api/settings/projects                  create: {name, retentionDays, tracksLaravel, tracksBrowser, tracksPageviews, rateLimitPerMinute}
 //	GET    /ui/api/settings/projects/{id}             one project with its DSN and PostHog token
 //	PATCH  /ui/api/settings/projects/{id}             change any of the create fields
 //	POST   /ui/api/settings/projects/{id}/rotate-keys new DSN key and PostHog token
@@ -25,6 +25,8 @@ import (
 //	POST   /ui/api/settings/projects/{id}/route-preview  recent paths and their routes under {routePatterns}
 //
 // retentionDays is 30, 90, 180 or 365, or null to keep data indefinitely.
+// rateLimitPerMinute, the events a minute ingest accepts, is 10 to 100 000
+// (1000 by default).
 // PATCH also takes routePatterns, such as ["/products/:slug"]; they apply
 // to data that comes in from then on (ruling 14).
 
@@ -49,6 +51,12 @@ const maxProjectName = 100
 // retentionChoices are the "Keep data for" options besides Indefinitely.
 var retentionChoices = map[int]bool{30: true, 90: true, 180: true, 365: true}
 
+// The events-per-minute limits an admin can set.
+const (
+	minRateLimit = 10
+	maxRateLimit = 100_000
+)
+
 // settingsProjectJSON is a row of "Your projects".
 type settingsProjectJSON struct {
 	ID        int64     `json:"id"`
@@ -61,6 +69,8 @@ type settingsProjectJSON struct {
 	TracksPageviews bool `json:"tracksPageviews"`
 	// RoutePatterns turn paths into routes before the automatic rules.
 	RoutePatterns []string `json:"routePatterns"`
+	// RateLimitPerMinute is how many events a minute ingest accepts (429 above it).
+	RateLimitPerMinute int `json:"rateLimitPerMinute"`
 }
 
 // projectKeysJSON is a project with what its "Setup and keys" page shows.
@@ -76,7 +86,7 @@ func toSettingsProject(p store.Project) settingsProjectJSON {
 	return settingsProjectJSON{
 		ID: p.ID, Name: p.Name, CreatedAt: p.CreatedAt, RetentionDays: p.RetentionDays,
 		TracksLaravel: p.TracksLaravel, TracksBrowser: p.TracksBrowser, TracksPageviews: p.TracksPageviews,
-		RoutePatterns: p.RoutePatterns,
+		RoutePatterns: p.RoutePatterns, RateLimitPerMinute: p.RateLimitPerMinute,
 	}
 }
 
@@ -117,6 +127,10 @@ type projectBody struct {
 	TracksLaravel   *bool        `json:"tracksLaravel"`
 	TracksBrowser   *bool        `json:"tracksBrowser"`
 	TracksPageviews *bool        `json:"tracksPageviews"`
+	// RateLimitPerMinute is checked only when sent, so a limit set
+	// outside the range before (by a test or an older version) does not
+	// block other changes.
+	RateLimitPerMinute *int `json:"rateLimitPerMinute"`
 	// RoutePatterns is for PATCH only (create refuses it); nil leaves them
 	// as they are.
 	RoutePatterns *[]string `json:"routePatterns"`
@@ -159,6 +173,12 @@ func (b projectBody) apply(s *store.ProjectSettings) error {
 	if b.TracksPageviews != nil {
 		s.TracksPageviews = *b.TracksPageviews
 	}
+	if b.RateLimitPerMinute != nil {
+		if *b.RateLimitPerMinute < minRateLimit || *b.RateLimitPerMinute > maxRateLimit {
+			return errors.New("The events-per-minute limit is a whole number from 10 to 100 000.")
+		}
+		s.RateLimitPerMinute = *b.RateLimitPerMinute
+	}
 	switch {
 	case s.Name == "":
 		return errors.New("Give the project a name.")
@@ -195,7 +215,7 @@ func (h *Handler) createProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	days := store.DefaultRetentionDays
-	settings := store.ProjectSettings{RetentionDays: &days}
+	settings := store.ProjectSettings{RetentionDays: &days, RateLimitPerMinute: store.DefaultRateLimitPerMinute}
 	if err := body.apply(&settings); err != nil {
 		httpjson.Error(w, http.StatusBadRequest, err.Error())
 		return
@@ -206,6 +226,8 @@ func (h *Handler) createProject(w http.ResponseWriter, r *http.Request) {
 		TracksLaravel:   settings.TracksLaravel,
 		TracksBrowser:   settings.TracksBrowser,
 		TracksPageviews: settings.TracksPageviews,
+
+		RateLimitPerMinute: settings.RateLimitPerMinute,
 	}
 	if settings.RetentionDays != nil {
 		np.RetentionDays = *settings.RetentionDays

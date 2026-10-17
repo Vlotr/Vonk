@@ -312,6 +312,9 @@ type ProjectSettings struct {
 	TracksLaravel   bool
 	TracksBrowser   bool
 	TracksPageviews bool
+	// RateLimitPerMinute is how many events a minute ingest accepts for
+	// the project; at least 1.
+	RateLimitPerMinute int
 	// RoutePatterns replace the project's route patterns (blank ones are
 	// left out; at most MaxRoutePatterns of at most MaxRoutePatternChars);
 	// nil leaves them as they are. They apply to data that comes in from
@@ -325,6 +328,9 @@ type ProjectSettings struct {
 // The slug stays as it was created.
 func (db *DB) UpdateProject(ctx context.Context, id int64, s ProjectSettings) (Project, error) {
 	return db.ChangeProject(ctx, id, func(old *ProjectSettings) error {
+		if s.RateLimitPerMinute == 0 {
+			s.RateLimitPerMinute = old.RateLimitPerMinute // left out: kept
+		}
 		*old = s
 		return nil
 	})
@@ -350,7 +356,8 @@ func (db *DB) ChangeProject(ctx context.Context, id int64, change func(*ProjectS
 		return Project{}, err
 	}
 	s := ProjectSettings{Name: p.Name, RetentionDays: p.RetentionDays,
-		TracksLaravel: p.TracksLaravel, TracksBrowser: p.TracksBrowser, TracksPageviews: p.TracksPageviews}
+		TracksLaravel: p.TracksLaravel, TracksBrowser: p.TracksBrowser, TracksPageviews: p.TracksPageviews,
+		RateLimitPerMinute: p.RateLimitPerMinute}
 	if err := change(&s); err != nil {
 		return Project{}, err
 	}
@@ -362,10 +369,14 @@ func (db *DB) ChangeProject(ctx context.Context, id int64, change func(*ProjectS
 	if s.RetentionDays != nil && *s.RetentionDays <= 0 {
 		return Project{}, errors.New("retention must be a positive number of days")
 	}
+	if s.RateLimitPerMinute <= 0 {
+		return Project{}, errors.New("the rate limit must be a positive number of events a minute")
+	}
 	if _, err := tx.ExecContext(ctx, `
-		UPDATE projects SET name = ?, retention_days = ?, tracks_laravel = ?, tracks_browser = ?, tracks_pageviews = ?
+		UPDATE projects SET name = ?, retention_days = ?, tracks_laravel = ?, tracks_browser = ?, tracks_pageviews = ?,
+			rate_limit_per_minute = ?
 		WHERE id = ?`,
-		name, s.RetentionDays, s.TracksLaravel, s.TracksBrowser, s.TracksPageviews, id); err != nil {
+		name, s.RetentionDays, s.TracksLaravel, s.TracksBrowser, s.TracksPageviews, s.RateLimitPerMinute, id); err != nil {
 		return Project{}, err
 	}
 	if s.RoutePatterns != nil {

@@ -16,6 +16,15 @@
   margin-top: 20px;
 }
 
+/* The events-per-minute limit on Edit project, under the route patterns. */
+.limit {
+  margin-top: var(--space-6);
+}
+
+.limit input {
+  max-width: 160px;
+}
+
 /* Keys and Delete project, under the form when editing. */
 .extra {
   display: flex;

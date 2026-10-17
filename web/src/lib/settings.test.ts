@@ -6,8 +6,10 @@ import {
   LARAVEL_USER_SNIPPET,
   laravelEnvLine,
   parsePatterns,
+  parseRateLimit,
   patternsText,
   posthogSnippet,
+  rateLimitSentence,
   retentionLabel,
   roleLabel,
   trackingLabels,
@@ -74,4 +76,21 @@ test('route patterns are edited one per line', () => {
   expect(patternsText(['/products/:slug', '/blog/:year/:post'])).toBe('/products/:slug\n/blog/:year/:post')
   expect(parsePatterns(' /products/:slug \n\n  \n/blog/:year/:post\r\n')).toEqual(['/products/:slug', '/blog/:year/:post'])
   expect(parsePatterns('')).toEqual([])
+})
+
+test('parseRateLimit reads the events-per-minute field: a whole number from 10 to 100 000', () => {
+  expect(parseRateLimit('1000')).toBe(1000)
+  expect(parseRateLimit(' 250 ')).toBe(250)
+  expect(parseRateLimit('10')).toBe(10)
+  expect(parseRateLimit('100000')).toBe(100_000)
+  expect(parseRateLimit('100 000')).toBe(100_000)
+  for (const bad of ['', '9', '100001', '0', '-50', '50.5', '1e3', 'many', '1,000']) {
+    expect(parseRateLimit(bad)).toBeNull()
+  }
+})
+
+test('rateLimitSentence says what the limit does', () => {
+  expect(rateLimitSentence(1000)).toBe(
+    'It accepts up to 1,000 events a minute from the Sentry SDKs, and as many from the PostHog SDK; more are refused (429) until the next minute.',
+  )
 })

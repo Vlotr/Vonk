@@ -44,7 +44,7 @@ What the SDK endpoints answer:
 | 400 | The request is not one the tool understands (the reason is in the body, and for Sentry SDKs in the `X-Sentry-Error` header). |
 | 401 | Unknown key or project id (a DSN or PostHog token of another installation, or rotated keys). |
 | 413 | Over 20 MiB, before or after decompression. |
-| 429 | Too much at once: the project's 1000 events a minute (`Retry-After`: until the next minute), or 10 000 events waiting to be written (`Retry-After: 5`). The SDKs wait and send again. |
+| 429 | Too much at once: the project's events-per-minute limit (1000 unless changed in Edit project; `Retry-After`: until the next minute), or 10 000 events waiting to be written (`Retry-After: 5`). The SDKs wait and send again. |
 | 503 | The database cannot be reached (Postgres restarting, for example), with `Retry-After: 60`: the tool cannot look up the project's key. |
 
 During a database outage the events already accepted are not lost at once: the writer keeps the batch it is writing (up to 500 events, of up to 1 MiB each, on top of the queue's limits) and tries again for up to 2 minutes from the start of that write. After that the batch is dropped, admins get an alert ("events the database could not store"), and the next batch gets its own 2 minutes. New requests get 503 meanwhile, so the SDKs keep their events and send them again later.

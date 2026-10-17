@@ -112,3 +112,20 @@ export function parsePatterns(text: string): string[] {
     .map((line) => line.trim())
     .filter((line) => line !== '')
 }
+
+/** The events-per-minute limits Edit project takes; a new project starts at 1000. */
+export const RATE_LIMIT_MIN = 10
+export const RATE_LIMIT_MAX = 100_000
+
+/** parseRateLimit reads the events-per-minute field: a whole number from 10 to 100 000 (spaces between digits allowed), else null. */
+export function parseRateLimit(text: string): number | null {
+  const digits = text.trim().replace(/ /g, '')
+  if (!/^\d+$/.test(digits)) return null
+  const limit = Number(digits)
+  return limit >= RATE_LIMIT_MIN && limit <= RATE_LIMIT_MAX ? limit : null
+}
+
+/** rateLimitSentence says what a project's limit does (Setup and keys). Sentry and PostHog traffic each have their own count. */
+export function rateLimitSentence(limit: number): string {
+  return `It accepts up to ${limit.toLocaleString('en-US')} events a minute from the Sentry SDKs, and as many from the PostHog SDK; more are refused (429) until the next minute.`
+}

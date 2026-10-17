@@ -18,7 +18,7 @@ import { SettingsHeader } from '../components/SettingsHeader'
 import { Tag } from '../components/Tag'
 import { useProjects } from '../layout/ProjectsContext'
 import { formatFullDate } from '../lib/format'
-import { parsePatterns, patternsText, RETENTION_CHOICES, retentionLabel, trackingLabels } from '../lib/settings'
+import { parsePatterns, parseRateLimit, patternsText, RETENTION_CHOICES, retentionLabel, trackingLabels } from '../lib/settings'
 import { problem } from '../lib/signin'
 import { usePolling } from '../lib/usePolling'
 import page from './Page.module.css'
@@ -97,9 +97,10 @@ function ManageProjects() {
           title={`Edit ${editing.name}`}
           initial={editing}
           routePatterns={{ projectId: editing.id, initial: editing.routePatterns }}
+          rateLimit={editing.rateLimitPerMinute}
           submitLabel="Save changes"
-          onSubmit={async (settings, routePatterns) => {
-            await updateProject(editing.id, { ...settings, routePatterns })
+          onSubmit={async (settings, extra) => {
+            await updateProject(editing.id, { ...settings, ...extra })
             changed()
             close()
           }}
@@ -192,19 +193,22 @@ interface ProjectFormProps {
   initial: ProjectSettings
   /** routePatterns adds the route patterns field (Edit project only). */
   routePatterns?: { projectId: number; initial: string[] }
+  /** rateLimit adds the events-per-minute field with this value (Edit project only). */
+  rateLimit?: number
   note?: string
   submitLabel: string
-  /** onSubmit gets the route patterns too when the form has them. */
-  onSubmit: (settings: ProjectSettings, routePatterns?: string[]) => Promise<void>
+  /** onSubmit gets the route patterns and the limit too when the form has them. */
+  onSubmit: (settings: ProjectSettings, extra: { routePatterns?: string[]; rateLimitPerMinute?: number }) => Promise<void>
   /** onCancel closes the form; without it there is no Cancel button. */
   onCancel?: () => void
   children?: ReactNode
 }
 
-/** ProjectForm is the New project card: name, how long to keep data, what to track (and, when editing, the route patterns). */
-function ProjectForm({ title, initial, routePatterns, note, submitLabel, onSubmit, onCancel, children }: ProjectFormProps) {
+/** ProjectForm is the New project card: name, how long to keep data, what to track (and, when editing, the route patterns and the events-per-minute limit). */
+function ProjectForm({ title, initial, routePatterns, rateLimit, note, submitLabel, onSubmit, onCancel, children }: ProjectFormProps) {
   const [settings, setSettings] = useState<ProjectSettings>(initial)
   const [patterns, setPatterns] = useState(patternsText(routePatterns?.initial ?? []))
+  const [limitText, setLimitText] = useState(rateLimit === undefined ? '' : String(rateLimit))
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const set = (change: Partial<ProjectSettings>) => setSettings((s) => ({ ...s, ...change }))
@@ -215,10 +219,18 @@ function ProjectForm({ title, initial, routePatterns, note, submitLabel, onSubmi
       setError('Give the project a name.')
       return
     }
+    const limit = rateLimit === undefined ? undefined : parseRateLimit(limitText)
+    if (limit === null) {
+      setError('The events-per-minute limit is a whole number from 10 to 100 000.')
+      return
+    }
     setBusy(true)
     setError('')
     try {
-      await onSubmit({ ...settings, name: settings.name.trim() }, routePatterns ? parsePatterns(patterns) : undefined)
+      await onSubmit(
+        { ...settings, name: settings.name.trim() },
+        { routePatterns: routePatterns ? parsePatterns(patterns) : undefined, rateLimitPerMinute: limit },
+      )
     } catch (err) {
       setError(problem(err))
     } finally {
@@ -283,6 +295,23 @@ function ProjectForm({ title, initial, routePatterns, note, submitLabel, onSubmi
         </fieldset>
 
         {routePatterns && <RoutePatternsField projectId={routePatterns.projectId} text={patterns} onChange={setPatterns} />}
+
+        {rateLimit !== undefined && (
+          <label className={`${form.field} ${styles.limit}`}>
+            <span className={form.label}>Events per minute</span>
+            <span className={form.hint}>
+              The Sentry SDKs and the PostHog SDK may each send this many events a minute (10 to 100 000); more get 429 until the next
+              minute. A public site is best kept low.
+            </span>
+            <input
+              className={form.input}
+              aria-label="Events per minute"
+              inputMode="numeric"
+              value={limitText}
+              onChange={(e) => setLimitText(e.target.value)}
+            />
+          </label>
+        )}
 
         {note && <p className={`${form.note} ${styles.note}`}>{note}</p>}
         {error && (

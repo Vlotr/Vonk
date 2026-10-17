@@ -85,9 +85,18 @@ None of these belong in production.
 - `DEV_BASIC_AUTH` is no longer read (accounts replaced it); the tool warns when it is set.
 - Read by the tests and the Makefile, not by the tool: `TEST_DATABASE_URL` (Go tests against Postgres), `E2E_DATABASE_URL` (the end-to-end tests against Postgres), `POSTGRES_IMAGE` (`make test-postgres`), and `DEV_DATA_DIR`, `DEV_SECRET_KEY`, `DEV_BASE_URL` (`make dev`, whose fixed secret is for your machine only).
 
+## Per-project settings
+
+An admin sets these per project in Settings → Projects → Edit (the dashboard's `PATCH /ui/api/settings/projects/{id}`); they apply at once.
+
+- **Keep data for**: 30, 90 (the default), 180 or 365 days, or indefinitely.
+- **Events per minute** (`rateLimitPerMinute`): 1000 by default, a whole number from 10 to 100 000. The Sentry SDKs and the PostHog SDK may each send that many events a minute; more get 429 with `Retry-After` until the next minute (the SDKs wait and send again). Setup and keys shows it.
+- **Route patterns**: see [SDK setup](sdk-setup.md#page-views-with-posthog-js).
+
+The limit counts events, not bytes, and one event can be up to 1 MiB. The DSN of a browser app and a PostHog token are public (anyone can read them in the page), so anyone can send a project that many events a minute: at the default limit up to about 1 GiB a minute through the Sentry SDKs' address alone, and it is all stored until the retention removes it. For a public site, lower the project's limit to what the site really sends (its busiest minute, with some room) and keep its retention short; an app that only reports server errors (Laravel) keeps its DSN on the server.
+
 ## Limits that are not settings
 
-- Each project accepts 1000 events a minute from Sentry SDKs and 1000 from PostHog SDKs; more get 429 with `Retry-After` (the SDKs wait and send again).
 - Requests are at most 20 MiB (before and after decompression); one event at most 1 MiB.
 - Up to 10 000 events (or 256 MiB) wait to be written; when that is full, ingest answers 429 with `Retry-After: 5`.
 - Source map bundles up to 100 MiB.

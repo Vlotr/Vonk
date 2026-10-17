@@ -8,7 +8,7 @@ import form from '../components/Form.module.css'
 import { LoadError } from '../components/LoadError'
 import { SettingsHeader } from '../components/SettingsHeader'
 import { useProjects } from '../layout/ProjectsContext'
-import { browserSnippet, identifySnippet, LARAVEL_USER_SNIPPET, laravelEnvLine, posthogSnippet } from '../lib/settings'
+import { browserSnippet, identifySnippet, LARAVEL_USER_SNIPPET, laravelEnvLine, posthogSnippet, rateLimitSentence } from '../lib/settings'
 import { problem } from '../lib/signin'
 import { NotFoundPage } from './NotFoundPage'
 import page from './Page.module.css'
@@ -78,6 +78,10 @@ function SetupAndKeys() {
         </h2>
         <p className={form.note}>The Sentry SDKs send errors to this address. It is not a secret: browsers see it too.</p>
         <CopyBlock label="DSN" value={project.dsn} />
+        <p className={form.note}>
+          {rateLimitSentence(project.rateLimitPerMinute)}{' '}
+          <Link to={`/settings/projects?edit=${project.id}`}>Change the limit under Edit project.</Link>
+        </p>
       </section>
 
       {project.tracksLaravel && (
