@@ -42,7 +42,7 @@ make test   # Go and web unit tests
 make e2e    # the real binary, the examples and the dashboard in Chromium (needs PHP and Composer)
 ```
 
-`make e2e` saves `e2e/screenshots/phase1-issues.png`, `phase1-issue-detail.png`, `phase2-all-projects.png`, `phase2-settings.png`, `phase2-alerts.png`, `phase2-status.png`, `phase3-pages.png`, `phase4-journey.png`, `phase4-activity.png`, `phase4-events.png`, `phase4-sourcemaps.png` and `phase4-api-tokens.png`, the dashboard as it looked during the run.
+`make e2e` saves `e2e/screenshots/phase1-issues.png`, `phase1-issue-detail.png`, `phase2-all-projects.png`, `phase2-settings.png`, `phase2-alerts.png`, `phase2-status.png`, `phase3-pages.png`, `phase4-journey.png`, `phase4-activity.png`, `phase4-events.png`, `phase4-sourcemaps.png`, `phase4-api-tokens.png`, `phase5-backup.png` and `phase5-privacy.png`, the dashboard as it looked during the run.
 
 ## Run the container
 
@@ -163,6 +163,11 @@ Maps are matched by the debug id the tools put in each file (and the browser SDK
 - `GET /health` answers 200 with status `ok`, or `degraded` naming what fails while the tool still works (a disk under 10 % or 1 GiB free, or one that cannot be read); 503 with status `error` only when it cannot work (the database fails, or the disk has under 1 % or 256 MiB free). The answer has the version, the free disk space and the queue depth; the Docker health check uses it. Settings → Status shows the same and more: uptime, database size, events in the last hour, the last backup (or, on Postgres, the `pg_dump` command) and the recent admin alerts.
 - Retention: once a day each project's data older than its "Keep data for" is deleted (errors, page views, custom events and their hourly statistics, and source maps uploaded before it); "Indefinitely" keeps everything.
 - Updates: when a new version changes the database, it first copies it to `DATA_DIR/backups/pre-migrate-<version>-<time>.db` (the five newest are kept) and refuses to start if that copy fails. On Postgres it warns instead: make a `pg_dump` before you upgrade.
+
+## Backup, restore and deleting a user's data
+
+- Settings → Backup (admins, SQLite): "Download backup" saves the whole database as one SQLite file, made while the tool runs (uploaded source maps are not in it). A restore is an upload of such a file, or `docker exec <container> /monitor restore /data/<file>`: the file is checked (SQLite's integrity check, this tool's schema at a version no newer than the running one) and waits as `DATA_DIR/restore-pending.db`; nothing changes until the next start, which moves the current database to `DATA_DIR/backups/pre-restore-<version>-<time>.db` and puts the backup in its place ("Restart required"; `monitor restore --cancel` or the page's button cancels it). The page also lists the automatic backups. On Postgres it shows `pg_dump` and `pg_restore` instead.
+- Settings → Privacy (admins): deletes everything stored with one user id (Sentry's `user.id`, PostHog's `distinct_id`), in every project or the ones chosen: error events, page views and their leaves, custom events; issues that only that user had go, the others are recounted, and the hourly statistics are rebuilt within a minute. On the server: `docker exec <container> /monitor delete-user-data --user-id 42` (`--project <id>`, repeated, to limit it). The log gets one line with the admin and the number of rows, never the user id. Backups made before keep the data until they are replaced.
 
 The tool speaks plain HTTP. Put a reverse proxy such as Caddy in front of it for HTTPS; with an `https://` `BASE_URL` the session cookie is sent over HTTPS only.
 
