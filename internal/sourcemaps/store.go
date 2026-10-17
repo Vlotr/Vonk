@@ -26,6 +26,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -96,6 +97,8 @@ type Service struct {
 	assembling map[assembly]bool   // bundles being put together
 	reserved   map[int64]int64     // per token: room taken by chunks being written (reserveChunk)
 	hasMaps    map[int64]mapsKnown // per project: whether it has source maps (projectHasMaps)
+
+	badPaths sync.Map // ids of rows whose path pathOf refused, logged once
 }
 
 // assembly is one token's request to put a bundle together.
@@ -270,7 +273,7 @@ func (s *Service) assembleBundle(ctx context.Context, tokenID int64, req bundleR
 	}
 	stored, err := s.db.SaveSourceMapFiles(ctx, files)
 	if err != nil {
-		removeFiles(s.dir, files)
+		s.removeFiles(files)
 		return err
 	}
 	if len(stored) < len(files) { // the same bundle was stored in between
@@ -284,7 +287,7 @@ func (s *Service) assembleBundle(ctx context.Context, tokenID int64, req bundleR
 				extra = append(extra, f)
 			}
 		}
-		removeFiles(s.dir, extra)
+		s.removeFiles(extra)
 	}
 	for _, c := range req.Chunks {
 		os.Remove(filepath.Join(s.chunkDir(tokenID), c))
@@ -355,7 +358,7 @@ func (s *Service) unpackBundle(zr *zip.Reader, req bundleRequest) ([]store.Sourc
 		for _, p := range req.Projects {
 			rel, n, err := s.extract(entry, p.ID, s.maxExtract-extracted)
 			if err != nil {
-				removeFiles(s.dir, files)
+				s.removeFiles(files)
 				return nil, err
 			}
 			extracted += n
@@ -467,16 +470,44 @@ func randomName() string {
 	return hex.EncodeToString(b)
 }
 
+// storedName is the path of a file the tool stored, relative to the
+// source map directory: the project's id and a random name (extract).
+var storedName = regexp.MustCompile(`^([0-9]+)/[0-9a-f]{24}$`)
+
+// errNotOurFile is what reading a row whose path is not a stored name gives.
+var errNotOurFile = errors.New("the row names a path that is not a file the tool made")
+
+// pathOf returns where a row's file is on disk. A path that is not a name
+// the tool makes, in the row's project's directory, is refused (false): a
+// restored backup could name any file ("../monitor.db"), which must never
+// be read or removed. Such a row is logged once.
+func (s *Service) pathOf(f store.SourceMapFile) (string, bool) {
+	if m := storedName.FindStringSubmatch(f.Path); m != nil && m[1] == strconv.FormatInt(f.ProjectID, 10) {
+		return filepath.Join(s.dir, filepath.FromSlash(f.Path)), true
+	}
+	if _, logged := s.badPaths.LoadOrStore(f.ID, true); !logged {
+		s.log.Warn("sourcemaps: a source map row names a path that is not a file the tool made; it is never read or removed",
+			"project", f.ProjectID, "row", f.ID)
+	}
+	return "", false
+}
+
 // removeFiles deletes the files of rows that will not be stored.
-func removeFiles(dir string, files []store.SourceMapFile) {
+func (s *Service) removeFiles(files []store.SourceMapFile) {
 	for _, f := range files {
-		os.Remove(filepath.Join(dir, filepath.FromSlash(f.Path)))
+		if name, ok := s.pathOf(f); ok {
+			os.Remove(name)
+		}
 	}
 }
 
 // readFile returns a stored file's content.
 func (s *Service) readFile(f store.SourceMapFile) ([]byte, error) {
-	return s.readAll(filepath.Join(s.dir, filepath.FromSlash(f.Path)))
+	name, ok := s.pathOf(f)
+	if !ok {
+		return nil, errNotOurFile
+	}
+	return s.readAll(name)
 }
 
 // DeleteUploadedBefore deletes at most limit of a project's files uploaded
@@ -490,7 +521,11 @@ func (s *Service) DeleteUploadedBefore(ctx context.Context, projectID int64, cut
 	ids := make([]int64, len(files))
 	for i, f := range files {
 		ids[i] = f.ID
-		if err := os.Remove(filepath.Join(s.dir, filepath.FromSlash(f.Path))); err != nil && !errors.Is(err, os.ErrNotExist) {
+		name, ok := s.pathOf(f)
+		if !ok {
+			continue // the row goes; the file it names stays
+		}
+		if err := os.Remove(name); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return 0, err
 		}
 	}

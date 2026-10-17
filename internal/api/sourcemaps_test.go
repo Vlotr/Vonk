@@ -61,7 +61,7 @@ func TestIssueDetail_SymbolicatesEventsStoredBeforeTheirMap(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		rel := fmt.Sprintf("%d/%s", p.ID, name)
+		rel := fmt.Sprintf("%d/%024x", p.ID, len(files)+1) // the shape uploads get: 24 hex digits
 		os.MkdirAll(filepath.Join(env.dir, "sourcemaps", fmt.Sprint(p.ID)), 0o750)
 		if err := os.WriteFile(filepath.Join(env.dir, "sourcemaps", rel), data, 0o640); err != nil {
 			t.Fatal(err)

@@ -3,6 +3,7 @@ package jobs
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -240,7 +241,7 @@ func TestRetention_SourceMapsCountFromUpload(t *testing.T) {
 	maps := sourcemaps.New(sourcemaps.Options{DB: db, Dir: dir, Logger: quietLogger(), Now: func() time.Time { return testNow }})
 
 	upload := func(p store.Project, name string, age time.Duration) string {
-		rel := fmt.Sprintf("%d/%s", p.ID, name)
+		rel := fmt.Sprintf("%d/%x", p.ID, sha256.Sum256([]byte(name)))[:len(fmt.Sprint(p.ID))+25] // the shape uploads get: 24 hex digits
 		os.MkdirAll(filepath.Join(dir, fmt.Sprint(p.ID)), 0o750)
 		if err := os.WriteFile(filepath.Join(dir, rel), []byte("{}"), 0o640); err != nil {
 			t.Fatal(err)

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -112,10 +113,11 @@ func TestSymbolicate_TooLargeMapIsReadOnce(t *testing.T) {
 
 	data := denseMap(2000) // about 10 KB on disk, 48 KB of mappings parsed
 	reads := map[string]int{}
+	labels := map[string]string{} // stored name → the file's name in the test
 	var mu sync.Mutex
 	env.svc.readAll = func(name string) ([]byte, error) {
 		mu.Lock()
-		reads[filepath.Base(name)]++
+		reads[labels[filepath.Base(name)]]++
 		mu.Unlock()
 		return os.ReadFile(name)
 	}
@@ -124,11 +126,13 @@ func TestSymbolicate_TooLargeMapIsReadOnce(t *testing.T) {
 	upload := func(name, debugID string, content []byte) {
 		dir := filepath.Join(env.svc.dir, "1")
 		os.MkdirAll(dir, 0o750)
-		if err := os.WriteFile(filepath.Join(dir, name), content, 0o640); err != nil {
+		stored := randomName()
+		labels[stored] = name
+		if err := os.WriteFile(filepath.Join(dir, stored), content, 0o640); err != nil {
 			t.Fatal(err)
 		}
 		_, err := env.db.SaveSourceMapFiles(ctx, []store.SourceMapFile{{ProjectID: env.project.ID, File: "~/" + name, Kind: store.SourceMapKind,
-			DebugID: debugID, Bundle: name, Path: "1/" + name, Size: int64(len(content)), UploadedAt: testNow}})
+			DebugID: debugID, Bundle: name, Path: "1/" + stored, Size: int64(len(content)), UploadedAt: testNow}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -164,7 +168,8 @@ func TestSymbolicate_TooLargeMapIsReadOnce(t *testing.T) {
 // two rows with one id (as plain SQLite row ids allowed) get their own maps.
 func TestParsedMap_KnowsFilesByPath(t *testing.T) {
 	env := newTestEnv(t)
-	row := func(path string, b build) store.SourceMapFile {
+	row := func(projectID int64, b build) store.SourceMapFile {
+		path := strconv.FormatInt(projectID, 10) + "/" + randomName()
 		data, err := os.ReadFile(filepath.Join("testdata", b.dir, b.file+".map"))
 		if err != nil {
 			t.Fatal(err)
@@ -173,13 +178,13 @@ func TestParsedMap_KnowsFilesByPath(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(env.svc.dir, path), data, 0o640); err != nil {
 			t.Fatal(err)
 		}
-		return store.SourceMapFile{ID: 5, Path: path, Size: int64(len(data))}
+		return store.SourceMapFile{ID: 5, ProjectID: projectID, Path: path, Size: int64(len(data))}
 	}
-	a, err := env.svc.parsedMap(row("1/a", buildA))
+	a, err := env.svc.parsedMap(row(1, buildA))
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := env.svc.parsedMap(row("2/b", buildB))
+	b, err := env.svc.parsedMap(row(2, buildB))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -341,9 +341,13 @@ func (s *Service) tooLarge(row store.SourceMapFile, parsedBytes int64) (any, int
 // unreadable is what the cache keeps for a file that could not be read:
 // a missing one (a restored backup holds the rows, not the files; or the
 // file was just removed with its row) is logged once and then known as
-// unusable, as its path is never used again; other errors are not kept,
-// so the next event tries again.
+// unusable, as its path is never used again, and so is a row whose path
+// is not a file the tool made (pathOf); other errors are not kept, so the
+// next event tries again.
 func (s *Service) unreadable(row store.SourceMapFile, err error) (any, int64, error) {
+	if errors.Is(err, errNotOurFile) {
+		return unusable{err}, unusableBytes, nil // pathOf logged it
+	}
 	if !errors.Is(err, fs.ErrNotExist) {
 		return nil, 0, err
 	}

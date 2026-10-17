@@ -97,7 +97,7 @@ func (e *testEnv) storeBuild(t *testing.T, projectID int64, b build, release str
 		if err != nil {
 			t.Fatal(err)
 		}
-		rel := path.Join(strconv.FormatInt(projectID, 10), b.dir+"-"+f.name+"-"+release)
+		rel := path.Join(strconv.FormatInt(projectID, 10), randomName()) // as extract names them
 		if err := os.MkdirAll(filepath.Join(e.svc.dir, path.Dir(rel)), 0o750); err != nil {
 			t.Fatal(err)
 		}
