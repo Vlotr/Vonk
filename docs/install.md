@@ -1,15 +1,15 @@
 # Install with Docker Compose
 
-This gets the tool running on one machine in about ten minutes: start the container, create the first account, add a project and send it a first error. HTTPS comes after that, from a reverse proxy ([HTTPS with Caddy](https-caddy.md)).
+This gets Vonk running on one machine in about ten minutes: start the container, create the first account, add a project and send it a first error. HTTPS comes after that, from a reverse proxy ([HTTPS with Caddy](https-caddy.md)).
 
 You need a Linux or macOS machine, x86-64 (amd64) or 64-bit ARM (arm64), with Docker and Docker Compose v2 (`docker compose version` prints 2.x), and `openssl` and `curl`. The tool needs little: the image is about 21 MB (8 MB to download), and the container used under 50 MB of memory in our tests.
 
-> **The image.** Each release is published as `ghcr.io/OWNER/monitor`, where `OWNER` is the GitHub account that publishes the project: replace `OWNER` below with it. The tag `1` follows every 1.x release; `1.2.3` stays on one. To build the image yourself instead, run `make docker` in a checkout of the repository; it makes `monitor:dev`, which you then put in `image:`.
+> **The image.** Vonk's source is at [github.com/Vlotr/Vonk](https://github.com/Vlotr/Vonk). Each release is published as `ghcr.io/vlotr/monitor`. The tag `1` follows every 1.x release; `1.2.3` stays on one. To build the image yourself instead, clone the repository (`git clone https://github.com/Vlotr/Vonk.git`) and run `make docker` in it; it makes `monitor:dev`, which you then put in `image:`.
 
 ## 1. Make a folder with two files
 
 ```sh
-mkdir monitor && cd monitor
+mkdir vonk && cd vonk
 ```
 
 `compose.yaml`:
@@ -17,7 +17,7 @@ mkdir monitor && cd monitor
 ```yaml
 services:
   app:
-    image: ghcr.io/OWNER/monitor:1
+    image: ghcr.io/vlotr/monitor:1
     ports: ["8000:8000"]
     environment:
       SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY in .env}
@@ -81,7 +81,7 @@ It answers `{"id":"..."}`, and Issues shows `RuntimeException: Hello from the in
 
 **From your Laravel app** (sentry-laravel, Laravel 11 or newer): `composer require sentry/sentry-laravel`, add `Integration::handles($exceptions);` to `bootstrap/app.php` as Setup and keys shows, put `SENTRY_LARAVEL_DSN=<the DSN>` in the app's `.env`, and run `php artisan sentry:test`. The details are in [SDK setup](sdk-setup.md#laravel).
 
-**With the Laravel example** from this repository (PHP 8.3 or newer and Composer), with `DSN` set as above, in `examples/laravel` (the `SENTRY_LARAVEL_DSN` line added last in `.env` counts):
+**With the Laravel example** from [the repository](https://github.com/Vlotr/Vonk/tree/main/examples/laravel) (PHP 8.3 or newer and Composer), with `DSN` set as above, in `examples/laravel` (the `SENTRY_LARAVEL_DSN` line added last in `.env` counts):
 
 ```sh
 composer install
@@ -112,7 +112,7 @@ The same with `docker run` (`--stop-timeout 30` for the same reason as `stop_gra
 openssl rand -hex 32 > monitor-secret && chmod 600 monitor-secret
 docker run -d --name monitor --restart unless-stopped -p 8000:8000 --stop-timeout 30 \
   -e SECRET_KEY="$(cat monitor-secret)" -e BASE_URL=http://localhost:8000 \
-  -v monitor-data:/data ghcr.io/OWNER/monitor:1
+  -v monitor-data:/data ghcr.io/vlotr/monitor:1
 ```
 
 Commands run as `docker exec monitor /monitor project create --name Webshop`.
