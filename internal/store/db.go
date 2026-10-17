@@ -139,9 +139,9 @@ func openSQLite(ctx context.Context, path string) (*DB, error) {
 // (default_transaction_read_only), as SQLite's are (_query_only). Errors
 // never repeat the URL, which holds the password.
 func openPostgres(ctx context.Context, rawURL string) (*DB, error) {
-	writeConfig, err := pgx.ParseConfig(rawURL)
+	writeConfig, err := postgresConfig(rawURL)
 	if err != nil {
-		return nil, errors.New("DATABASE_URL is not a valid Postgres URL (postgres://user:password@host:5432/database)")
+		return nil, err
 	}
 	readConfig := writeConfig.Copy()
 	readConfig.RuntimeParams["default_transaction_read_only"] = "on"
@@ -171,6 +171,25 @@ func openPostgres(ctx context.Context, rawURL string) (*DB, error) {
 // DataDir is DATA_DIR: where backups/, a pending restore and the SQLite file live.
 func (db *DB) DataDir() string {
 	return db.dataDir
+}
+
+// defaultConnectTimeout bounds a new Postgres connection when DATABASE_URL
+// sets no connect_timeout (pgx would wait for the system's TCP timeout,
+// minutes, on a host that does not answer): during a failover the writer
+// then learns quickly that the database cannot be reached, and tries again.
+const defaultConnectTimeout = 5 * time.Second
+
+// postgresConfig parses DATABASE_URL, with defaultConnectTimeout when it
+// names none. The error never repeats the URL, which holds the password.
+func postgresConfig(rawURL string) (*pgx.ConnConfig, error) {
+	cfg, err := pgx.ParseConfig(rawURL)
+	if err != nil {
+		return nil, errors.New("DATABASE_URL is not a valid Postgres URL (postgres://user:password@host:5432/database)")
+	}
+	if cfg.ConnectTimeout == 0 {
+		cfg.ConnectTimeout = defaultConnectTimeout
+	}
+	return cfg, nil
 }
 
 // Postgres reports whether the database is Postgres (DATABASE_URL) rather than SQLite.

@@ -70,12 +70,26 @@ func (r *Retention) Run(ctx context.Context, _ time.Time) {
 		batch = DefaultRetentionBatch
 	}
 
+	// A shutdown ends ctx: the run stops with one line, not an error for
+	// every kind of every project; the next run deletes the rest.
+	stopped := func() bool {
+		if ctx.Err() == nil {
+			return false
+		}
+		r.Log.Info("retention: stopped because the tool is shutting down; the next run deletes the rest")
+		return true
+	}
 	projects, err := r.DB.ListProjects(ctx)
 	if err != nil {
-		r.Log.Error("retention: list projects", "err", err)
+		if !stopped() {
+			r.Log.Error("retention: list projects", "err", err)
+		}
 		return
 	}
 	for _, p := range projects {
+		if stopped() {
+			return
+		}
 		if p.RetentionDays == nil {
 			continue // kept indefinitely
 		}
@@ -98,6 +112,9 @@ func (r *Retention) Run(ctx context.Context, _ time.Time) {
 			for _, del := range k.deletes {
 				n, err := r.deleteInBatches(ctx, batch, func(limit int) (int64, error) { return del(ctx, p.ID, cutoff, limit) })
 				total += n
+				if err != nil && stopped() {
+					return
+				}
 				if err != nil {
 					r.Log.Error("retention: delete old "+k.what, "project", p.ID, "deleted", total, "err", err)
 					break // the next kind still goes

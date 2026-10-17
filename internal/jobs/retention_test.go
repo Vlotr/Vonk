@@ -332,3 +332,41 @@ func TestRetention_RetriesADeadlock(t *testing.T) {
 		t.Errorf("%d calls, logs:\n%s\nwant 4 calls and an error", maps.calls, logs.String())
 	}
 }
+
+// cancellingMaps ends the run's context on its first call, as a shutdown
+// in the middle of a run does.
+type cancellingMaps struct {
+	cancel func()
+	calls  int
+}
+
+func (c *cancellingMaps) DeleteUploadedBefore(ctx context.Context, _ int64, _ time.Time, _ int) (int64, error) {
+	c.calls++
+	c.cancel()
+	return 0, ctx.Err()
+}
+
+// A shutdown during a run stops it with one line, not an error for every
+// kind of every project; the next run (after the start) goes on.
+func TestRetention_ShutdownStopsTheRunQuietly(t *testing.T) {
+	db := openDB(t)
+	for _, name := range []string{"Short", "Shorter", "Shortest"} {
+		p := projectKeeping(t, db, name, 30)
+		saveEvents(t, db, p.ID, "old", 40*day, 2)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	maps := &cancellingMaps{cancel: cancel}
+	var logs bytes.Buffer
+	r := &Retention{DB: db, Log: slog.New(slog.NewTextHandler(&logs, nil)), Now: func() time.Time { return testNow }, SourceMaps: maps}
+	r.Run(ctx, testNow)
+
+	out := logs.String()
+	if strings.Contains(out, "level=ERROR") || strings.Count(out, "\n") != 1 || !strings.Contains(out, "level=INFO") ||
+		!strings.Contains(out, "shutting down") {
+		t.Errorf("want one INFO line about the shutdown, got:\n%s", out)
+	}
+	if maps.calls != 1 {
+		t.Errorf("the run went on after the shutdown: %d calls", maps.calls)
+	}
+}

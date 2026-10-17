@@ -13,10 +13,11 @@ import (
 	"monitor/internal/store/storetest"
 )
 
-// column is one column as both databases describe it: its type family,
-// whether it may be NULL, and its default.
+// column is one column as both databases describe it: its Postgres type
+// (for SQLite, the one its declared type must have in Postgres; see
+// postgresType), whether it may be NULL, and its default.
 type column struct {
-	Type    string // integer, text, boolean or binary
+	Type    string // integer, bigint, text, boolean or bytea
 	NotNull bool
 	Default string // "" for none
 }
@@ -100,21 +101,35 @@ func names(files []migration) string {
 	return strings.Join(out, " ")
 }
 
-// typeFamily maps a declared column type of either database to its family.
-func typeFamily(t *testing.T, declared string) string {
-	switch strings.ToLower(declared) {
-	case "integer", "bigint":
+// postgresType is the Postgres type a SQLite column must have in the
+// Postgres twin of its migration. SQLite stores every INTEGER in up to 8
+// bytes, Postgres' integer in 4, so the mapping is explicit: id INTEGER
+// PRIMARY KEY (SQLite's row id) is a bigint identity; the other INTEGER
+// columns are small numbers (days, a limit, a threshold, a version) and
+// integer; BIGINT (times in milliseconds, ids of other rows, counters) is
+// bigint, which an int4 would overflow.
+func postgresType(t *testing.T, table, name, declared string, primaryKey bool) string {
+	switch strings.ToUpper(declared) {
+	case "INTEGER":
+		if name == "id" && primaryKey {
+			return "bigint"
+		}
 		return "integer"
-	case "text":
+	case "BIGINT":
+		return "bigint"
+	case "TEXT":
 		return "text"
-	case "boolean":
+	case "BOOLEAN":
 		return "boolean"
-	case "blob", "bytea":
-		return "binary"
+	case "BLOB":
+		return "bytea"
 	}
-	t.Errorf("unexpected column type %q", declared)
+	t.Errorf("%s.%s: unexpected SQLite column type %q", table, name, declared)
 	return declared
 }
+
+// postgresTypes are the types the Postgres migrations may use.
+var postgresTypes = map[string]bool{"integer": true, "bigint": true, "text": true, "boolean": true, "bytea": true}
 
 // normalDefault writes a default the same way for both databases:
 // Postgres adds casts ('open'::text) and writes booleans in lowercase.
@@ -147,7 +162,7 @@ func sqliteSchema(t *testing.T, db *DB) schema {
 			if err := rows.Scan(&cid, &name, &typ, &notNull, &dflt, &pkPos); err != nil {
 				t.Fatal(err)
 			}
-			c := column{Type: typeFamily(t, typ), NotNull: notNull == 1 || pkPos > 0}
+			c := column{Type: postgresType(t, table, name, typ, pkPos > 0), NotNull: notNull == 1 || pkPos > 0}
 			if dflt != nil {
 				c.Default = normalDefault(*dflt)
 			}
@@ -205,7 +220,10 @@ func postgresSchema(t *testing.T, db *DB) schema {
 		if s.Tables[table] == nil {
 			s.Tables[table] = map[string]column{}
 		}
-		s.Tables[table][name] = column{Type: typeFamily(t, typ), NotNull: nullable == "NO", Default: normalDefault(dflt)}
+		if !postgresTypes[typ] {
+			t.Errorf("%s.%s: unexpected Postgres column type %q", table, name, typ)
+		}
+		s.Tables[table][name] = column{Type: typ, NotNull: nullable == "NO", Default: normalDefault(dflt)}
 	}
 	rows.Close()
 

@@ -39,7 +39,8 @@ var defaultRetryDelays = []time.Duration{200 * time.Millisecond, time.Second, 5 
 // While the database cannot be reached at all (store.Unavailable: Postgres
 // restarting or failing over, the network to it cut), the writer keeps the
 // batch and tries again, waiting 200 ms and then twice as long each time up
-// to 5 s, for up to 2 minutes. It takes nothing off the queue meanwhile, so
+// to 5 s, for up to 2 minutes per batch (its error events, page events and
+// custom events together). It takes nothing off the queue meanwhile, so
 // the queue fills and ingest answers 429 with Retry-After: the SDKs keep
 // their events too, and memory stays bounded. Once Close is called, it
 // waits for the database at most 5 s more, within the shutdown's budget.
@@ -192,8 +193,11 @@ func (w *Writer) drain(ctx context.Context, batch []Item) {
 // tells the hooks about new and regressed issues. Error events, page
 // events and custom events go in a transaction each. A part that still
 // fails after the retries is logged and dropped, so one bad moment never
-// stops ingest.
+// stops ingest. The parts share one window for a database that cannot be
+// reached (unavailableFor from the start of the flush), so a batch waits
+// for it at most that long, not once per part.
 func (w *Writer) flush(ctx context.Context, batch []Item) {
+	giveUp := time.Now().Add(w.unavailableFor)
 	var (
 		errorEvents  []store.NewErrorEvent
 		pageEvents   []store.PageEvent
@@ -222,7 +226,7 @@ func (w *Writer) flush(ctx context.Context, batch []Item) {
 
 	if len(errorEvents) > 0 {
 		var result store.SaveResult
-		if w.save(len(errorEvents), func() (err error) {
+		if w.save(len(errorEvents), giveUp, func() (err error) {
 			result, err = w.db.SaveErrorEvents(ctx, errorEvents)
 			return err
 		}) {
@@ -242,7 +246,7 @@ func (w *Writer) flush(ctx context.Context, batch []Item) {
 	}
 	if len(pageEvents) > 0 {
 		var result store.PageSaveResult
-		if w.save(len(pageEvents), func() (err error) {
+		if w.save(len(pageEvents), giveUp, func() (err error) {
 			result, err = w.db.SavePageEvents(ctx, pageEvents)
 			return err
 		}) {
@@ -255,7 +259,7 @@ func (w *Writer) flush(ctx context.Context, batch []Item) {
 	}
 	if len(customEvents) > 0 {
 		var result store.CustomSaveResult
-		if w.save(len(customEvents), func() (err error) {
+		if w.save(len(customEvents), giveUp, func() (err error) {
 			result, err = w.db.SaveCustomEvents(ctx, customEvents)
 			return err
 		}) {
@@ -293,10 +297,10 @@ func (w *Writer) keepUntil(giveUp time.Time) time.Time {
 // save runs write until it succeeds and reports whether it did. A write
 // the database refuses is tried again after each of retryDelays; one that
 // fails because the database cannot be reached is tried again with
-// backoff while it is kept (see unavailableFor). When it never succeeds,
-// the n events are counted as lost.
-func (w *Writer) save(n int, write func() error) bool {
-	giveUp := time.Now().Add(w.unavailableFor)
+// backoff until giveUp (the flush's window, see unavailableFor), or the
+// stop deadline when that is sooner. When it never succeeds, the n events
+// are counted as lost.
+func (w *Writer) save(n int, giveUp time.Time, write func() error) bool {
 	wait := w.unavailableWait
 	refused := 0
 	for attempt := 1; ; attempt++ {

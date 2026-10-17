@@ -60,6 +60,7 @@ type PosthogHandler struct {
 	logger  *slog.Logger
 	now     func() time.Time
 	full    *fullQueue
+	lookups *failedLookups
 }
 
 // NewPosthogHandler returns the PostHog handler. Accepted page events go
@@ -67,7 +68,7 @@ type PosthogHandler struct {
 // events-per-minute limits for PostHog traffic.
 func NewPosthogHandler(db *store.DB, queue *Queue, limiter *RateLimiter, logger *slog.Logger) *PosthogHandler {
 	return &PosthogHandler{db: db, queue: queue, limiter: limiter, logger: logger, now: time.Now,
-		full: &fullQueue{queue: queue, logger: logger, prefix: "posthog"}}
+		full: &fullQueue{queue: queue, logger: logger, prefix: "posthog"}, lookups: &failedLookups{logger: logger, prefix: "posthog"}}
 }
 
 func (h *PosthogHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -174,7 +175,7 @@ func (h *PosthogHandler) capture(w http.ResponseWriter, r *http.Request) {
 		if !ok {
 			p, err = h.project(ctx, token)
 			if err != nil {
-				lookupFailed(w, r, h.logger, "posthog", err)
+				h.lookups.answer(w, r, err)
 				return
 			}
 			projects[token] = p

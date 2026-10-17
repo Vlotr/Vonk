@@ -324,6 +324,36 @@ type ProjectSettings struct {
 // afterwards, or ErrNotFound. When anything is refused nothing changes.
 // The slug stays as it was created.
 func (db *DB) UpdateProject(ctx context.Context, id int64, s ProjectSettings) (Project, error) {
+	return db.ChangeProject(ctx, id, func(old *ProjectSettings) error {
+		*old = s
+		return nil
+	})
+}
+
+// ChangeProject changes a project's settings in one write transaction: it
+// locks the project's row (FOR UPDATE), reads its settings, lets change
+// edit them, and writes them back, with the route patterns when change
+// sets them (RoutePatterns is nil going in). Two changes at once therefore
+// run one after the other and never undo each other (as
+// UpdateAlertSettings). It returns the project as stored, ErrNotFound, or
+// the error change returned, and writes nothing then. change must not
+// touch the database.
+func (db *DB) ChangeProject(ctx context.Context, id int64, change func(*ProjectSettings) error) (Project, error) {
+	tx, err := db.write.BeginTx(ctx)
+	if err != nil {
+		return Project{}, err
+	}
+	defer tx.Rollback() // no-op after Commit
+	p, err := scanProject(tx.QueryRowContext(ctx, "SELECT "+projectColumns+" FROM projects WHERE id = ?"+tx.forUpdate(), id))
+	if err != nil {
+		return Project{}, err
+	}
+	s := ProjectSettings{Name: p.Name, RetentionDays: p.RetentionDays,
+		TracksLaravel: p.TracksLaravel, TracksBrowser: p.TracksBrowser, TracksPageviews: p.TracksPageviews}
+	if err := change(&s); err != nil {
+		return Project{}, err
+	}
+
 	name := strings.TrimSpace(s.Name)
 	if name == "" {
 		return Project{}, errors.New("project name is required")
@@ -331,35 +361,22 @@ func (db *DB) UpdateProject(ctx context.Context, id int64, s ProjectSettings) (P
 	if s.RetentionDays != nil && *s.RetentionDays <= 0 {
 		return Project{}, errors.New("retention must be a positive number of days")
 	}
-	var patterns string
-	if s.RoutePatterns != nil {
-		var err error
-		if patterns, err = routePatternsJSON(*s.RoutePatterns); err != nil {
-			return Project{}, err
-		}
-	}
-
-	tx, err := db.write.BeginTx(ctx)
-	if err != nil {
-		return Project{}, err
-	}
-	defer tx.Rollback() // no-op after Commit
-	res, err := tx.ExecContext(ctx, `
+	if _, err := tx.ExecContext(ctx, `
 		UPDATE projects SET name = ?, retention_days = ?, tracks_laravel = ?, tracks_browser = ?, tracks_pageviews = ?
 		WHERE id = ?`,
-		name, s.RetentionDays, s.TracksLaravel, s.TracksBrowser, s.TracksPageviews, id)
-	if err != nil {
+		name, s.RetentionDays, s.TracksLaravel, s.TracksBrowser, s.TracksPageviews, id); err != nil {
 		return Project{}, err
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return Project{}, ErrNotFound
-	}
 	if s.RoutePatterns != nil {
+		patterns, err := routePatternsJSON(*s.RoutePatterns)
+		if err != nil {
+			return Project{}, err
+		}
 		if _, err := tx.ExecContext(ctx, "UPDATE projects SET route_patterns = ? WHERE id = ?", patterns, id); err != nil {
 			return Project{}, err
 		}
 	}
-	p, err := scanProject(tx.QueryRowContext(ctx, "SELECT "+projectColumns+" FROM projects WHERE id = ?", id))
+	p, err = scanProject(tx.QueryRowContext(ctx, "SELECT "+projectColumns+" FROM projects WHERE id = ?", id))
 	if err != nil {
 		return Project{}, err
 	}

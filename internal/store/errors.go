@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql/driver"
 	"errors"
 	"io"
@@ -26,8 +27,8 @@ func Retryable(err error) bool {
 // Unavailable reports whether err means the database could not be
 // reached at all (Postgres restarting or failing over, the network to it
 // cut) rather than that it refused this statement: the same write can
-// succeed unchanged once it is back. Constraint errors, a full disk and
-// the like are not.
+// succeed unchanged once it is back. Constraint errors, a full disk, the
+// caller's own deadline and the like are not.
 func Unavailable(err error) bool {
 	if err == nil {
 		return false
@@ -40,6 +41,13 @@ func Unavailable(err error) bool {
 	if errors.As(err, &pg) {
 		// 08: connection exceptions; 57P01-57P03: the server shuts down, crashed, or is starting up.
 		return strings.HasPrefix(pg.Code, "08") || pg.Code == "57P01" || pg.Code == "57P02" || pg.Code == "57P03"
+	}
+	// The caller's own context ended (its deadline, a shutdown): nothing
+	// says the database is away. context.DeadlineExceeded would pass for a
+	// net.Error below (it has Timeout()). A connection attempt that timed
+	// out is a ConnectError, caught above.
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
 	}
 	var netErr net.Error
 	return errors.As(err, &netErr) || errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, net.ErrClosed)

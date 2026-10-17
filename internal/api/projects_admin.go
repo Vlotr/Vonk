@@ -170,13 +170,6 @@ func (b projectBody) apply(s *store.ProjectSettings) error {
 	return nil
 }
 
-func settingsOf(p store.Project) store.ProjectSettings {
-	return store.ProjectSettings{
-		Name: p.Name, RetentionDays: p.RetentionDays,
-		TracksLaravel: p.TracksLaravel, TracksBrowser: p.TracksBrowser, TracksPageviews: p.TracksPageviews,
-	}
-}
-
 func (h *Handler) settingsProjects(w http.ResponseWriter, r *http.Request) {
 	projects, err := h.db.ListProjects(r.Context())
 	if err != nil {
@@ -250,39 +243,50 @@ func (h *Handler) settingsProject(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// invalidSettings is a change updateProject refuses: the merged settings
+// do not hold (a name too long, a retention that is not offered).
+type invalidSettings struct{ error }
+
 func (h *Handler) updateProject(w http.ResponseWriter, r *http.Request) {
 	var body projectBody
 	if !httpjson.Read(w, r, maxBodyProject, &body) {
 		return
 	}
-	p, ok := h.settingsProjectByID(w, r)
+	id, ok := pathID(r, "id")
 	if !ok {
+		notFound(w)
 		return
 	}
-	settings := settingsOf(p)
-	if err := body.apply(&settings); err != nil {
-		httpjson.Error(w, http.StatusBadRequest, err.Error())
-		return
-	}
+	var patterns *[]string
 	if body.RoutePatterns != nil {
-		patterns, err := cleanPatterns(*body.RoutePatterns)
+		clean, err := cleanPatterns(*body.RoutePatterns)
 		if err != nil {
 			httpjson.Error(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		settings.RoutePatterns = &patterns
+		patterns = &clean
 	}
-	// One write: the settings and the patterns change together or not at all.
-	updated, err := h.db.UpdateProject(r.Context(), p.ID, settings)
-	if errors.Is(err, store.ErrNotFound) {
+	// One write that reads the project locked, applies what was sent and
+	// writes it back: two edits at once never undo each other, and the
+	// settings and the patterns change together or not at all.
+	updated, err := h.db.ChangeProject(r.Context(), id, func(s *store.ProjectSettings) error {
+		if err := body.apply(s); err != nil {
+			return invalidSettings{err}
+		}
+		s.RoutePatterns = patterns
+		return nil
+	})
+	var invalid invalidSettings
+	switch {
+	case errors.As(err, &invalid):
+		httpjson.Error(w, http.StatusBadRequest, invalid.Error())
+	case errors.Is(err, store.ErrNotFound):
 		notFound(w)
-		return
-	}
-	if err != nil {
+	case err != nil:
 		h.internalError(w, r, err)
-		return
+	default:
+		httpjson.Write(w, http.StatusOK, h.toProjectKeys(updated))
 	}
-	httpjson.Write(w, http.StatusOK, h.toProjectKeys(updated))
 }
 
 // routePreviewJSON is a recent path and the route it gets.

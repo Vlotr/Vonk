@@ -22,16 +22,23 @@ let root: Root
 let container: HTMLElement
 let tokens: APIToken[]
 let posted: unknown[]
+let deleted: string[]
 
 beforeEach(() => {
   tokens = [deploys]
   posted = []
+  deleted = []
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string, init?: RequestInit) => {
       const json = (body: unknown, status = 200) =>
         new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
       if (url.endsWith('/ui/api/me')) return json(admin)
+      if (init?.method === 'DELETE') {
+        deleted.push(url)
+        tokens = tokens.filter((t) => !url.endsWith(`/${t.id}`))
+        return json({})
+      }
       if (init?.method === 'POST') {
         const body = JSON.parse(String(init.body))
         posted.push(body)
@@ -112,4 +119,36 @@ test('a new token is shown once, with the setup for the vite plugin and sentry-c
   expect(container.querySelector('[aria-label="Vite setup"]')?.textContent).toContain("url: 'https://monitor.example.com'")
   expect(container.querySelector('[aria-label="sentry-cli commands"]')?.textContent).toContain('--project portal')
   expect(text()).toContain('shown only this once')
+})
+
+test('revoking asks first, then removes the token', async () => {
+  await render()
+  const revokeButtons = () => Array.from(container.querySelectorAll('button')).filter((b) => b.textContent === 'Revoke')
+  await act(async () => {
+    revokeButtons()[0].click()
+  })
+  expect(text()).toContain('Uploads with Deploys stop working.')
+  expect(deleted).toEqual([])
+
+  // Cancel keeps it.
+  await act(async () => {
+    Array.from(container.querySelectorAll('button'))
+      .find((b) => b.textContent === 'Cancel')
+      ?.click()
+  })
+  expect(text()).not.toContain('stop working')
+  expect(deleted).toEqual([])
+
+  await act(async () => {
+    revokeButtons()[0].click()
+  })
+  const confirm = container.querySelector<HTMLButtonElement>('button[class*="danger"]')
+  expect(confirm?.textContent).toBe('Revoke')
+  await act(async () => {
+    confirm?.click()
+  })
+  await settle()
+  expect(deleted).toEqual(['/ui/api/settings/api-tokens/7'])
+  expect(text()).not.toContain('sntrys_…pHSI')
+  expect(text()).toContain('No tokens yet')
 })

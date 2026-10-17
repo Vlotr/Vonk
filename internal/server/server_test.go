@@ -579,3 +579,66 @@ func TestPosthogRoutes(t *testing.T) {
 		t.Errorf("GET /settings/status = %d %s", rec.Code, rec.Header().Get("Content-Type"))
 	}
 }
+
+// The two ways to sign in never stand in for each other: an API token
+// (Authorization: Bearer) opens no dashboard API, and a dashboard session
+// (cookie and CSRF token) opens no upload API.
+func TestAuth_TokensAndSessionsDoNotCross(t *testing.T) {
+	deps := newTestDeps(t, io.Discard)
+	h := New(deps)
+	ctx := context.Background()
+	session := signIn(t, h) // the first admin, signed in
+	p, err := deps.DB.CreateProject(ctx, store.NewProject{Name: "Webshop"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	admins, err := deps.DB.ListUsers(ctx)
+	if err != nil || len(admins) != 1 {
+		t.Fatalf("users = %v, %v", admins, err)
+	}
+	const token = "sntrys_cross-auth"
+	if _, err := deps.DB.CreateAPIToken(ctx, store.NewAPIToken{Name: "CI", TokenHash: auth.TokenHasher(deps.Config.SecretKey)(token),
+		ProjectIDs: []int64{p.ID}, CreatedBy: admins[0].ID, Now: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	bearer := func(r *http.Request) { r.Header.Set("Authorization", "Bearer "+token) }
+
+	// The token works where it belongs, and the session where it does.
+	if rec := do(h, http.MethodGet, "/api/0/organizations/monitor/chunk-upload/", "", bearer); rec.Code != http.StatusOK {
+		t.Fatalf("upload API with the token = %d %s", rec.Code, rec.Body)
+	}
+	if rec := do(h, http.MethodGet, "/ui/api/projects", "", session); rec.Code != http.StatusOK {
+		t.Fatalf("dashboard API with the session = %d %s", rec.Code, rec.Body)
+	}
+
+	for _, path := range []string{"/ui/api/projects", "/ui/api/settings/api-tokens", "/ui/api/backup"} {
+		rec := do(h, http.MethodGet, path, "", bearer)
+		if rec.Code != http.StatusUnauthorized || isHTML(rec) || strings.Contains(rec.Body.String(), "Webshop") {
+			t.Errorf("GET %s with an API token = %d %s, want a JSON 401", path, rec.Code, rec.Body)
+		}
+	}
+	rec := do(h, http.MethodPost, "/ui/api/settings/projects", "", bearer, func(r *http.Request) {
+		r.Body = io.NopCloser(strings.NewReader(`{"name":"Taken"}`))
+		r.Header.Set("Content-Type", "application/json")
+	})
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("POST /ui/api/settings/projects with an API token = %d %s, want 401", rec.Code, rec.Body)
+	}
+
+	for _, path := range []string{"/api/0/organizations/monitor/chunk-upload/", "/api/0/organizations/monitor/"} {
+		rec := do(h, http.MethodGet, path, "", session)
+		if rec.Code != http.StatusUnauthorized || isHTML(rec) {
+			t.Errorf("GET %s with a session = %d %s, want a JSON 401", path, rec.Code, rec.Body)
+		}
+	}
+	rec = do(h, http.MethodPost, "/api/0/organizations/monitor/chunk-upload/", "", session, func(r *http.Request) {
+		r.Header.Set("Content-Type", "multipart/form-data; boundary=x")
+		r.Body = io.NopCloser(strings.NewReader("--x--\r\n"))
+	})
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("POST chunk-upload with a session = %d %s, want 401", rec.Code, rec.Body)
+	}
+	if projects, _ := deps.DB.ListProjects(ctx); len(projects) != 1 {
+		t.Errorf("%d projects after the refused create, want 1", len(projects))
+	}
+}

@@ -19,7 +19,11 @@ import (
 // and then see its result.
 
 // whileHeld runs hold in a write transaction, runs next while that
-// transaction stays open for a moment, commits it and returns next's error.
+// transaction stays open, commits it and returns next's error. The commit
+// comes once next waits for the transaction or has finished without
+// waiting: on Postgres when pg_stat_activity shows a backend waiting for a
+// lock the transaction holds; on SQLite, where next waits in its busy
+// timeout and nothing shows that, after 150 ms.
 func whileHeld(t *testing.T, db *DB, hold func(ctx context.Context, tx *writeTx) error, next func() error) error {
 	t.Helper()
 	ctx := context.Background()
@@ -31,13 +35,56 @@ func whileHeld(t *testing.T, db *DB, hold func(ctx context.Context, tx *writeTx)
 	if err := hold(ctx, tx); err != nil {
 		t.Fatal(err)
 	}
+	var holder int64
+	if db.Postgres() {
+		if err := tx.QueryRowContext(ctx, "SELECT pg_backend_pid()").Scan(&holder); err != nil {
+			t.Fatal(err)
+		}
+	}
 	done := make(chan error, 1)
 	go func() { done <- next() }()
-	time.Sleep(150 * time.Millisecond) // next runs into what tx holds, or finishes without waiting
+
+	var result error
+	finished := false
+	if db.Postgres() {
+		finished, result = waitForBlocked(t, db, holder, done)
+	} else {
+		time.Sleep(150 * time.Millisecond) // next runs into what tx holds, or finishes without waiting
+	}
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	return <-done
+	if !finished {
+		result = <-done
+	}
+	return result
+}
+
+// waitForBlocked returns once a Postgres backend waits for a lock the
+// backend holder holds (finished false), or next is done (finished true,
+// with its error).
+func waitForBlocked(t *testing.T, db *DB, holder int64, done <-chan error) (finished bool, err error) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		select {
+		case err := <-done:
+			return true, err
+		default:
+		}
+		var waiting bool
+		if err := db.read.QueryRowContext(context.Background(), `SELECT EXISTS (SELECT 1 FROM pg_stat_activity
+			WHERE wait_event_type = 'Lock' AND ? = ANY (pg_blocking_pids(pid)))`, holder).Scan(&waiting); err != nil {
+			t.Fatal(err)
+		}
+		if waiting {
+			return false, nil
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the second writer neither waited for the held transaction nor finished within 10 s")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
 }
 
 // An issue ignored while an event for it is being stored stays ignored:
@@ -602,5 +649,38 @@ func TestConcurrent_UserEventStoredWhileTheirDataIsDeleted(t *testing.T) {
 	events := countRows(t, db, "SELECT COUNT(*) FROM error_events WHERE issue_id = ?", issue.ID)
 	if err != nil || after.TimesSeen != int64(events) {
 		t.Errorf("issue counts %d events (%v), %d are stored", after.TimesSeen, err, events)
+	}
+}
+
+// Two edits of one project at once keep each other's changes: ChangeProject
+// reads the settings it changes inside its write, locked, so it never
+// writes back a name another edit just changed.
+func TestConcurrent_ProjectEditsKeepEachOther(t *testing.T) {
+	db := openTestDB(t)
+	ctx := context.Background()
+	p := addProject(t, db, "Webshop")
+
+	var changed Project
+	err := whileHeld(t, db, func(ctx context.Context, tx *writeTx) error {
+		// Another edit: it read the project locked and renames it.
+		var id int64
+		if err := tx.QueryRowContext(ctx, "SELECT id FROM projects WHERE id = ?"+tx.forUpdate(), p.ID).Scan(&id); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, "UPDATE projects SET name = 'Renamed' WHERE id = ?", p.ID)
+		return err
+	}, func() (err error) {
+		changed, err = db.ChangeProject(ctx, p.ID, func(s *ProjectSettings) error {
+			s.TracksPageviews = true
+			return nil
+		})
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := db.ProjectByID(ctx, p.ID)
+	if err != nil || got.Name != "Renamed" || !got.TracksPageviews || changed.Name != "Renamed" {
+		t.Errorf("project = %q tracking page views %v (answer %q), %v; want both changes", got.Name, got.TracksPageviews, changed.Name, err)
 	}
 }

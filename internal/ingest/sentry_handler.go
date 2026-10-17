@@ -55,6 +55,7 @@ type SentryHandler struct {
 	logger  *slog.Logger
 	now     func() time.Time
 	full    *fullQueue
+	lookups *failedLookups
 
 	// Symbolicate, when set, maps an accepted event's minified frames back
 	// to the original code with the project's source maps
@@ -67,7 +68,7 @@ type SentryHandler struct {
 // NewSentryHandler returns the envelope handler. Accepted events go on queue.
 func NewSentryHandler(db *store.DB, queue *Queue, limiter *RateLimiter, logger *slog.Logger) *SentryHandler {
 	return &SentryHandler{db: db, queue: queue, limiter: limiter, logger: logger, now: time.Now,
-		full: &fullQueue{queue: queue, logger: logger, prefix: "sentry"}}
+		full: &fullQueue{queue: queue, logger: logger, prefix: "sentry"}, lookups: &failedLookups{logger: logger, prefix: "sentry"}}
 }
 
 func (h *SentryHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -94,7 +95,7 @@ func (h *SentryHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if key := keyFromRequest(r); key != "" {
 		p, err := authenticate(ctx, h.db, key, projectID)
 		if err != nil {
-			lookupFailed(w, r, h.logger, "sentry", err)
+			h.lookups.answer(w, r, err)
 			return
 		}
 		project = p
@@ -119,7 +120,7 @@ func (h *SentryHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if project.ID == 0 {
 		p, err := authenticate(ctx, h.db, keyFromDSN(env.Header.DSN), projectID)
 		if err != nil {
-			lookupFailed(w, r, h.logger, "sentry", err)
+			h.lookups.answer(w, r, err)
 			return
 		}
 		project = p

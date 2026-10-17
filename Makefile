@@ -38,8 +38,9 @@ test: web/node_modules
 # open one) against Postgres 17: a throwaway container with its data in
 # memory (no volume), removed when the tests end, also when they fail or
 # are stopped. Each test gets a schema of its own (internal/store/storetest).
-# POSTGRES_IMAGE=postgres:17 runs them on the Debian image instead.
-POSTGRES_IMAGE ?= postgres:17-alpine
+# The image is the official Debian one; POSTGRES_IMAGE=postgres:17-alpine
+# runs them on Alpine (musl, which sorts text bytewise) instead.
+POSTGRES_IMAGE ?= postgres:17
 POSTGRES_TESTS ?= ./internal/store/... ./internal/api/ ./internal/jobs/ ./internal/ingest/ ./internal/auth/ ./internal/alerts/ \
 	./internal/issues/ ./internal/sourcemaps/ ./internal/health/ ./internal/server/ ./cmd/...
 test-postgres:

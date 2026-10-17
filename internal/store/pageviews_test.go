@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand/v2"
 	"strings"
@@ -328,5 +329,25 @@ func TestUpdateProject_SettingsAndPatternsInOneWrite(t *testing.T) {
 	long := []string{"/" + strings.Repeat("é", MaxRoutePatternChars-1)}
 	if _, err := db.UpdateProject(ctx, p.ID, ProjectSettings{Name: "Shop", RoutePatterns: &long}); err != nil {
 		t.Errorf("a pattern of 300 characters (599 bytes): %v", err)
+	}
+}
+
+// ChangeProject writes nothing when change refuses, and says when the project is gone.
+func TestChangeProject_RefusedOrMissing(t *testing.T) {
+	db := openTestDB(t)
+	ctx := context.Background()
+	p := addProject(t, db, "Webshop")
+	refused := errors.New("no")
+	if _, err := db.ChangeProject(ctx, p.ID, func(s *ProjectSettings) error {
+		s.Name = "Changed"
+		return refused
+	}); !errors.Is(err, refused) {
+		t.Errorf("err = %v, want change's error", err)
+	}
+	if got, _ := db.ProjectByID(ctx, p.ID); got.Name != "Webshop" {
+		t.Errorf("name = %q after a refused change", got.Name)
+	}
+	if _, err := db.ChangeProject(ctx, p.ID+99, func(*ProjectSettings) error { return nil }); !errors.Is(err, ErrNotFound) {
+		t.Errorf("a missing project: %v, want ErrNotFound", err)
 	}
 }

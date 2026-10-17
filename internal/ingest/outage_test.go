@@ -13,6 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"monitor/internal/posthog"
 	"monitor/internal/store/storetest"
 )
 
@@ -32,7 +33,7 @@ func TestWriter_KeepsABatchWhileTheDatabaseIsUnreachable(t *testing.T) {
 		io.ErrUnexpectedEOF,
 	}
 	calls := 0
-	ok := w.save(3, func() error {
+	ok := w.save(3, time.Now().Add(w.unavailableFor), func() error {
 		calls++
 		if calls <= 10 {
 			return unreachable[calls%len(unreachable)]
@@ -49,7 +50,7 @@ func TestWriter_KeepsABatchWhileTheDatabaseIsUnreachable(t *testing.T) {
 	// Unreachable for longer than it is kept: dropped and counted.
 	w.unavailableFor = 20 * time.Millisecond
 	start := time.Now()
-	if w.save(2, func() error { return unreachable[0] }) || w.Stats().LostEvents != 2 {
+	if w.save(2, time.Now().Add(w.unavailableFor), func() error { return unreachable[0] }) || w.Stats().LostEvents != 2 {
 		t.Errorf("an outage longer than kept: stats %+v, want 2 lost", w.Stats())
 	}
 	if took := time.Since(start); took > time.Second {
@@ -60,9 +61,45 @@ func TestWriter_KeepsABatchWhileTheDatabaseIsUnreachable(t *testing.T) {
 	w.unavailableFor, w.stopGrace = time.Hour, 30*time.Millisecond
 	w.Close()
 	start = time.Now()
-	w.save(1, func() error { return unreachable[0] })
+	w.save(1, time.Now().Add(w.unavailableFor), func() error { return unreachable[0] })
 	if took := time.Since(start); took > time.Second {
 		t.Errorf("a stopping writer waited %v for the database", took)
+	}
+}
+
+// The saves of one flush (errors, page events, custom events) share one
+// window for an unreachable database: a batch of all three kinds waits at
+// most that long, not three times as long.
+func TestWriter_OutageWindowIsPerFlush(t *testing.T) {
+	if !storetest.Postgres() {
+		t.Skip("needs Postgres: make test-postgres")
+	}
+	u, err := url.Parse(storetest.DatabaseURL(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxy := startOutageProxy(t, u.Host)
+	u.Host = proxy.ln.Addr().String()
+	env := newTestEnvAt(t, 100, u.String())
+	p := env.project(t, "Webshop", 0)
+	w := NewWriter(env.db, env.queue, &recordingHooks{}, env.logger)
+	w.unavailableFor = 800 * time.Millisecond
+	w.unavailableWait, w.unavailableMaxWait = 10*time.Millisecond, 20*time.Millisecond
+
+	proxy.setDown(true)
+	batch := []Item{
+		errorItem(t, p.ID, eventIDN(1), "charge", t0, t0),
+		{ProjectID: p.ID, ReceivedAt: t0, Route: "/", Path: "/", Page: &posthog.Event{UUID: "pv-1", Name: posthog.EventPageview, DistinctID: "42"}},
+		{ProjectID: p.ID, ReceivedAt: t0, Route: "/", Path: "/", Custom: &posthog.Event{UUID: "ce-1", Name: "checkout_started", DistinctID: "42"}},
+	}
+	start := time.Now()
+	w.flush(context.Background(), batch)
+	took := time.Since(start)
+	if took < 800*time.Millisecond || took > 1600*time.Millisecond {
+		t.Errorf("the flush waited %v for the database, want about 0.8 s (one window), not 2.4 s (one per kind)", took)
+	}
+	if st := w.Stats(); st.LostEvents != 3 || st.FailedBatches != 3 {
+		t.Errorf("stats = %+v, want the three parts counted as lost", st)
 	}
 }
 
