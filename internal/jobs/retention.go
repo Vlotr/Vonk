@@ -27,6 +27,8 @@ type Retention struct {
 	Now func() time.Time
 	// BatchSize is the rows per delete; 0 means DefaultRetentionBatch.
 	BatchSize int
+	// retryDelays replaces the package's retryDelays; tests shorten them.
+	retryDelays []time.Duration
 }
 
 // SourceMaps deletes a project's source map files uploaded before a time,
@@ -40,7 +42,24 @@ func (r *Retention) Job() Job {
 	return Job{Name: "retention", Schedule: Every(24 * time.Hour), FirstRun: time.Minute, Run: r.Run}
 }
 
-// Run enforces every project's retention once.
+// deleteFunc deletes at most limit of a project's rows from before a time
+// and returns how many it deleted.
+type deleteFunc func(ctx context.Context, projectID int64, before time.Time, limit int) (int64, error)
+
+// dataKind is one kind of a project's data that retention deletes.
+type dataKind struct {
+	key, what string // its key in the summary line, and what an error line says
+	deletes   []deleteFunc
+}
+
+// retryDelays are the waits before a batch is tried again after Postgres
+// ended it to resolve a deadlock (store.Retryable), say with the ingest
+// writer storing events of old issues, or with a project's deletion.
+var retryDelays = []time.Duration{100 * time.Millisecond, 500 * time.Millisecond, 2 * time.Second}
+
+// Run enforces every project's retention once. Each kind of data is
+// deleted on its own: one that fails is logged and the others still go,
+// and the next run tries it again.
 func (r *Retention) Run(ctx context.Context, _ time.Time) {
 	now := time.Now
 	if r.Now != nil {
@@ -61,69 +80,54 @@ func (r *Retention) Run(ctx context.Context, _ time.Time) {
 			continue // kept indefinitely
 		}
 		cutoff := now().AddDate(0, 0, -*p.RetentionDays)
-		events, err := deleteInBatches(ctx, batch, func(limit int) (int64, error) {
-			return r.DB.DeleteErrorEventsBefore(ctx, p.ID, cutoff, limit)
-		})
-		if err != nil {
-			r.Log.Error("retention: delete old events", "project", p.ID, "deleted", events, "err", err)
-			continue
-		}
-		issues, err := deleteInBatches(ctx, batch, func(limit int) (int64, error) {
-			return r.DB.DeleteIssuesLastSeenBefore(ctx, p.ID, cutoff, limit)
-		})
-		if err != nil {
-			r.Log.Error("retention: delete old issues", "project", p.ID, "deleted", issues, "err", err)
-			continue
-		}
-		pages, err := r.deleteAll(ctx, batch, p.ID, cutoff,
-			r.DB.DeletePageviewsBefore, r.DB.DeletePageleavesBefore, r.DB.DeleteHourlyStatsBefore)
-		if err != nil {
-			r.Log.Error("retention: delete old page views", "project", p.ID, "deleted", pages, "err", err)
-			continue
-		}
-		custom, err := r.deleteAll(ctx, batch, p.ID, cutoff, r.DB.DeleteCustomEventsBefore, r.DB.DeleteEventHourlyBefore)
-		if err != nil {
-			r.Log.Error("retention: delete old custom events", "project", p.ID, "deleted", custom, "err", err)
-			continue
-		}
-		var maps int64
+		// Each kind goes on its own, so the order does not matter.
+		var kinds []dataKind
 		if r.SourceMaps != nil {
-			maps, err = deleteInBatches(ctx, batch, func(limit int) (int64, error) {
-				return r.SourceMaps.DeleteUploadedBefore(ctx, p.ID, cutoff, limit)
-			})
-			if err != nil {
-				r.Log.Error("retention: delete old source maps", "project", p.ID, "deleted", maps, "err", err)
-				continue
+			kinds = append(kinds, dataKind{"source_map_files", "source maps", []deleteFunc{r.SourceMaps.DeleteUploadedBefore}})
+		}
+		kinds = append(kinds,
+			dataKind{"events", "events", []deleteFunc{r.DB.DeleteErrorEventsBefore}},
+			dataKind{"issues", "issues", []deleteFunc{r.DB.DeleteIssuesLastSeenBefore}},
+			dataKind{"page_rows", "page views", []deleteFunc{r.DB.DeletePageviewsBefore, r.DB.DeletePageleavesBefore, r.DB.DeleteHourlyStatsBefore}},
+			dataKind{"custom_event_rows", "custom events", []deleteFunc{r.DB.DeleteCustomEventsBefore, r.DB.DeleteEventHourlyBefore}},
+		)
+		summary := []any{"project", p.ID, "days", *p.RetentionDays}
+		deletedAny := false
+		for _, k := range kinds {
+			var total int64
+			for _, del := range k.deletes {
+				n, err := r.deleteInBatches(ctx, batch, func(limit int) (int64, error) { return del(ctx, p.ID, cutoff, limit) })
+				total += n
+				if err != nil {
+					r.Log.Error("retention: delete old "+k.what, "project", p.ID, "deleted", total, "err", err)
+					break // the next kind still goes
+				}
 			}
+			summary = append(summary, k.key, total)
+			deletedAny = deletedAny || total > 0
 		}
-		if events > 0 || issues > 0 || pages > 0 || custom > 0 || maps > 0 {
-			r.Log.Info("retention: deleted old data", "project", p.ID, "days", *p.RetentionDays, "events", events, "issues", issues,
-				"page_rows", pages, "custom_event_rows", custom, "source_map_files", maps)
-		}
-	}
-}
-
-// deleteAll runs each delete in batches for a project's rows from before
-// cutoff, one after the other, and returns how many rows they deleted.
-func (r *Retention) deleteAll(ctx context.Context, batch int, projectID int64, cutoff time.Time,
-	deletes ...func(context.Context, int64, time.Time, int) (int64, error)) (int64, error) {
-	var total int64
-	for _, del := range deletes {
-		n, err := deleteInBatches(ctx, batch, func(limit int) (int64, error) { return del(ctx, projectID, cutoff, limit) })
-		total += n
-		if err != nil {
-			return total, err
+		if deletedAny {
+			r.Log.Info("retention: deleted old data", summary...)
 		}
 	}
-	return total, nil
 }
 
 // deleteInBatches calls del until it deletes fewer rows than a full batch,
-// and returns the total.
-func deleteInBatches(ctx context.Context, batch int, del func(limit int) (int64, error)) (int64, error) {
+// and returns the total. A batch Postgres ended to resolve a deadlock is
+// tried again after retryDelays.
+func (r *Retention) deleteInBatches(ctx context.Context, batch int, del func(limit int) (int64, error)) (int64, error) {
+	delays := r.retryDelays
+	if delays == nil {
+		delays = retryDelays
+	}
 	var total int64
 	for ctx.Err() == nil {
 		n, err := del(batch)
+		for attempt := 0; store.Retryable(err) && attempt < len(delays); attempt++ {
+			r.Log.Warn("retention: the database ended a delete to resolve a deadlock; trying again", "err", err)
+			time.Sleep(delays[attempt])
+			n, err = del(batch)
+		}
 		total += n
 		if err != nil {
 			return total, err

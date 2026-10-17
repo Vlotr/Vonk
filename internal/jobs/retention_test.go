@@ -1,12 +1,18 @@
 package jobs
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"monitor/internal/config"
 	"monitor/internal/sourcemaps"
@@ -264,5 +270,65 @@ func TestRetention_SourceMapsCountFromUpload(t *testing.T) {
 	paths, _ := db.SourceMapPaths(ctx)
 	if len(paths) != 2 {
 		t.Errorf("rows left = %v, want the recent and the kept one", paths)
+	}
+}
+
+// failingMaps is a SourceMaps whose deletes fail with the errors in fail,
+// one per call, then delete nothing.
+type failingMaps struct {
+	fail  []error
+	calls int
+}
+
+func (f *failingMaps) DeleteUploadedBefore(context.Context, int64, time.Time, int) (int64, error) {
+	f.calls++
+	if f.calls <= len(f.fail) {
+		return 0, f.fail[f.calls-1]
+	}
+	return 0, nil
+}
+
+// One kind of data that fails (here the source maps, which go first) is
+// logged, and the project's other kinds are still deleted.
+func TestRetention_AFailingKindSkipsNothingElse(t *testing.T) {
+	db := openDB(t)
+	short := projectKeeping(t, db, "Short", 30)
+	saveEvents(t, db, short.ID, "old", 40*day, 3)
+	var logs bytes.Buffer
+	maps := &failingMaps{fail: []error{errors.New("disk I/O error"), errors.New("disk I/O error")}}
+	r := &Retention{DB: db, Log: slog.New(slog.NewTextHandler(&logs, nil)), Now: func() time.Time { return testNow }, SourceMaps: maps}
+	r.Run(context.Background(), testNow)
+
+	if got := countEvents(t, db, short.ID); got != 0 {
+		t.Errorf("%d old events left after the source maps failed, want 0", got)
+	}
+	if !strings.Contains(logs.String(), "retention: delete old source maps") {
+		t.Errorf("the failure is not logged:\n%s", logs.String())
+	}
+}
+
+// A batch Postgres ended to resolve a deadlock (40P01) or a serialization
+// failure (40001) is tried again, not given up until the next day.
+func TestRetention_RetriesADeadlock(t *testing.T) {
+	db := openDB(t)
+	projectKeeping(t, db, "Short", 30)
+	var logs bytes.Buffer
+	maps := &failingMaps{fail: []error{&pgconn.PgError{Code: "40P01", Message: "deadlock detected"}, &pgconn.PgError{Code: "40001"}}}
+	r := &Retention{DB: db, Log: slog.New(slog.NewTextHandler(&logs, nil)), Now: func() time.Time { return testNow }, SourceMaps: maps,
+		retryDelays: []time.Duration{time.Millisecond, time.Millisecond, time.Millisecond}}
+	r.Run(context.Background(), testNow)
+
+	if maps.calls != 3 || strings.Contains(logs.String(), "level=ERROR") {
+		t.Errorf("%d calls, logs:\n%s\nwant two retries and no error", maps.calls, logs.String())
+	}
+
+	// Past its retries a deadlock is logged like any failure.
+	logs.Reset()
+	deadlock := &pgconn.PgError{Code: "40P01"}
+	maps = &failingMaps{fail: []error{deadlock, deadlock, deadlock, deadlock}}
+	r.SourceMaps = maps
+	r.Run(context.Background(), testNow)
+	if maps.calls != 4 || !strings.Contains(logs.String(), "level=ERROR") {
+		t.Errorf("%d calls, logs:\n%s\nwant 4 calls and an error", maps.calls, logs.String())
 	}
 }
