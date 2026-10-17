@@ -20,19 +20,21 @@ Read the release notes before a new major version (`2`): that is where changes y
 
 ## Without Compose
 
-Pull the new image, stop and remove the old container, and start the new one with the same settings and the same volume (`--stop-timeout 30` lets the old one finish writing):
+Pull the new image, stop and remove the old container, and start the new one with the same settings and the same volume (`--stop-timeout 30` lets the old one finish writing). The secret comes from the file the [install](install.md#without-compose) wrote. Without that file, save it from the old container before you remove it: `docker inspect monitor --format '{{range .Config.Env}}{{println .}}{{end}}' | sed -n 's/^SECRET_KEY=//p' > monitor-secret`.
 
 ```sh
 docker pull ghcr.io/OWNER/monitor:1
 docker stop -t 30 monitor && docker rm monitor
 docker run -d --name monitor --restart unless-stopped -p 8000:8000 --stop-timeout 30 \
-  -e SECRET_KEY=<the same secret> -e BASE_URL=<the same address> \
+  -e SECRET_KEY="$(cat monitor-secret)" -e BASE_URL=http://localhost:8000 \
   -v monitor-data:/data ghcr.io/OWNER/monitor:1
 ```
 
+Use your own `BASE_URL` there, the same as before.
+
 ## Going back to an older version
 
-An older version does not know a database that a newer one updated: do not just start the old image on it. Go back to the copy made before the update instead, which loses what came in since:
+An older version does not know the tables a newer one added, so it refuses to start on a database that a newer version updated; the log says `a newer version of the tool updated this database: the database is at version 9, and this version of the tool knows up to 8`, and commands such as `monitor project create` stop with the same line. Go back to the copy made before the update instead, which loses what came in since:
 
 1. Find the copy: Settings → Backup lists the automatic backups ("Before a database update (version 7)"), and the update's log line names it.
 2. Stage it while the new version still runs: `docker compose exec app /monitor restore /data/backups/pre-migrate-0007-20261016T120000Z.db` (your file's name). It is checked and waits for the next start.

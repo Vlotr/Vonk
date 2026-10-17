@@ -1,8 +1,8 @@
 # HTTPS with Caddy
 
-The tool speaks plain HTTP on port 8000. For HTTPS, put a reverse proxy in front of it. This page uses [Caddy](https://caddyserver.com), which gets a certificate from Let's Encrypt by itself and renews it. Any other proxy (Traefik, nginx) works the same way: forward everything to port 8000 and set `BASE_URL` to the `https://` address.
+The tool speaks plain HTTP on port 8000. For HTTPS, put a reverse proxy in front of it. This page uses [Caddy](https://caddyserver.com), which gets a certificate from Let's Encrypt by itself and renews it. Any other proxy (Traefik, nginx) works the same way: forward everything to port 8000, pass the visitor's address in `X-Forwarded-For`, and set `BASE_URL` to the `https://` address. nginx needs two settings beyond that, because its defaults are too small: `client_max_body_size` (1 MB by default; SDK envelopes can be 20 MiB, source map uploads 33 MiB, and a restore upload is as large as the database, so `client_max_body_size 0;` or a size of your own) and `proxy_read_timeout` (60 s by default; a backup download of a large database waits longer for its copy). With `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;` and `proxy_set_header Host $host;` the rest works as with Caddy.
 
-The files are in [`examples/caddy`](../examples/caddy): `compose.yaml` (Caddy and the tool) and `Caddyfile`. They were tested with Caddy 2.11 (the `caddy:2` image).
+The files are in [`examples/caddy`](../examples/caddy): `compose.yaml` (Caddy and the tool) and `Caddyfile`. They were tested with Caddy 2.11 (the `caddy:2.11` image).
 
 ## Steps
 
@@ -52,11 +52,13 @@ Ports 80 and 443 must be free on your machine for this.
 
 Adblockers block requests to well-known analytics and error-tracking hosts and often to paths that look like them. A domain of your own, such as `monitor.yourshop.com`, is not on their lists, which is why the tool runs on your domain anyway.
 
-Going one step further, the browser SDKs can send to a path of your own site, so their requests look like any other request to it. With Caddy in front of your site, forward a path to the tool and strip it:
+Going one step further, the browser SDKs can send to a path of your own site, so their requests look like any other request to it. With Caddy in front of your site, forward only the paths the browser SDKs use, under a prefix of your choice, and strip the prefix:
 
 ```
 shop.example.com {
-	handle_path /m/* {
+	@monitor path /m/api/*/envelope/ /m/e/* /m/i/v0/e/* /m/batch/* /m/flags/* /m/decide/* /m/array/* /m/static/* /m/s/*
+	handle @monitor {
+		uri strip_prefix /m
 		reverse_proxy https://monitor.example.com {
 			header_up Host {upstream_hostport}
 		}
@@ -65,4 +67,4 @@ shop.example.com {
 }
 ```
 
-When the tool runs next to that Caddy (as in `examples/caddy`), `handle_path /m/* { reverse_proxy app:8000 }` is enough. Then use `api_host: 'https://shop.example.com/m'` for posthog-js, and for the browser's Sentry SDK the DSN with the path added before the project id: `https://<key>@shop.example.com/m/1` instead of `https://<key>@monitor.example.com/1`. The dashboard stays on its own domain. (Tested next to the tool: posthog-js 1.438 and `@sentry/browser` 11.8 sent their configuration, page view, event and error requests through `/m/`.)
+Forward only these paths, not all of `/m/*`: that would put the dashboard and its sign-in page on your shop's address too, where they do not belong (its cookies and its sign-in limits would then live on the shop's domain). When the tool runs next to that Caddy (as in `examples/caddy`), `reverse_proxy app:8000` takes the place of the `https://` upstream. Then use `api_host: 'https://shop.example.com/m'` for posthog-js, and for the browser's Sentry SDK the DSN with the path added before the project id: `https://<key>@shop.example.com/m/1` instead of `https://<key>@monitor.example.com/1`. The dashboard stays on its own domain. (Tested next to the tool: posthog-js 1.438 and `@sentry/browser` 11.8 sent their configuration, page view, event and error requests through `/m/`.)

@@ -15,6 +15,8 @@ The log names every setting that is wrong, one line each, for example `SECRET_KE
 
 `permission denied` under `/data`: the tool runs as user 65532. A named volume (as in the compose files) works by itself; a folder of the host (`./data:/data`) must be writable for that user: `sudo chown -R 65532:65532 data`.
 
+`a newer version of the tool updated this database`: you started an older version on a database a newer one already updated. Start the newer version again, or go back as [Updating](updating.md#going-back-to-an-older-version) describes.
+
 `the backup before the database update failed`: a new version updates the database at its start and copies it first; without room on the disk, or without write access to `DATA_DIR/backups`, it stops before changing anything. Make room and start again.
 
 ## /health and the status page
@@ -84,4 +86,4 @@ The reason is on the page or printed by `monitor restore`: a damaged file, one t
 
 ## Still stuck
 
-Run with `LOG_LEVEL=debug`, reproduce the problem, and read the lines around it. Request lines never contain query strings or client addresses, so a log is safe to share once you have checked it for your own data.
+Run with `LOG_LEVEL=debug`, reproduce the problem, and read the lines around it. Log lines never contain query strings, client addresses or the user id of the user activity page; error lines can quote your data (an error message from the database, a project name), so read a log before you share it.

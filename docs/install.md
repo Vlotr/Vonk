@@ -2,7 +2,7 @@
 
 This gets the tool running on one machine in about ten minutes: start the container, create the first account, add a project and send it a first error. HTTPS comes after that, from a reverse proxy ([HTTPS with Caddy](https-caddy.md)).
 
-You need a Linux or macOS machine (x86-64 or ARM) with Docker and Docker Compose v2 (`docker compose version` prints 2.x), and `openssl` and `curl`. The tool needs little: the image is about 21 MB (8 MB to download), and the container used under 50 MB of memory in our tests.
+You need a Linux or macOS machine, x86-64 (amd64) or 64-bit ARM (arm64), with Docker and Docker Compose v2 (`docker compose version` prints 2.x), and `openssl` and `curl`. The tool needs little: the image is about 21 MB (8 MB to download), and the container used under 50 MB of memory in our tests.
 
 > **The image.** Each release is published as `ghcr.io/OWNER/monitor`, where `OWNER` is the GitHub account that publishes the project: replace `OWNER` below with it. The tag `1` follows every 1.x release; `1.2.3` stays on one. To build the image yourself instead, run `make docker` in a checkout of the repository; it makes `monitor:dev`, which you then put in `image:`.
 
@@ -106,14 +106,15 @@ The DSN's address must be one the app can reach: an app in another container or 
 
 ## Without Compose
 
-The same with `docker run` (`--stop-timeout 30` for the same reason as `stop_grace_period`):
+The same with `docker run` (`--stop-timeout 30` for the same reason as `stop_grace_period`). Keep the secret in a file first: every later `docker run` (after an update) needs the same one.
 
 ```sh
+openssl rand -hex 32 > monitor-secret && chmod 600 monitor-secret
 docker run -d --name monitor --restart unless-stopped -p 8000:8000 --stop-timeout 30 \
-  -e SECRET_KEY="$(openssl rand -hex 32)" -e BASE_URL=http://localhost:8000 \
+  -e SECRET_KEY="$(cat monitor-secret)" -e BASE_URL=http://localhost:8000 \
   -v monitor-data:/data ghcr.io/OWNER/monitor:1
 ```
 
-Keep the `SECRET_KEY` you gave it: `docker inspect monitor` shows it, and the next `docker run` (after an update) needs the same one. Commands run as `docker exec monitor /monitor project create --name Webshop`.
+Commands run as `docker exec monitor /monitor project create --name Webshop`.
 
 The tool is also one binary (`monitor`, built with `make build`) that runs without Docker: `SECRET_KEY=... BASE_URL=... DATA_DIR=/var/lib/monitor monitor serve`.

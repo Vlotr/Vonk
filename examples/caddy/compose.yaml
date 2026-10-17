@@ -8,7 +8,7 @@
 # the image, or use monitor:dev from `make docker`.
 services:
   caddy:
-    image: caddy:2
+    image: caddy:2.11
     ports:
       - "80:80"
       - "443:443"

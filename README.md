@@ -47,9 +47,11 @@ make build          # bin/monitor with the dashboard embedded
 make docker         # the image monitor:dev for this machine's platform
 ```
 
-A multi-platform image, as CI builds it: `docker buildx build --platform linux/amd64,linux/arm64 .` (the build stages cross-compile, so no emulation is needed).
+A multi-platform image, as CI builds it: `make docker-multiarch` (`linux/amd64` and `linux/arm64`, kept in the build cache; the build stages cross-compile, so no emulation is needed). Docker Desktop's builder does this as it is; with Docker Engine's default builder, make a builder that can first, once: `docker buildx create --use`.
 
-CI (`.github/workflows/ci.yml`) runs the same targets on every push and pull request: `make test`, `make test-postgres`, `make e2e`, and the multi-platform image build; on a tag `v1.2.3` it pushes the image to `ghcr.io/<owner>/monitor` with the tags `1.2.3`, `1.2`, `1` and `latest`.
+CI (`.github/workflows/ci.yml`) runs the same targets on every push and pull request: `make test` and `make build`, `make test-postgres`, `make e2e`, and the multi-platform image build.
+
+Releasing: push a tag `v1.2.3`. CI then pushes the image to `ghcr.io/<owner>/monitor` with the tags `1.2.3`, `1.2`, `1` and `latest` (a pre-release such as `v1.3.0-rc.1` gets only its own tag), labelled with the repository (`org.opencontainers.image.source`), so the package links to it. GitHub makes a new package private: after the first release, make it public once in the package's settings, or nobody else can pull it. Then replace `OWNER` in `docs/` and `examples/caddy` with the owner.
 
 `make e2e` saves screenshots of the dashboard as it looked during the run in `e2e/screenshots/`.
 

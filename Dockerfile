@@ -34,6 +34,13 @@ RUN mkdir -p /out/data
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/monitor /monitor
 COPY --from=build --chown=65532:65532 /out/data /data
+# The repository the image is built from: GitHub's container registry links
+# a pushed package to it by this label. CI passes the real repository
+# (make docker-multiarch IMAGE_SOURCE=...); OWNER stands in for a build
+# without it.
+ARG SOURCE_URL=https://github.com/OWNER/monitor
+LABEL org.opencontainers.image.source=$SOURCE_URL \
+      org.opencontainers.image.description="Self-hosted errors and page statistics that speak the Sentry and PostHog SDKs"
 ENV ADDR=:8000 \
     DATA_DIR=/data
 VOLUME /data

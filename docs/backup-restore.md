@@ -68,7 +68,14 @@ docker run --rm -v monitor_data:/data -v "$PWD":/backup alpine \
 docker compose start app
 ```
 
-The same copy moves the tool to another machine: copy the file over, make the volume there with the second command, and start the tool with the same `SECRET_KEY`.
+The same copy moves the tool to another machine. There, in a folder with the same name (so the volume gets the same name), put `compose.yaml` and `.env` (the same `SECRET_KEY`) and the copy, fill the volume, and start the tool. No container exists there yet, so there is nothing to stop:
+
+```sh
+docker run --rm -v monitor_data:/data -v "$PWD":/backup alpine tar xzpf /backup/monitor-data-20261017.tar.gz -C /data
+docker compose up -d
+```
+
+Compose warns that the volume `monitor_data` was not created by it, and uses it.
 
 ## Postgres
 

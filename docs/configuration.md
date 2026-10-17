@@ -67,7 +67,7 @@ The container runs as user 65532 (`nonroot`). A named volume (as in the compose 
 
 ## LOG_LEVEL
 
-`info` logs one line per dashboard request, refused SDK requests (401, 413, 429, ...), jobs and problems. `debug` adds every accepted SDK request and `/health` call; use it to see whether an SDK reaches the tool. Logs go to standard error (`docker compose logs app`). Request lines carry the method, path, status, size and duration, never the query string or the client's address, and the path of the user activity page has the user id masked (`/projects/1/users/:userId`).
+`info` logs one line per dashboard request, refused SDK requests (401, 413, 429, ...), jobs and problems. `debug` adds every accepted SDK request and `/health` call; use it to see whether an SDK reaches the tool. Logs go to standard error (`docker compose logs app`). Request lines carry the method, path, status, size and duration, never the query string or the client's address. In every line that names a request's path (request lines and error lines alike), the user activity page has the user id masked (`/projects/1/users/:userId`).
 
 ## TZ
 

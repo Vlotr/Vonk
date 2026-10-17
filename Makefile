@@ -79,9 +79,15 @@ web-build: web/node_modules
 build: web-build
 	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o bin/monitor ./cmd/monitor
 
+# The repository the image comes from, for its org.opencontainers.image.source
+# label (CI: https://github.com/<owner>/<repo>); without it the Dockerfile's
+# OWNER placeholder stays.
+IMAGE_SOURCE ?=
+SOURCE_ARG = $(if $(strip $(IMAGE_SOURCE)),--build-arg SOURCE_URL=$(IMAGE_SOURCE))
+
 # Container image for this machine's platform.
 docker:
-	docker build --build-arg VERSION=$(VERSION) -t monitor:dev .
+	docker build --build-arg VERSION=$(VERSION) $(SOURCE_ARG) -t monitor:dev .
 
 # The image for every platform a release has, as CI builds it. The build
 # stages cross-compile, so this needs no emulation. Without IMAGE_TAGS the
@@ -91,7 +97,7 @@ docker:
 PLATFORMS ?= linux/amd64,linux/arm64
 IMAGE_TAGS ?=
 docker-multiarch:
-	docker buildx build --platform $(PLATFORMS) --build-arg VERSION=$(VERSION) \
+	docker buildx build --platform $(PLATFORMS) --build-arg VERSION=$(VERSION) $(SOURCE_ARG) \
 		$(if $(strip $(IMAGE_TAGS)),$(foreach tag,$(IMAGE_TAGS),--tag $(tag)) --push,--output type=cacheonly) .
 
 clean:

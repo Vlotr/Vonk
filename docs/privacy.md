@@ -38,7 +38,7 @@ What it does **not** reach:
 - **Backups** made before the deletion keep the data until they are replaced: the downloads you keep elsewhere, and the automatic backups (after five newer ones of their kind). Free pages inside the SQLite file can hold deleted bytes until SQLite reuses them; a downloaded backup never contains them.
 - **Other copies**: logs of your reverse proxy, and notifications already sent by mail or Slack (they name the error, not the user).
 
-The tool logs one line per deletion with the admin who made it (or `by=command-line`) and the number of rows, never the user id. The dashboard's request log masks the user id in the path of the user activity page (`/projects/1/users/:userId`), so looking a person up leaves no id in the log either.
+The tool logs one line per deletion with the admin who made it (or `by=command-line`) and the number of rows, never the user id. Every log line that names a request's path (the request log, and the error lines of the dashboard, sign-in and upload APIs) shows the user activity page with the user id masked (`/projects/1/users/:userId`), so looking a person up leaves no id in the log either. Log lines never name an SDK's user id otherwise.
 
 ## Cookies
 
