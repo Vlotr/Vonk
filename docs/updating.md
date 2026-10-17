@@ -20,17 +20,18 @@ Read the release notes before a new major version (`2`): that is where changes y
 
 ## Without Compose
 
-Pull the new image, stop and remove the old container, and start the new one with the same settings and the same volume (`--stop-timeout 30` lets the old one finish writing). The secret comes from the file the [install](install.md#without-compose) wrote. Without that file, save it from the old container before you remove it: `docker inspect monitor --format '{{range .Config.Env}}{{println .}}{{end}}' | sed -n 's/^SECRET_KEY=//p' > monitor-secret`.
+Pull the new image, stop and remove the old container, and start the new one with the same settings and the same volume (`--stop-timeout 30` lets the old one finish writing). The secret comes from the file the [install](install.md#without-compose) wrote. Without that file, save it from the old container before you remove it: `docker inspect monitor --format '{{range .Config.Env}}{{println .}}{{end}}' | sed -n 's/^SECRET_KEY=//p' > monitor-secret && chmod 600 monitor-secret`.
 
 ```sh
+BASE_URL=$(docker inspect monitor --format '{{range .Config.Env}}{{println .}}{{end}}' | sed -n 's/^BASE_URL=//p')
 docker pull ghcr.io/OWNER/monitor:1
 docker stop -t 30 monitor && docker rm monitor
 docker run -d --name monitor --restart unless-stopped -p 8000:8000 --stop-timeout 30 \
-  -e SECRET_KEY="$(cat monitor-secret)" -e BASE_URL=http://localhost:8000 \
+  -e SECRET_KEY="$(cat monitor-secret)" -e BASE_URL="$BASE_URL" \
   -v monitor-data:/data ghcr.io/OWNER/monitor:1
 ```
 
-Use your own `BASE_URL` there, the same as before.
+The first line reads `BASE_URL` from the old container, so the new one gets the same; to change it, set it yourself instead (`BASE_URL=https://monitor.example.com`).
 
 ## Going back to an older version
 
