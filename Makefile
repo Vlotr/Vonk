@@ -9,7 +9,7 @@ DEV_DATA_DIR   ?= ./data
 DEV_SECRET_KEY ?= dev-only-secret-not-for-production
 DEV_BASE_URL   ?= http://localhost:8000
 
-.PHONY: dev test test-postgres perf e2e build web-build docker clean
+.PHONY: dev test test-postgres perf e2e build web-build docker docker-multiarch clean
 
 # Install the web dependencies when package.json or the lockfile changes.
 web/node_modules: web/package.json web/package-lock.json
@@ -82,6 +82,17 @@ build: web-build
 # Container image for this machine's platform.
 docker:
 	docker build --build-arg VERSION=$(VERSION) -t monitor:dev .
+
+# The image for every platform a release has, as CI builds it. The build
+# stages cross-compile, so this needs no emulation. Without IMAGE_TAGS the
+# result stays in the build cache (a check that every platform builds);
+# with them it is pushed (CI on a version tag), for example
+# IMAGE_TAGS="ghcr.io/owner/monitor:1.2.3 ghcr.io/owner/monitor:1".
+PLATFORMS ?= linux/amd64,linux/arm64
+IMAGE_TAGS ?=
+docker-multiarch:
+	docker buildx build --platform $(PLATFORMS) --build-arg VERSION=$(VERSION) \
+		$(if $(strip $(IMAGE_TAGS)),$(foreach tag,$(IMAGE_TAGS),--tag $(tag)) --push,--output type=cacheonly) .
 
 clean:
 	rm -rf bin
