@@ -57,7 +57,7 @@ func (db *DB) CreateAPIToken(ctx context.Context, nt NewAPIToken) (APIToken, err
 	}
 	defer tx.Rollback() // no-op after Commit
 	// The maker stays an admin until the commit, as for invites.
-	if err := tx.lock(ctx, lockAccounts); err != nil {
+	if err := lockAccountChange(ctx, tx); err != nil {
 		return APIToken{}, err
 	}
 
@@ -168,14 +168,22 @@ func (db *DB) ListAPITokens(ctx context.Context) ([]APIToken, error) {
 // DeleteAPIToken removes a token, which stops working at once; ErrNotFound
 // when there is none with this id.
 func (db *DB) DeleteAPIToken(ctx context.Context, id int64) error {
-	res, err := db.write.ExecContext(ctx, "DELETE FROM api_tokens WHERE id = ?", id)
+	tx, err := db.write.BeginTx(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()                                // no-op after Commit
+	if err := lockAccountChange(ctx, tx); err != nil { // its api_token_projects rows go too
+		return err
+	}
+	res, err := tx.ExecContext(ctx, "DELETE FROM api_tokens WHERE id = ?", id)
 	if err != nil {
 		return err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ErrNotFound
 	}
-	return nil
+	return tx.Commit()
 }
 
 // TouchAPIToken records that the token was used at now. It writes at most

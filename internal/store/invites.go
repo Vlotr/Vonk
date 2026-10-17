@@ -57,7 +57,8 @@ func (db *DB) CreateInvite(ctx context.Context, ni NewInvite) (Invite, error) {
 	defer tx.Rollback() // no-op after Commit
 	// The checks below (the maker is an admin, the address has no account,
 	// earlier invites) hold until the commit: whoever changes accounts waits.
-	if err := tx.lock(ctx, lockAccounts); err != nil {
+	// Removing earlier invites deletes rows of their projects: keep them all.
+	if err := lockAccountChange(ctx, tx); err != nil {
 		return Invite{}, err
 	}
 
@@ -175,14 +176,22 @@ func (db *DB) PendingInvites(ctx context.Context, now time.Time) ([]Invite, erro
 
 // DeleteInvite revokes an invite, or returns ErrNotFound.
 func (db *DB) DeleteInvite(ctx context.Context, id int64) error {
-	res, err := db.write.ExecContext(ctx, "DELETE FROM invites WHERE id = ?", id)
+	tx, err := db.write.BeginTx(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()                                // no-op after Commit
+	if err := lockAccountChange(ctx, tx); err != nil { // its invite_projects rows go too
+		return err
+	}
+	res, err := tx.ExecContext(ctx, "DELETE FROM invites WHERE id = ?", id)
 	if err != nil {
 		return err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ErrNotFound
 	}
-	return nil
+	return tx.Commit()
 }
 
 // AcceptInvite turns an invite into an account with the invite's role and
@@ -196,7 +205,7 @@ func (db *DB) AcceptInvite(ctx context.Context, tokenHash, passwordHash string, 
 	}
 	defer tx.Rollback() // no-op after Commit
 	// A link opened twice at once: the second waits here and finds it used.
-	if err := tx.lock(ctx, lockAccounts); err != nil {
+	if err := lockAccountChange(ctx, tx); err != nil {
 		return User{}, err
 	}
 

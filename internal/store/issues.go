@@ -149,8 +149,9 @@ func upsertIssue(ctx context.Context, tx *writeTx, issues map[issueKey]*Issue, e
 // SetIssueStatus changes an issue's status and returns the issue as it is
 // afterwards, or ErrNotFound. Resolving records now as resolved_at; opening
 // or ignoring clears it. Setting the status an issue already has changes
-// nothing, so a second click on Resolve keeps the first time. The issue is
-// read locked, as the ingest writer reads it (upsertIssue).
+// nothing, so a second click on Resolve keeps the first time. The issue's
+// project is kept first (projectlocks.go), then the issue is read locked,
+// as the ingest writer reads it (upsertIssue).
 func (db *DB) SetIssueStatus(ctx context.Context, id int64, status string, now time.Time) (Issue, error) {
 	if !ValidIssueStatus(status) {
 		return Issue{}, fmt.Errorf("unknown issue status %q", status)
@@ -161,6 +162,21 @@ func (db *DB) SetIssueStatus(ctx context.Context, id int64, status string, now t
 	}
 	defer tx.Rollback() // no-op after Commit
 
+	var projectID int64
+	err = tx.QueryRowContext(ctx, "SELECT project_id FROM issues WHERE id = ?", id).Scan(&projectID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Issue{}, ErrNotFound
+	}
+	if err != nil {
+		return Issue{}, err
+	}
+	exists, err := projectExists(ctx, tx, projectID)
+	if err != nil {
+		return Issue{}, err
+	}
+	if !exists {
+		return Issue{}, ErrNotFound
+	}
 	issue, err := scanIssue(tx.QueryRowContext(ctx, "SELECT "+issueColumns+" FROM issues WHERE id = ?"+tx.forUpdate(), id))
 	if err != nil {
 		return Issue{}, err

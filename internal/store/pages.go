@@ -56,7 +56,9 @@ type hourAgg struct {
 // running it again gives the same rows. The mark is removed first: a
 // writer that marked the hour and has not committed yet holds the mark
 // locked (markDirty), so this waits for it and reads its rows; one that
-// marks the hour afterwards makes a new mark for the next run. Per route (hourly_stats): page
+// marks the hour afterwards makes a new mark for the next run. The project
+// is kept first (projectlocks.go); a project deleted meanwhile has nothing
+// left to rebuild. Per route (hourly_stats): page
 // views by people, their visitors (a sketch of their user ids), the page
 // views with a duration and their sum, page views by bots, and error
 // events. Per custom event name (event_hourly): see recomputeEventHour.
@@ -70,6 +72,9 @@ func (db *DB) RecomputeHour(ctx context.Context, projectID int64, hour time.Time
 	}
 	defer tx.Rollback() // no-op after Commit
 
+	if exists, err := projectExists(ctx, tx, projectID); err != nil || !exists {
+		return err
+	}
 	if _, err := tx.ExecContext(ctx, "DELETE FROM stats_dirty_hours WHERE project_id = ? AND hour = ?", projectID, start); err != nil {
 		return err
 	}

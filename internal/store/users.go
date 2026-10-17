@@ -194,7 +194,8 @@ func (db *DB) UpdateUser(ctx context.Context, id int64, change UserChange) (User
 		return User{}, err
 	}
 	defer tx.Rollback() // no-op after Commit
-	if err := tx.lock(ctx, lockAccounts); err != nil {
+	// A change of role or projects writes access and invite rows of projects.
+	if err := lockAccountChange(ctx, tx); err != nil {
 		return User{}, err
 	}
 
@@ -244,7 +245,8 @@ func (db *DB) DeleteUser(ctx context.Context, id int64) error {
 		return err
 	}
 	defer tx.Rollback() // no-op after Commit
-	if err := tx.lock(ctx, lockAccounts); err != nil {
+	// The user's access rows and invites (with their projects) go too.
+	if err := lockAccountChange(ctx, tx); err != nil {
 		return err
 	}
 
@@ -304,22 +306,6 @@ func setProjectAccess(ctx context.Context, tx *writeTx, userID int64, projectIDs
 		}
 	}
 	return nil
-}
-
-// existingProjects returns projectIDs sorted and without repeats, or
-// ErrUnknownProject when one of them does not exist.
-func existingProjects(ctx context.Context, tx *writeTx, projectIDs []int64) ([]int64, error) {
-	ids := uniqueSorted(projectIDs)
-	for _, id := range ids {
-		var n int
-		if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM projects WHERE id = ?", id).Scan(&n); err != nil {
-			return nil, err
-		}
-		if n == 0 {
-			return nil, fmt.Errorf("%w: %d", ErrUnknownProject, id)
-		}
-	}
-	return ids, nil
 }
 
 func uniqueSorted(ids []int64) []int64 {

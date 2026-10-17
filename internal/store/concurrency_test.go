@@ -97,6 +97,91 @@ func TestConcurrent_ProjectDeletedWhileItsEventsAreStored(t *testing.T) {
 	}
 }
 
+// A project deleted while its hour is being rebuilt: neither deadlocks
+// with the other (on Postgres one would be undone, usually the deletion).
+// The writer of the mark holds it for a moment, so the rebuild waits after
+// its start; the deletion comes in then. The rebuild keeps the project
+// before it writes any of its rows, so the deletion waits for the rebuild
+// instead of taking the project and then waiting for the hour's rows the
+// rebuild holds while the rebuild waits for the project.
+func TestConcurrent_ProjectDeletedDuringARebuild(t *testing.T) {
+	db := openTestDB(t)
+	ctx := context.Background()
+	p := addProject(t, db, "Webshop")
+	hour := at(0).Truncate(time.Hour)
+	savePages(t, db, PageEvent{ProjectID: p.ID, PageviewID: "a", Route: "/", Path: "/", At: hour.Add(time.Minute)})
+	if err := db.RecomputeHour(ctx, p.ID, hour); err != nil {
+		t.Fatal(err)
+	}
+	savePages(t, db, PageEvent{ProjectID: p.ID, PageviewID: "b", Route: "/", Path: "/", At: hour.Add(2 * time.Minute)})
+
+	err := whileHeld(t, db, func(ctx context.Context, tx *writeTx) error {
+		var h int64
+		return tx.QueryRowContext(ctx, "SELECT hour FROM stats_dirty_hours WHERE project_id = ? AND hour = ?"+tx.forUpdate(),
+			p.ID, hour.UnixMilli()).Scan(&h)
+	}, func() error {
+		rebuilt := make(chan error, 1)
+		go func() { rebuilt <- db.RecomputeHour(ctx, p.ID, hour) }()
+		time.Sleep(50 * time.Millisecond) // the rebuild waits for the mark
+		deleted := db.DeleteProject(ctx, p.ID)
+		return errors.Join(<-rebuilt, deleted)
+	})
+	if err != nil {
+		t.Errorf("rebuild and deletion: %v; want both to succeed", err)
+	}
+	if _, err := db.ProjectByID(ctx, p.ID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("the project after its deletion: %v", err)
+	}
+}
+
+// A rebuild of an hour of a project that is being deleted waits for the
+// deletion and then has nothing to rebuild; so do a member's projects
+// being set and an invite being made for that project: they find it gone
+// (ErrUnknownProject) instead of writing rows of it.
+func TestConcurrent_WritesWaitForAProjectDeletion(t *testing.T) {
+	db := openTestDB(t)
+	ctx := context.Background()
+	admin := addUser(t, db, "admin@example.com", RoleAdmin)
+	p := addProject(t, db, "Webshop")
+	member := addUser(t, db, "member@example.com", RoleMember, p.ID)
+	hour := at(0).Truncate(time.Hour)
+	savePages(t, db, PageEvent{ProjectID: p.ID, PageviewID: "a", Route: "/", Path: "/", At: hour.Add(time.Minute)})
+
+	deleteProject := func(ctx context.Context, tx *writeTx) error {
+		_, err := tx.ExecContext(ctx, "DELETE FROM projects WHERE id = ?", p.ID)
+		return err
+	}
+	if err := whileHeld(t, db, deleteProject, func() error { return db.RecomputeHour(ctx, p.ID, hour) }); err != nil {
+		t.Errorf("rebuild of a deleted project's hour: %v, want nothing to do", err)
+	}
+
+	q := addProject(t, db, "Portal")
+	ids := []int64{q.ID}
+	err := whileHeld(t, db, func(ctx context.Context, tx *writeTx) error {
+		_, err := tx.ExecContext(ctx, "DELETE FROM projects WHERE id = ?", q.ID)
+		return err
+	}, func() error {
+		_, err := db.UpdateUser(ctx, member.ID, UserChange{ProjectIDs: &ids})
+		return err
+	})
+	if !errors.Is(err, ErrUnknownProject) {
+		t.Errorf("member's projects set to a deleted one: %v, want ErrUnknownProject", err)
+	}
+
+	r := addProject(t, db, "Admin")
+	err = whileHeld(t, db, func(ctx context.Context, tx *writeTx) error {
+		_, err := tx.ExecContext(ctx, "DELETE FROM projects WHERE id = ?", r.ID)
+		return err
+	}, func() error {
+		_, err := db.CreateInvite(ctx, NewInvite{Email: "new@example.com", Role: RoleMember, ProjectIDs: []int64{r.ID}, TokenHash: "t",
+			CreatedBy: admin.ID, Now: userTestNow, ExpiresAt: userTestNow.Add(time.Hour)})
+		return err
+	})
+	if !errors.Is(err, ErrUnknownProject) {
+		t.Errorf("invite to a deleted project: %v, want ErrUnknownProject", err)
+	}
+}
+
 // Resolving an issue that someone else resolves at the same moment keeps
 // the first resolve time, as a second click does.
 func TestConcurrent_ResolvedTwiceKeepsTheFirstTime(t *testing.T) {

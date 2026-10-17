@@ -61,12 +61,14 @@ func scanSourceMap(s scanner) (SourceMapFile, error) {
 // are another upload: they get rows of their own (SaveSourceMapFiles), or
 // lookups by that release would not find them.
 func (db *DB) TouchSourceMapBundle(ctx context.Context, projectID int64, bundle, release, dist string, now time.Time) (bool, error) {
-	res, err := db.write.ExecContext(ctx, "UPDATE source_maps SET uploaded_at = ? WHERE project_id = ? AND bundle = ? AND release = ? AND dist = ?",
-		now.UnixMilli(), projectID, bundle, release, dist)
-	if err != nil {
-		return false, err
-	}
-	n, err := res.RowsAffected()
+	n, err := db.inProject(ctx, projectID, func(tx *writeTx) (int64, error) {
+		res, err := tx.ExecContext(ctx, "UPDATE source_maps SET uploaded_at = ? WHERE project_id = ? AND bundle = ? AND release = ? AND dist = ?",
+			now.UnixMilli(), projectID, bundle, release, dist)
+		if err != nil {
+			return 0, err
+		}
+		return res.RowsAffected()
+	})
 	return n > 0, err
 }
 
@@ -189,26 +191,25 @@ func (db *DB) SourceMapsUploadedBefore(ctx context.Context, projectID int64, bef
 	return files, rows.Err()
 }
 
-// DeleteSourceMapFiles deletes the rows with these ids and returns how many it deleted.
-func (db *DB) DeleteSourceMapFiles(ctx context.Context, ids []int64) (int64, error) {
+// DeleteSourceMapFiles deletes a project's rows with these ids and returns
+// how many it deleted.
+func (db *DB) DeleteSourceMapFiles(ctx context.Context, projectID int64, ids []int64) (int64, error) {
 	if len(ids) == 0 {
 		return 0, nil
 	}
-	tx, err := db.write.BeginTx(ctx)
-	if err != nil {
-		return 0, err
-	}
-	defer tx.Rollback() // no-op after Commit
-	var total int64
-	for _, id := range ids {
-		res, err := tx.ExecContext(ctx, "DELETE FROM source_maps WHERE id = ?", id)
-		if err != nil {
-			return 0, err
+	total, err := db.inProject(ctx, projectID, func(tx *writeTx) (int64, error) {
+		var total int64
+		for _, id := range ids {
+			res, err := tx.ExecContext(ctx, "DELETE FROM source_maps WHERE id = ? AND project_id = ?", id, projectID)
+			if err != nil {
+				return 0, err
+			}
+			n, _ := res.RowsAffected()
+			total += n
 		}
-		n, _ := res.RowsAffected()
-		total += n
-	}
-	if err := tx.Commit(); err != nil {
+		return total, nil
+	})
+	if err != nil {
 		return 0, err
 	}
 	db.sourceMapsVersion.Add(1)

@@ -305,6 +305,12 @@ func (db *DB) claim(ctx context.Context, name string, projectID int64, value str
 	if err := tx.lock(ctx, lockAlertStatePrefix+name); err != nil {
 		return false, err
 	}
+	if projectID != 0 {
+		// A project's state is its row (projectlocks.go); a deleted project has nothing to claim.
+		if exists, err := projectExists(ctx, tx, projectID); err != nil || !exists {
+			return false, err
+		}
+	}
 
 	old := AlertState{Name: name}
 	var sentAt int64

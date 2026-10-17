@@ -494,7 +494,7 @@ func (s *Service) DeleteUploadedBefore(ctx context.Context, projectID int64, cut
 			return 0, err
 		}
 	}
-	return s.db.DeleteSourceMapFiles(ctx, ids)
+	return s.db.DeleteSourceMapFiles(ctx, projectID, ids)
 }
 
 // CleanUp removes what uploads left behind: chunks and half-assembled

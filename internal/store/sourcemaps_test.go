@@ -130,7 +130,7 @@ func TestSourceMapFiles_SaveFindAndExpire(t *testing.T) {
 	if len(old) != 1 {
 		t.Fatalf("limit 1 gave %d files", len(old))
 	}
-	if n, err := db.DeleteSourceMapFiles(ctx, []int64{old[0].ID}); err != nil || n != 1 {
+	if n, err := db.DeleteSourceMapFiles(ctx, shop.ID, []int64{old[0].ID}); err != nil || n != 1 {
 		t.Errorf("delete = %d, %v", n, err)
 	}
 	paths, err := db.SourceMapPaths(ctx)
@@ -230,7 +230,7 @@ func TestSourceMapsAndTokens_IDsNeverReused(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.DeleteSourceMapFiles(ctx, []int64{first[0].ID}); err != nil {
+	if _, err := db.DeleteSourceMapFiles(ctx, first[0].ProjectID, []int64{first[0].ID}); err != nil {
 		t.Fatal(err)
 	}
 	second, err := db.SaveSourceMapFiles(ctx, []SourceMapFile{file("b2")})
