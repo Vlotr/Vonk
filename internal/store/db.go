@@ -99,6 +99,11 @@ func openSQLite(ctx context.Context, path string) (*DB, error) {
 	writeParams.Set("_synchronous", "NORMAL")
 	writeParams.Set("_foreign_keys", "1")
 	writeParams.Set("_txlock", "immediate")
+	// Defensive mode and an untrusted schema: no statement may corrupt the
+	// file on purpose (writable_schema and the like), and nothing in the
+	// schema may call functions, even when the file came from a restore.
+	writeParams.Set("_defensive", "1")
+	writeParams.Set("_pragma", "trusted_schema(0)")
 
 	write, err := sql.Open("sqlite", path+"?"+writeParams.Encode())
 	if err != nil {
@@ -116,6 +121,8 @@ func openSQLite(ctx context.Context, path string) (*DB, error) {
 	readParams.Set("_busy_timeout", fmt.Sprint(busyTimeoutMillis))
 	readParams.Set("_foreign_keys", "1")
 	readParams.Set("_query_only", "1")
+	readParams.Set("_defensive", "1")
+	readParams.Set("_pragma", "trusted_schema(0)")
 
 	read, err := sql.Open("sqlite", path+"?"+readParams.Encode())
 	if err != nil {

@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -75,11 +76,30 @@ type BackupInfo struct {
 
 // CheckBackupFile checks that the SQLite file at path can be restored: it
 // is a SQLite database, PRAGMA integrity_check finds nothing wrong, and it
-// is this tool's: its schema_migrations match the binary's migrations, up
-// to a version no newer than the binary's, and it has no triggers or
-// views (the tool makes none, and they would run in the tool). A refusal
-// is a *BackupError. The file is opened read-only and left as it is.
+// is this tool's (checkBackup). A refusal is a *BackupError. The file is
+// opened read-only and left as it is.
 func CheckBackupFile(ctx context.Context, path string) (BackupInfo, error) {
+	return checkBackup(ctx, path, "integrity_check")
+}
+
+// checkBackup checks the file at path with the PRAGMA check (integrity_check,
+// or quick_check, which skips the comparison of indexes with their tables:
+// at the start, after the full check ran when the file was staged), and
+// that it is this tool's database:
+//
+//   - schema_migrations lists exactly this binary's migrations 1..v, with
+//     their names, and v is no newer than the binary's newest;
+//   - every table, index, view and trigger (sqlite_master) is the one
+//     those migrations make (referenceSchema): no extra objects (virtual
+//     tables, triggers, views), none missing (a unique index), none
+//     changed (a column, a CHECK, a default);
+//   - every source map row names a file the tool made (storedFileName), as
+//     the server reads and removes those files.
+//
+// The file is opened immutable (no locks, no -wal or -shm files next to
+// it), in defensive mode, with trusted_schema off: nothing in its schema
+// may call functions while it is read.
+func checkBackup(ctx context.Context, path, check string) (BackupInfo, error) {
 	head := make([]byte, len(sqliteHeader))
 	f, err := os.Open(path)
 	if err != nil {
@@ -91,10 +111,7 @@ func CheckBackupFile(ctx context.Context, path string) (BackupInfo, error) {
 		return BackupInfo{}, notABackup("The file is not a SQLite database, so it is not a backup of this tool.")
 	}
 
-	// immutable: SQLite reads the file as it is, with no locks and no
-	// -wal or -shm files next to it. trusted_schema off: nothing in the
-	// file's schema may call functions while it is read.
-	dsn := "file:" + (&url.URL{Path: path}).EscapedPath() + "?mode=ro&immutable=1&_pragma=trusted_schema(0)"
+	dsn := "file:" + (&url.URL{Path: path}).EscapedPath() + "?mode=ro&immutable=1&_defensive=1&_pragma=trusted_schema(0)"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return BackupInfo{}, err
@@ -103,7 +120,7 @@ func CheckBackupFile(ctx context.Context, path string) (BackupInfo, error) {
 	db.SetMaxOpenConns(1)
 
 	var result string
-	if err := db.QueryRowContext(ctx, "PRAGMA integrity_check(1)").Scan(&result); err != nil {
+	if err := db.QueryRowContext(ctx, "PRAGMA "+check+"(1)").Scan(&result); err != nil {
 		if ctx.Err() != nil {
 			return BackupInfo{}, ctx.Err()
 		}
@@ -113,61 +130,202 @@ func CheckBackupFile(ctx context.Context, path string) (BackupInfo, error) {
 		return BackupInfo{}, notABackup("The file is damaged: SQLite's integrity check says %q.", result)
 	}
 
-	var tables, extras int
-	err = db.QueryRowContext(ctx, `SELECT
-			(SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'),
-			(SELECT COUNT(*) FROM sqlite_master WHERE type IN ('trigger', 'view'))`).Scan(&tables, &extras)
+	var tables int
+	err = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'").Scan(&tables)
 	if err != nil {
 		return BackupInfo{}, notABackup("The file is damaged: SQLite cannot read its tables (%v).", err)
 	}
 	if tables == 0 {
 		return BackupInfo{}, notABackup("The file is a SQLite database, but not a backup of this tool: it has no schema_migrations table.")
 	}
-	if extras > 0 {
-		return BackupInfo{}, notABackup("The file is not a backup of this tool: it has triggers or views, which the tool never makes.")
-	}
 
 	files, err := migrationFilesOf(sqliteDialect)
 	if err != nil {
 		return BackupInfo{}, err
 	}
-	known := map[int]string{}
-	latest := 0
+	version, err := backupVersion(ctx, db, files)
+	if err != nil {
+		return BackupInfo{}, err
+	}
+	var upTo []migration
 	for _, m := range files {
-		known[m.version] = m.name
-		latest = max(latest, m.version)
+		if m.version <= version {
+			upTo = append(upTo, m)
+		}
+	}
+	want, err := referenceSchema(ctx, upTo)
+	if err != nil {
+		return BackupInfo{}, fmt.Errorf("the schema of version %d: %w", version, err)
+	}
+	got, err := schemaOf(ctx, db)
+	if err != nil {
+		return BackupInfo{}, notABackup("The file is damaged: SQLite cannot read its tables (%v).", err)
+	}
+	if diff := schemaDifference(got, want); diff != "" {
+		return BackupInfo{}, notABackup("The file is not a backup of this tool: its database is not the tool's at version %d (%s).", version, diff)
+	}
+	if _, ok := want["source_maps"]; ok {
+		if err := checkSourceMapPaths(ctx, db); err != nil {
+			return BackupInfo{}, err
+		}
+	}
+	return BackupInfo{Version: version}, nil
+}
+
+// backupVersion reads the backup's schema_migrations: exactly this
+// binary's migrations from the first up to some version, by name. It
+// returns that version, or why the file is refused.
+func backupVersion(ctx context.Context, db *sql.DB, files []migration) (int, error) {
+	unreadable := func(err error) error {
+		return notABackup("The file is not a backup of this tool: its schema_migrations cannot be read (%v).", err)
 	}
 	rows, err := db.QueryContext(ctx, "SELECT version, name FROM schema_migrations ORDER BY version")
 	if err != nil {
-		return BackupInfo{}, notABackup("The file is not a backup of this tool: its schema_migrations cannot be read (%v).", err)
+		return 0, unreadable(err)
 	}
 	defer rows.Close()
-	info := BackupInfo{}
+	latest := files[len(files)-1].version
+	i := 0 // the next of files the backup must have
+	version := 0
 	for rows.Next() {
-		var (
-			version int
-			name    string
-		)
+		var name string
 		if err := rows.Scan(&version, &name); err != nil {
-			return BackupInfo{}, notABackup("The file is not a backup of this tool: its schema_migrations cannot be read (%v).", err)
+			return 0, unreadable(err)
 		}
-		info.Version = max(info.Version, version)
-		if version <= latest && known[version] != name {
-			return BackupInfo{}, notABackup("The file is not a backup of this tool: its database update %d is %q, this tool's is %q.",
-				version, name, known[version])
+		if version > latest {
+			return 0, notABackup("The backup is from a newer version of the tool: its database is at version %d, and this version "+
+				"knows up to %d. Update the tool first, then restore the backup.", version, latest)
 		}
+		if i == len(files) || files[i].version != version {
+			missing := latest
+			if i < len(files) {
+				missing = files[i].version
+			}
+			return 0, notABackup("The file is not a backup of this tool: its database lacks database update %d.", missing)
+		}
+		if files[i].name != name {
+			return 0, notABackup("The file is not a backup of this tool: its database update %d is %q, this tool's is %q.",
+				version, name, files[i].name)
+		}
+		i++
 	}
 	if err := rows.Err(); err != nil {
-		return BackupInfo{}, notABackup("The file is not a backup of this tool: its schema_migrations cannot be read (%v).", err)
+		return 0, unreadable(err)
 	}
-	if info.Version == 0 {
-		return BackupInfo{}, notABackup("The file is a SQLite database, but not a backup of this tool: it has no database updates.")
+	if i == 0 {
+		return 0, notABackup("The file is a SQLite database, but not a backup of this tool: it has no database updates.")
 	}
-	if info.Version > latest {
-		return BackupInfo{}, notABackup("The backup is from a newer version of the tool: its database is at version %d, and this version "+
-			"knows up to %d. Update the tool first, then restore the backup.", info.Version, latest)
+	return version, nil
+}
+
+// schemaObject is one row of sqlite_master: a table, index, view or trigger.
+type schemaObject struct {
+	typ, table, sql string // sql normalized (normalSQL)
+}
+
+// referenceSchema returns the schema a database of this tool has after the
+// migrations files: they run, as Migrate runs them, on an empty database
+// in memory.
+func referenceSchema(ctx context.Context, files []migration) (map[string]schemaObject, error) {
+	raw, err := sql.Open("sqlite", ":memory:?_pragma=foreign_keys(1)")
+	if err != nil {
+		return nil, err
 	}
-	return info, nil
+	defer raw.Close()
+	raw.SetMaxOpenConns(1) // one connection: the database lives in it
+	raw.SetConnMaxLifetime(0)
+	ref := &DB{write: &pool{raw, sqliteDialect}, read: &pool{raw, sqliteDialect}, d: sqliteDialect}
+	if err := ref.migrate(ctx, files); err != nil {
+		return nil, err
+	}
+	return schemaOf(ctx, raw)
+}
+
+// schemaOf reads a SQLite database's sqlite_master by name.
+func schemaOf(ctx context.Context, db *sql.DB) (map[string]schemaObject, error) {
+	rows, err := db.QueryContext(ctx, "SELECT type, name, tbl_name, COALESCE(sql, '') FROM sqlite_master")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	objects := map[string]schemaObject{}
+	for rows.Next() {
+		var name string
+		var o schemaObject
+		if err := rows.Scan(&o.typ, &name, &o.table, &o.sql); err != nil {
+			return nil, err
+		}
+		o.sql = normalSQL(o.sql)
+		objects[name] = o
+	}
+	return objects, rows.Err()
+}
+
+// normalSQL writes a CREATE statement the same way however it was spaced
+// and quoted: SQLite keeps the text as written, and quotes names it
+// rewrote itself (ALTER TABLE ... RENAME TO).
+func normalSQL(statement string) string {
+	return strings.Join(strings.Fields(strings.ReplaceAll(statement, `"`, "")), " ")
+}
+
+// schemaDifference names the first object (by name) that got has and want
+// does not, that want has and got does not, or that differs; "" when they
+// are the same.
+func schemaDifference(got, want map[string]schemaObject) string {
+	names := map[string]bool{}
+	for name := range got {
+		names[name] = true
+	}
+	for name := range want {
+		names[name] = true
+	}
+	sorted := make([]string, 0, len(names))
+	for name := range names {
+		sorted = append(sorted, name)
+	}
+	sort.Strings(sorted)
+	for _, name := range sorted {
+		g, inGot := got[name]
+		w, inWant := want[name]
+		switch {
+		case !inWant:
+			return fmt.Sprintf("it has the %s %q, which the tool never makes", g.typ, name)
+		case !inGot:
+			return fmt.Sprintf("it lacks the %s %q", w.typ, name)
+		case g != w:
+			return fmt.Sprintf("its %s %q is not defined as the tool's", g.typ, name)
+		}
+	}
+	return ""
+}
+
+// storedFileName is the shape of source_maps.path for a file the tool
+// stored: the project's id and a random name (sourcemaps.extract), relative
+// to <DATA_DIR>/sourcemaps.
+var storedFileName = regexp.MustCompile(`^([0-9]+)/[0-9a-f]{24}$`)
+
+// checkSourceMapPaths refuses a backup whose source map rows name files
+// the tool would not have made: the server reads those files and removes
+// them (retention), so a path such as "../monitor.db" must never come in.
+func checkSourceMapPaths(ctx context.Context, db *sql.DB) error {
+	rows, err := db.QueryContext(ctx, "SELECT project_id, path FROM source_maps")
+	if err != nil {
+		return notABackup("The file is damaged: SQLite cannot read its source maps (%v).", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var (
+			projectID int64
+			path      string
+		)
+		if err := rows.Scan(&projectID, &path); err != nil {
+			return notABackup("The file is damaged: SQLite cannot read its source maps (%v).", err)
+		}
+		if m := storedFileName.FindStringSubmatch(path); m == nil || m[1] != strconv.FormatInt(projectID, 10) {
+			return notABackup("The file is not a backup of this tool: a source map row names %q, which is not a file the tool made.", path)
+		}
+	}
+	return rows.Err()
 }
 
 // PendingRestore is a backup waiting for the next start.
@@ -343,7 +501,9 @@ func ApplyPendingRestore(ctx context.Context, cfg config.Config, now time.Time) 
 		return RestoreResult{}, ErrRestoreOnPostgres
 	}
 
-	info, err := CheckBackupFile(ctx, pending)
+	// quick_check: the full integrity check ran when the file was staged;
+	// the schema and the paths are checked again in full.
+	info, err := checkBackup(ctx, pending, "quick_check")
 	var refused *BackupError
 	if errors.As(err, &refused) {
 		rejected, err := freeBackupPath(cfg.DataDir, rejectedPrefix+now.UTC().Format(backupTimeFormat))
@@ -360,8 +520,19 @@ func ApplyPendingRestore(ctx context.Context, cfg config.Config, now time.Time) 
 	}
 
 	result := RestoreResult{Version: info.Version}
-	if result.Backup, err = moveAside(ctx, cfg.SQLitePath, filepath.Join(cfg.DataDir, backupDir), now); err != nil {
+	dir := filepath.Join(cfg.DataDir, backupDir)
+	if result.Backup, err = moveAside(ctx, cfg.SQLitePath, dir, now); err != nil {
 		return RestoreResult{}, fmt.Errorf("the database could not be moved to backups before the restore: %w", err)
+	}
+	// Last before the new file arrives: no write-ahead log or shared
+	// memory of the old database may stay next to it, or SQLite would
+	// replay that log onto the restored database. Also after a start that
+	// stopped between moving the database and its log.
+	if err := clearSideFiles(cfg.SQLitePath, dir, result.Backup, now); err != nil {
+		if result.Backup != "" {
+			return RestoreResult{}, fmt.Errorf("the database before the restore is in %s, but the files next to it could not be moved: %w", result.Backup, err)
+		}
+		return RestoreResult{}, fmt.Errorf("the files next to the database could not be moved before the restore: %w", err)
 	}
 	if err := os.Rename(pending, cfg.SQLitePath); err != nil {
 		return result, fmt.Errorf("put the restored database in place: %w (the database from before is in %s)", err, result.Backup)
@@ -378,7 +549,7 @@ func ApplyPendingRestore(ctx context.Context, cfg config.Config, now time.Time) 
 // pre-restore-<version>-<time>.db and returns its new path; "" when there
 // is no database. First the write-ahead log is folded into the file
 // (closing the last connection does that); a log that could not be folded
-// in (a damaged database) moves along as <name>-wal, so nothing is lost.
+// in (a damaged database) stays for clearSideFiles, which moves it along.
 func moveAside(ctx context.Context, path, dir string, now time.Time) (string, error) {
 	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
 		return "", nil
@@ -386,7 +557,7 @@ func moveAside(ctx context.Context, path, dir string, now time.Time) (string, er
 		return "", err
 	}
 	version := 0
-	if db, err := sql.Open("sqlite", path+"?_busy_timeout="+strconv.Itoa(busyTimeoutMillis)); err == nil {
+	if db, err := sql.Open("sqlite", path+"?_busy_timeout="+strconv.Itoa(busyTimeoutMillis)+"&_defensive=1&_pragma=trusted_schema(0)"); err == nil {
 		db.QueryRowContext(ctx, "SELECT MAX(version) FROM schema_migrations").Scan(&version) // 0 when it cannot be read
 		db.ExecContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)")
 		db.Close()
@@ -402,19 +573,39 @@ func moveAside(ctx context.Context, path, dir string, now time.Time) (string, er
 	if err := os.Rename(path, backup); err != nil {
 		return "", err
 	}
-	if info, err := os.Stat(path + "-wal"); err == nil && info.Size() > 0 {
-		if err := os.Rename(path+"-wal", backup+"-wal"); err != nil {
-			return backup, err
-		}
-	}
-	// What is left belongs to the old database and must not meet the new one.
-	for _, side := range []string{path + "-wal", path + "-shm"} {
-		if err := os.Remove(side); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return backup, err
-		}
-	}
 	syncDir(dir)
 	return backup, nil
+}
+
+// clearSideFiles makes sure no -wal or -shm file is left at path: a log
+// that is not empty moves into dir, next to backup (the database it
+// belongs to) as <backup>-wal, or, when this start moved no database (one
+// that stopped halfway already did), as orphaned-<time>.db-wal, so nothing
+// is lost; an empty log and the shared memory are removed.
+func clearSideFiles(path, dir, backup string, now time.Time) error {
+	if info, err := os.Stat(path + "-wal"); err == nil && info.Size() > 0 {
+		target := backup + "-wal"
+		if backup == "" {
+			if err := os.MkdirAll(dir, 0o750); err != nil {
+				return err
+			}
+			orphan, err := freeBackupPath(dir, "orphaned-"+now.UTC().Format(backupTimeFormat))
+			if err != nil {
+				return err
+			}
+			target = orphan + "-wal"
+		}
+		if err := os.Rename(path+"-wal", target); err != nil {
+			return err
+		}
+		syncDir(dir)
+	}
+	for _, side := range []string{path + "-wal", path + "-shm"} {
+		if err := os.Remove(side); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	return nil
 }
 
 // syncDir flushes a directory's entries (a rename) to disk; errors are

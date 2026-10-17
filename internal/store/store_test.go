@@ -373,3 +373,27 @@ func TestProjectLookups(t *testing.T) {
 		t.Errorf("ListProjects = %+v, want Admin then Webshop", list)
 	}
 }
+
+// Both pools are in defensive mode with an untrusted schema, also for a
+// database that came from a restore.
+func TestOpen_SQLiteDefensive(t *testing.T) {
+	if storetest.Postgres() {
+		t.Skip("SQLite only")
+	}
+	db := openTestDB(t)
+	ctx := context.Background()
+	for name, pool := range map[string]*pool{"write": db.write, "read": db.read} {
+		var trusted int
+		if err := pool.QueryRowContext(ctx, "PRAGMA trusted_schema").Scan(&trusted); err != nil || trusted != 0 {
+			t.Errorf("%s pool: trusted_schema = %d, %v; want 0", name, trusted, err)
+		}
+	}
+	// Defensive mode refuses writable_schema, the way to rewrite sqlite_master by hand.
+	if _, err := db.write.ExecContext(ctx, "PRAGMA writable_schema = ON"); err == nil {
+		var on int
+		db.write.QueryRowContext(ctx, "PRAGMA writable_schema").Scan(&on)
+		if on != 0 {
+			t.Error("writable_schema could be turned on: the write pool is not in defensive mode")
+		}
+	}
+}

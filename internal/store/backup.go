@@ -154,7 +154,7 @@ func (db *DB) Snapshot(ctx context.Context) (*os.File, error) {
 // read pool's connections are query-only, and the write connection is the
 // ingest writer's.
 func (db *DB) vacuumInto(ctx context.Context, path string) error {
-	conn, err := sql.Open("sqlite", db.path+"?_busy_timeout="+strconv.Itoa(busyTimeoutMillis))
+	conn, err := sql.Open("sqlite", db.path+"?_busy_timeout="+strconv.Itoa(busyTimeoutMillis)+"&_defensive=1&_pragma=trusted_schema(0)")
 	if err != nil {
 		return err
 	}

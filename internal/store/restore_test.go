@@ -206,6 +206,17 @@ func TestRestore_RejectsCorruptOrNewerSchema(t *testing.T) {
 		{"newer schema", file(changed(t, good, "INSERT INTO schema_migrations VALUES (9999, '9999_future.sql', 0)")), "newer version"},
 		{"another schema", file(changed(t, good, "UPDATE schema_migrations SET name = '0001_other.sql' WHERE version = 1")), "not a backup of this tool"},
 		{"triggers", file(changed(t, good, "CREATE TRIGGER t AFTER INSERT ON projects BEGIN DELETE FROM users; END")), "not a backup of this tool"},
+		// The schema must be the tool's, object by object.
+		{"a virtual table", file(changed(t, good, "CREATE VIRTUAL TABLE notes USING fts5(body)")), "not a backup of this tool"},
+		{"a dropped index", file(changed(t, good, "DROP INDEX source_maps_project_debug_id")), "not a backup of this tool"},
+		{"an added column", file(changed(t, good, "ALTER TABLE projects ADD COLUMN extra TEXT CHECK (length(extra) < 5)")), "not a backup of this tool"},
+		{"a changed view of the data", file(changed(t, good, "CREATE VIEW everyone AS SELECT * FROM users")), "not a backup of this tool"},
+		{"a gap in its updates", file(changed(t, good, "DELETE FROM schema_migrations WHERE version = 3")), "update 3"},
+		// Rows the tool turns into file paths must be the tool's own names.
+		{"a source map outside its folder", file(changed(t, good, `INSERT INTO source_maps (project_id, file, kind, bundle, path, size, uploaded_at)
+			VALUES (1, '~/a.js.map', 'source_map', 'b', '../monitor.db', 1, 0)`)), "not a file the tool made"},
+		{"a source map of another project's folder", file(changed(t, good, `INSERT INTO source_maps (project_id, file, kind, bundle, path, size, uploaded_at)
+			VALUES (1, '~/a.js.map', 'source_map', 'b', '2/0123456789abcdef01234567', 1, 0)`)), "not a file the tool made"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -439,4 +450,134 @@ func mustMigrations(t *testing.T) []migration {
 		t.Fatal(err)
 	}
 	return files
+}
+
+// walDatabase writes <dir>/monitor.db with the project Current folded in
+// and the project "In the log only" still in its write-ahead log only, as
+// a copy of the files of a database that is open with changes not yet
+// checkpointed.
+func walDatabase(t *testing.T, dir string) {
+	t.Helper()
+	live := t.TempDir()
+	makeDatabase(t, live, "Current")
+	db, err := sql.Open("sqlite", filepath.Join(live, "monitor.db")+"?_pragma=wal_autocheckpoint(0)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	if _, err := db.Exec(`INSERT INTO projects (name, slug, sentry_key, posthog_token, created_at)
+		VALUES ('In the log only', 'in-the-log-only', 'k2', 't2', 0)`); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"monitor.db", "monitor.db-wal"} {
+		data, err := os.ReadFile(filepath.Join(live, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if name == "monitor.db-wal" && len(data) == 0 {
+			t.Fatal("the write-ahead log is empty: the test needs one with rows")
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func stagedBackup(t *testing.T, dir string) {
+	t.Helper()
+	backup, err := os.Open(makeBackup(t, "Restored"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer backup.Close()
+	if _, err := StageRestore(context.Background(), dir, backup); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The database's write-ahead log is folded into the copy that goes to
+// backups/: the pre-restore backup holds the rows that were only in the log.
+func TestApplyPendingRestore_FoldsTheWriteAheadLogIntoTheBackup(t *testing.T) {
+	dir := t.TempDir()
+	walDatabase(t, dir)
+	stagedBackup(t, dir)
+	res, err := ApplyPendingRestore(context.Background(), sqliteConfig(dir), time.Now())
+	if err != nil || !res.Restored {
+		t.Fatalf("result = %+v, %v", res, err)
+	}
+	if got := projectNames(t, res.Backup); got != "Current,In the log only" {
+		t.Errorf("the backup holds %q, want the rows of the log too", got)
+	}
+	if got := projectNames(t, filepath.Join(dir, "monitor.db")); got != "Restored" {
+		t.Errorf("the database holds %q, want Restored", got)
+	}
+}
+
+// A start that stopped between moving the database to backups/ and its
+// write-ahead log left the log next to where the restored file goes: the
+// next start moves it aside first, so SQLite never replays it onto the
+// restored database.
+func TestApplyPendingRestore_ALeftoverLogNeverMeetsTheRestoredDatabase(t *testing.T) {
+	dir := t.TempDir()
+	walDatabase(t, dir)
+	stagedBackup(t, dir)
+	// The stopped start: the database moved, its log not.
+	if err := os.MkdirAll(filepath.Join(dir, "backups"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	moved := filepath.Join(dir, "backups", "pre-restore-0008-20261017T093000Z.db")
+	if err := os.Rename(filepath.Join(dir, "monitor.db"), moved); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "monitor.db-shm"), []byte("stale"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := ApplyPendingRestore(context.Background(), sqliteConfig(dir), time.Date(2026, 10, 17, 9, 31, 0, 0, time.UTC))
+	if err != nil || !res.Restored {
+		t.Fatalf("result = %+v, %v", res, err)
+	}
+	for _, side := range []string{"monitor.db-wal", "monitor.db-shm"} {
+		if _, err := os.Stat(filepath.Join(dir, side)); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("%s is still next to the restored database: %v", side, err)
+		}
+	}
+	if got := projectNames(t, filepath.Join(dir, "monitor.db")); got != "Restored" {
+		t.Errorf("the restored database holds %q, want Restored only", got)
+	}
+	logs, _ := filepath.Glob(filepath.Join(dir, "backups", "*-wal"))
+	if len(logs) != 1 {
+		t.Errorf("the leftover log in backups/ = %v, want it kept", logs)
+	}
+}
+
+// The start checks the schema and the paths again, not only that SQLite
+// can read the file: a file put in place without StageRestore is refused.
+func TestApplyPendingRestore_ChecksTheSchemaAndPathsAgain(t *testing.T) {
+	good := makeBackup(t, "Restored")
+	for name, statements := range map[string]string{
+		"a crafted path": `INSERT INTO source_maps (project_id, file, kind, bundle, path, size, uploaded_at)
+			VALUES (1, '~/a.js.map', 'source_map', 'b', '../monitor.db', 1, 0)`,
+		"an extra table": "CREATE TABLE notes (body TEXT)",
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			makeDatabase(t, dir, "Current")
+			data, err := os.ReadFile(changed(t, good, statements))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, RestorePendingFile), data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			res, err := ApplyPendingRestore(context.Background(), sqliteConfig(dir), time.Now())
+			if !errors.Is(err, ErrRestoreRefused) || res.Restored || !strings.Contains(err.Error(), "not a backup of this tool") {
+				t.Errorf("result = %+v, %v; want refused", res, err)
+			}
+			if got := projectNames(t, filepath.Join(dir, "monitor.db")); got != "Current" {
+				t.Errorf("projects = %q, want the database unchanged", got)
+			}
+		})
+	}
 }
