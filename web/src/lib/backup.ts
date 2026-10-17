@@ -32,6 +32,18 @@ export function uploadProblem(file: { size: number }, maxUploadBytes: number): s
   return ''
 }
 
+/**
+ * downloadProblem says why the server refused a download, by the status of
+ * its answer to the check before it (a HEAD answer has no text); 0 means
+ * no answer at all.
+ */
+export function downloadProblem(status: number): string {
+  if (status === 0) return 'The tool did not answer. Try again.'
+  if (status === 409) return 'A backup is being made already. Try again when it is done.'
+  if (status === 507) return 'There is not enough free disk space for the copy a download makes. Free up disk space first.'
+  return `The backup could not be made (error ${status}). The server log says why.`
+}
+
 /** listing joins words as people do: "A", "A and B", "A, B and C". */
 function listing(words: string[]): string {
   if (words.length <= 1) return words.join('')

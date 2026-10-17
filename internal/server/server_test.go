@@ -517,6 +517,36 @@ func TestRequestLog_OmitsQueryAndIP(t *testing.T) {
 	}
 }
 
+// The user activity page and its API carry a user id in their path (an
+// email address, often): the log line masks it.
+func TestRequestLog_MasksTheUserIDOfUserActivity(t *testing.T) {
+	var logs bytes.Buffer
+	h := newTestServerWithLog(t, &logs)
+	signedIn := signIn(t, h)
+	logs.Reset()
+
+	do(h, http.MethodGet, "/ui/api/projects/1/users/jan.de.vries%40example.com/activity?limit=50", "", signedIn)
+	do(h, http.MethodGet, "/projects/1/users/jan.de.vries%40example.com", "", signedIn)
+	do(h, http.MethodGet, "/ui/api/projects/1/users/team%2Fjan/activity", "", signedIn)
+	do(h, http.MethodGet, "/projects/1/users/team%2Fjan", "")
+
+	lines := logs.String()
+	for _, want := range []string{"path=/ui/api/projects/1/users/:userId/activity", "path=/projects/1/users/:userId"} {
+		if !strings.Contains(lines, want) {
+			t.Errorf("log does not contain %q:\n%s", want, lines)
+		}
+	}
+	if strings.Contains(lines, "jan") || strings.Contains(lines, "team") {
+		t.Errorf("log contains a user id:\n%s", lines)
+	}
+	// Other paths are logged as they are.
+	logs.Reset()
+	do(h, http.MethodGet, "/ui/api/projects/1/issues", "", signedIn)
+	if !strings.Contains(logs.String(), "path=/ui/api/projects/1/issues ") {
+		t.Errorf("log of another path: %s", logs.String())
+	}
+}
+
 func TestRecoverPanics(t *testing.T) {
 	var logs bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&logs, nil))

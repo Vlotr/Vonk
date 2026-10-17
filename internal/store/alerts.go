@@ -170,11 +170,12 @@ func readAlertSettings(ctx context.Context, q rowQuerier, projectID int64) (Aler
 }
 
 // UpdateAlertSettings changes a project's notification choices in one
-// write transaction: it locks the project's row, reads them, lets change
-// edit them, and writes all of them back with the Slack webhook. Two
-// changes at once therefore run one after the other and never undo each
-// other. It returns the settings as stored, or ErrNotFound. change must not
-// touch the database.
+// write transaction: it locks the project's row (FOR NO KEY UPDATE, as
+// ChangeProject: ingest batches of the project go on), reads them, lets
+// change edit them, and writes all of them back with the Slack webhook.
+// Two changes at once therefore run one after the other and never undo
+// each other. It returns the settings as stored, or ErrNotFound. change
+// must not touch the database.
 func (db *DB) UpdateAlertSettings(ctx context.Context, projectID int64, change func(*AlertSettings)) (AlertSettings, error) {
 	tx, err := db.write.BeginTx(ctx)
 	if err != nil {
@@ -183,7 +184,7 @@ func (db *DB) UpdateAlertSettings(ctx context.Context, projectID int64, change f
 	defer tx.Rollback() // no-op after Commit
 
 	var id int64
-	err = tx.QueryRowContext(ctx, "SELECT id FROM projects WHERE id = ?"+tx.forUpdate(), projectID).Scan(&id)
+	err = tx.QueryRowContext(ctx, "SELECT id FROM projects WHERE id = ?"+tx.forNoKeyUpdate(), projectID).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return AlertSettings{}, ErrNotFound
 	}

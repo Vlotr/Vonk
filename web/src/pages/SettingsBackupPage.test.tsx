@@ -119,6 +119,47 @@ test('SQLite: a download link and the automatic backups with the command to rest
   expect(card('restore-title')).not.toContain('Restart required')
 })
 
+/** clickDownload clicks "Download backup" and returns the addresses the page then downloaded. */
+async function clickDownload(): Promise<string[]> {
+  const downloads: string[] = []
+  const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+    downloads.push(this.getAttribute('href') ?? '')
+  })
+  try {
+    const link = container.querySelector<HTMLAnchorElement>('a[download]')
+    await act(async () => {
+      link?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+    })
+    await settle()
+  } finally {
+    click.mockRestore()
+  }
+  return downloads
+}
+
+test('the download is checked first: it starts when the server says it can', async () => {
+  await render()
+  const downloads = await clickDownload()
+  expect(requests.filter((r) => r.method === 'HEAD').map((r) => r.url)).toEqual(['/ui/api/backup'])
+  expect(downloads).toEqual(['/ui/api/backup'])
+  expect(container.querySelector('[role="alert"]')).toBeNull()
+})
+
+test('a download the server refuses says why on the page and saves no file', async () => {
+  answer = (method) => (method === 'HEAD' ? new Response(null, { status: 409 }) : undefined)
+  await render()
+  expect(await clickDownload()).toEqual([])
+  expect(container.querySelector('[role="alert"]')?.textContent).toBe('A backup is being made already. Try again when it is done.')
+
+  answer = (method) => (method === 'HEAD' ? new Response(null, { status: 507 }) : undefined)
+  expect(await clickDownload()).toEqual([])
+  expect(container.querySelector('[role="alert"]')?.textContent).toContain('not enough free disk space')
+
+  answer = () => undefined
+  expect(await clickDownload()).toEqual(['/ui/api/backup'])
+  expect(container.querySelector('[role="alert"]')).toBeNull()
+})
+
 test('a backup is uploaded as it is, then waits: restart required, and it can be cancelled', async () => {
   await render()
   const file = new File(['SQLite format 3\u0000 and more'], 'monitor-backup.db')

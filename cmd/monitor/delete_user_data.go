@@ -58,8 +58,9 @@ func deleteUserDataCommand(args []string, getenv func(string) string, stdout, st
 	defer db.Close()
 
 	deleted, err := db.DeleteUserData(ctx, store.UserDataRequest{UserID: *userID, ProjectIDs: projects.ids, Describe: issues.EventText})
-	if errors.Is(err, store.ErrUnknownProject) {
-		fmt.Fprintf(stderr, "monitor: there is %v\n", strings.Replace(err.Error(), "unknown project:", "no project", 1))
+	var unknown *store.UnknownProjectError
+	if errors.As(err, &unknown) {
+		fmt.Fprintf(stderr, "monitor: there is no project %d; nothing was deleted\n", unknown.ID)
 		return 1
 	}
 	if err != nil {

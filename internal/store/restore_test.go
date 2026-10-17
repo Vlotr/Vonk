@@ -611,6 +611,36 @@ func sessionsSQL(t *testing.T, path string) string {
 	return text
 }
 
+// A backup whose rows refer to rows that are not there (a foreign key
+// that SQLite would have refused, written with foreign keys off) is
+// refused when it is staged: the tool never makes one, and the server
+// would trip over it.
+func TestRestore_RefusesDanglingReferences(t *testing.T) {
+	ctx := context.Background()
+	good := makeBackup(t, "Restored")
+	if _, err := CheckBackupFile(ctx, good); err != nil {
+		t.Fatalf("the good backup: %v", err)
+	}
+	dangling := changed(t, good, "PRAGMA foreign_keys = OFF; INSERT INTO stats_dirty_hours (project_id, hour) VALUES (999, 0)")
+	_, err := CheckBackupFile(ctx, dangling)
+	var refused *BackupError
+	if !errors.As(err, &refused) || !strings.Contains(err.Error(), "stats_dirty_hours") || !strings.Contains(err.Error(), "projects") {
+		t.Errorf("a row of a project that is not there: %v, want a BackupError naming stats_dirty_hours and projects", err)
+	}
+	dir := t.TempDir()
+	f, err := os.Open(dangling)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if _, err := StageRestore(ctx, dir, f); !errors.As(err, &refused) {
+		t.Errorf("StageRestore = %v, want it refused", err)
+	}
+	if got := dataDirFiles(t, dir); len(got) != 0 {
+		t.Errorf("left %v after a refused upload", got)
+	}
+}
+
 // The crafted schemas above really changed what they claim to change, so
 // the cases test the comparison and not a statement that did nothing.
 func TestRestore_CraftedSchemasAreWhatTheySay(t *testing.T) {

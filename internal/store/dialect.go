@@ -18,7 +18,8 @@ import (
 //     never be interleaved by another writer. Postgres runs write
 //     transactions side by side (READ COMMITTED), so code that reads and
 //     then writes based on what it read locks what it read: forUpdate
-//     locks the rows a SELECT returns (forKeyShare only keeps them from
+//     locks the rows a SELECT returns (forNoKeyUpdate when the change
+//     leaves the row's key alone; forKeyShare only keeps them from
 //     being deleted), and writeTx.lock takes a named lock when there is no
 //     row to lock yet (the first account, a new slug). On SQLite they are
 //     no-ops.
@@ -84,6 +85,19 @@ func (d dialect) rebind(query string) string {
 func (d dialect) forUpdate() string {
 	if d == postgresDialect {
 		return " FOR UPDATE"
+	}
+	return ""
+}
+
+// forNoKeyUpdate is forUpdate for a row the transaction changes without
+// touching its key (no id, no column with a unique index): on Postgres it
+// conflicts with other changes of the row and with its deletion, but not
+// with forKeyShare. So a change of a project's own settings never waits
+// for an ingest batch that keeps the project (projectlocks.go), nor such
+// a batch for it. "" on SQLite.
+func (d dialect) forNoKeyUpdate() string {
+	if d == postgresDialect {
+		return " FOR NO KEY UPDATE"
 	}
 	return ""
 }
@@ -193,6 +207,8 @@ func (t *writeTx) Rollback() error { return t.tx.Rollback() }
 // forUpdate and forKeyShare are the dialect's, for queries written inside the transaction.
 func (t *writeTx) forUpdate() string   { return t.d.forUpdate() }
 func (t *writeTx) forKeyShare() string { return t.d.forKeyShare() }
+
+func (t *writeTx) forNoKeyUpdate() string { return t.d.forNoKeyUpdate() }
 
 // lock takes the named lock until the transaction ends; another
 // transaction that asks for the same name waits until then. On Postgres it

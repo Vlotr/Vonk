@@ -1,12 +1,12 @@
-import { type FormEvent, useRef, useState } from 'react'
-import { BACKUP_DOWNLOAD_URL, type BackupInfo, cancelRestore, getBackupInfo, uploadRestore } from '../api/client'
+import { type FormEvent, type MouseEvent, useRef, useState } from 'react'
+import { ApiError, BACKUP_DOWNLOAD_URL, type BackupInfo, cancelRestore, checkBackupDownload, getBackupInfo, uploadRestore } from '../api/client'
 import { AdminOnly } from '../components/AdminOnly'
 import button from '../components/Button.module.css'
 import { CopyBlock } from '../components/CopyBlock'
 import form from '../components/Form.module.css'
 import { LoadError } from '../components/LoadError'
 import { SettingsHeader } from '../components/SettingsHeader'
-import { backupKindLabel, PG_DUMP, PG_RESTORE, restoreCommand, uploadProblem } from '../lib/backup'
+import { backupKindLabel, downloadProblem, PG_DUMP, PG_RESTORE, restoreCommand, uploadProblem } from '../lib/backup'
 import { formatDateTime } from '../lib/format'
 import { problem } from '../lib/signin'
 import { formatBytes } from '../lib/status'
@@ -69,7 +69,38 @@ function PostgresCard() {
   )
 }
 
+/** startDownload saves the file at url, as a click on a download link does. */
+function startDownload(url: string) {
+  const link = document.createElement('a')
+  link.href = url
+  link.download = ''
+  document.body.append(link)
+  link.click()
+  link.remove()
+}
+
 function DownloadCard({ info }: { info: BackupInfo }) {
+  const [error, setError] = useState('')
+  const [checking, setChecking] = useState(false)
+
+  // The browser saves whatever the link answers, so a refusal (a backup
+  // under way, a full disk) would arrive as a downloaded file of JSON. The
+  // page asks first and starts the download only when it can work.
+  const download = async (e: MouseEvent<HTMLAnchorElement>) => {
+    e.preventDefault()
+    if (checking) return
+    setChecking(true)
+    setError('')
+    try {
+      await checkBackupDownload()
+      startDownload(BACKUP_DOWNLOAD_URL)
+    } catch (err) {
+      setError(downloadProblem(err instanceof ApiError ? err.status : 0))
+    } finally {
+      setChecking(false)
+    }
+  }
+
   return (
     <section className={`${page.card} ${styles.card}`} aria-labelledby="download-title">
       <h2 id="download-title" className={page.cardTitle}>
@@ -79,9 +110,20 @@ function DownloadCard({ info }: { info: BackupInfo }) {
         The file is a SQLite database of about {formatBytes(info.databaseBytes)}, made while the tool keeps running. Uploaded source maps are not in
         it: upload them again after a restore.
       </p>
+      {error && (
+        <p className={form.error} role="alert">
+          {error}
+        </p>
+      )}
       {info.canDownload ? (
         <div className={form.buttons}>
-          <a className={`${button.button} ${button.large} ${button.primary}`} href={BACKUP_DOWNLOAD_URL} download>
+          <a
+            className={`${button.button} ${button.large} ${button.primary}`}
+            href={BACKUP_DOWNLOAD_URL}
+            download
+            onClick={download}
+            aria-disabled={checking || undefined}
+          >
             Download backup
           </a>
         </div>

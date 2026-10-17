@@ -684,3 +684,52 @@ func TestConcurrent_ProjectEditsKeepEachOther(t *testing.T) {
 		t.Errorf("project = %q tracking page views %v (answer %q), %v; want both changes", got.Name, got.TracksPageviews, changed.Name, err)
 	}
 }
+
+// A project's settings and alerts change while an ingest batch of that
+// project is being written, without waiting for it: the batch keeps the
+// project (FOR KEY SHARE, projectlocks.go), and the edits lock its row
+// FOR NO KEY UPDATE, which only conflicts with other edits and the
+// deletion. Postgres only: on SQLite one write transaction at a time is
+// the design.
+func TestConcurrent_ProjectEditsDoNotWaitForAnIngestBatch(t *testing.T) {
+	db := openTestDB(t)
+	if !db.Postgres() {
+		t.Skip("SQLite runs one write transaction at a time")
+	}
+	ctx := context.Background()
+	p := addProject(t, db, "Webshop")
+
+	// What an ingest batch holds until it commits: the project kept, and
+	// a row of its tables written (a dirty hour, whose foreign key also
+	// keeps the project).
+	tx, err := db.write.BeginTx(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback() // no-op after Commit
+	if exists, err := projectExists(ctx, tx, p.ID); err != nil || !exists {
+		t.Fatalf("projectExists = %v, %v", exists, err)
+	}
+	if err := markDirty(ctx, tx, map[projectHour]bool{{p.ID, hourOf(at(0))}: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	edit, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	if _, err := db.ChangeProject(edit, p.ID, func(s *ProjectSettings) error {
+		s.Name = "Renamed"
+		return nil
+	}); err != nil {
+		t.Errorf("a project edit during an ingest batch: %v; want it done without waiting for the batch", err)
+	}
+	if _, err := db.UpdateAlertSettings(edit, p.ID, func(s *AlertSettings) { s.SpikeThreshold = 7 }); err != nil {
+		t.Errorf("an alerts edit during an ingest batch: %v; want it done without waiting for the batch", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	got, err := db.ProjectByID(ctx, p.ID)
+	if err != nil || got.Name != "Renamed" {
+		t.Errorf("project = %q, %v; want the edit kept", got.Name, err)
+	}
+}

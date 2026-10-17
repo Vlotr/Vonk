@@ -331,20 +331,21 @@ func (db *DB) UpdateProject(ctx context.Context, id int64, s ProjectSettings) (P
 }
 
 // ChangeProject changes a project's settings in one write transaction: it
-// locks the project's row (FOR UPDATE), reads its settings, lets change
-// edit them, and writes them back, with the route patterns when change
-// sets them (RoutePatterns is nil going in). Two changes at once therefore
-// run one after the other and never undo each other (as
-// UpdateAlertSettings). It returns the project as stored, ErrNotFound, or
-// the error change returned, and writes nothing then. change must not
-// touch the database.
+// locks the project's row (FOR NO KEY UPDATE: the change leaves its id,
+// slug and keys alone, so ingest batches that keep the project go on),
+// reads its settings, lets change edit them, and writes them back, with
+// the route patterns when change sets them (RoutePatterns is nil going
+// in). Two changes at once therefore run one after the other and never
+// undo each other (as UpdateAlertSettings). It returns the project as
+// stored, ErrNotFound, or the error change returned, and writes nothing
+// then. change must not touch the database.
 func (db *DB) ChangeProject(ctx context.Context, id int64, change func(*ProjectSettings) error) (Project, error) {
 	tx, err := db.write.BeginTx(ctx)
 	if err != nil {
 		return Project{}, err
 	}
 	defer tx.Rollback() // no-op after Commit
-	p, err := scanProject(tx.QueryRowContext(ctx, "SELECT "+projectColumns+" FROM projects WHERE id = ?"+tx.forUpdate(), id))
+	p, err := scanProject(tx.QueryRowContext(ctx, "SELECT "+projectColumns+" FROM projects WHERE id = ?"+tx.forNoKeyUpdate(), id))
 	if err != nil {
 		return Project{}, err
 	}

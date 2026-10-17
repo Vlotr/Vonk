@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest'
 import type { UserDataDeleted } from '../api/client'
-import { backupKindLabel, confirmDeleteSentence, deletedSentences, restoreCommand, uploadProblem } from './backup'
+import { backupKindLabel, confirmDeleteSentence, deletedSentences, downloadProblem, restoreCommand, uploadProblem } from './backup'
 
 test('automatic backups say why they were made', () => {
   expect(backupKindLabel('pre-migrate', 7)).toBe('Before a database update (version 7)')
@@ -18,6 +18,13 @@ test('a file that is too large or empty is refused before it is sent', () => {
   expect(uploadProblem({ size: 2 * 2 ** 30 }, 2 ** 30)).toBe('The file is 2 GiB; at most 1 GiB fits now. Nothing was sent.')
   expect(uploadProblem({ size: 0 }, 2 ** 30)).toBe('The file is empty: choose a backup file.')
   expect(uploadProblem({ size: 4096 }, 2 ** 30)).toBe('')
+})
+
+test('a refused download says why', () => {
+  expect(downloadProblem(409)).toBe('A backup is being made already. Try again when it is done.')
+  expect(downloadProblem(507)).toBe('There is not enough free disk space for the copy a download makes. Free up disk space first.')
+  expect(downloadProblem(500)).toBe('The backup could not be made (error 500). The server log says why.')
+  expect(downloadProblem(0)).toBe('The tool did not answer. Try again.')
 })
 
 const nothing: UserDataDeleted = {

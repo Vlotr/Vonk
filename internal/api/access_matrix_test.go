@@ -274,6 +274,7 @@ func TestAccessMatrix(t *testing.T) {
 			unchanged: noPostTo("https://hooks.slack.com/services/matrix-admin-test")},
 		// A member with the whole database would see every project.
 		{name: "backup: download", method: "GET", path: "/ui/api/backup", adminOnly: true, adminCode: backupCode},
+		{name: "backup: check before a download", method: "HEAD", path: "/ui/api/backup", adminOnly: true, adminCode: backupCode},
 		{name: "settings: backup", method: "GET", path: "/ui/api/settings/backup", adminOnly: true, adminCode: 200},
 		// The admin's JSON body is no backup file (415); a member never gets that far.
 		{name: "settings: restore upload", method: "POST", path: "/ui/api/settings/backup/restore",

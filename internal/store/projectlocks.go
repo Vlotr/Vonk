@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"fmt"
 )
 
 // Deleting a project (DeleteProject) locks the project's row first and
@@ -45,7 +44,7 @@ func existingProjects(ctx context.Context, tx *writeTx, projectIDs []int64) ([]i
 			return nil, err
 		}
 		if !exists {
-			return nil, fmt.Errorf("%w: %d", ErrUnknownProject, id)
+			return nil, &UnknownProjectError{ID: id}
 		}
 	}
 	return ids, nil

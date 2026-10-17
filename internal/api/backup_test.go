@@ -42,7 +42,13 @@ type backupPage struct {
 // download asks for a backup as the admin's browser does from the page.
 func (e *testEnv) download(t *testing.T, site string) *http.Response {
 	t.Helper()
-	req, _ := http.NewRequest(http.MethodGet, "/ui/api/backup", nil)
+	return e.askBackup(t, http.MethodGet, site)
+}
+
+// askBackup sends GET (the download) or HEAD (the page's check before it) to /ui/api/backup.
+func (e *testEnv) askBackup(t *testing.T, method, site string) *http.Response {
+	t.Helper()
+	req, _ := http.NewRequest(method, "/ui/api/backup", nil)
 	req.AddCookie(e.admin.cookie)
 	if site != "" {
 		req.Header.Set("Sec-Fetch-Site", site)
@@ -117,6 +123,48 @@ func TestBackup_DownloadIsValidDB(t *testing.T) {
 	page := getJSON[backupPage](t, env, "/ui/api/settings/backup")
 	if page.CanDownload || page.MaxUploadBytes != 0 {
 		t.Errorf("full disk: page says canDownload %v, maxUploadBytes %d", page.CanDownload, page.MaxUploadBytes)
+	}
+}
+
+// The page asks with HEAD whether a download would work before it starts
+// one, so a refusal shows on the page instead of arriving as a downloaded
+// file: HEAD answers the download's own checks and makes no copy.
+func TestBackup_HeadChecksWithoutMakingACopy(t *testing.T) {
+	skipOnPostgres(t)
+	env := newTestEnv(t)
+	env.project(t, "Webshop")
+
+	res := env.askBackup(t, http.MethodHead, "same-origin")
+	if body := readAll(t, res); res.StatusCode != http.StatusOK || len(body) != 0 {
+		t.Errorf("HEAD = %d with %d bytes, want 200 and no body", res.StatusCode, len(body))
+	}
+	if cd := res.Header.Get("Content-Disposition"); cd != "" {
+		t.Errorf("HEAD names a file: %q", cd)
+	}
+	if leftovers := tempFiles(t, env.dir); len(leftovers) != 0 {
+		t.Errorf("HEAD left %v in DATA_DIR", leftovers)
+	}
+
+	// While a download is being made: 409, as the download would answer.
+	env.api.snapshots <- struct{}{}
+	res = env.askBackup(t, http.MethodHead, "same-origin")
+	readAll(t, res)
+	<-env.api.snapshots
+	if res.StatusCode != http.StatusConflict {
+		t.Errorf("HEAD during a download = %d, want 409", res.StatusCode)
+	}
+	if res := env.download(t, "same-origin"); res.StatusCode != http.StatusOK {
+		t.Errorf("a download after the HEAD = %d, want 200 (the HEAD holds nothing)", res.StatusCode)
+	}
+
+	res = env.askBackup(t, http.MethodHead, "cross-site")
+	if readAll(t, res); res.StatusCode != http.StatusForbidden {
+		t.Errorf("HEAD from another site = %d, want 403", res.StatusCode)
+	}
+	env.health.DiskUsage = func(string) (uint64, uint64, error) { return 300 << 20, 100 << 30, nil }
+	res = env.askBackup(t, http.MethodHead, "same-origin")
+	if readAll(t, res); res.StatusCode != http.StatusInsufficientStorage {
+		t.Errorf("HEAD with a full disk = %d, want 507", res.StatusCode)
 	}
 }
 

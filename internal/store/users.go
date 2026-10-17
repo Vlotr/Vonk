@@ -38,6 +38,17 @@ var (
 	ErrNotAdmin = errors.New("only an admin can do this")
 )
 
+// UnknownProjectError names the first project id of a list that does not
+// exist. errors.Is(err, ErrUnknownProject) is true for it; errors.As gives
+// the id, for a message that names it.
+type UnknownProjectError struct {
+	ID int64
+}
+
+func (e *UnknownProjectError) Error() string { return fmt.Sprintf("%v: %d", ErrUnknownProject, e.ID) }
+
+func (e *UnknownProjectError) Is(target error) bool { return target == ErrUnknownProject }
+
 // User is an account that can sign in to the dashboard.
 type User struct {
 	ID    int64

@@ -746,6 +746,19 @@ export interface BackupInfo {
 /** BACKUP_DOWNLOAD_URL is the whole database as a file to save; the page links to it. */
 export const BACKUP_DOWNLOAD_URL = '/ui/api/backup'
 
+/**
+ * checkBackupDownload asks whether a download would work now (HEAD: the
+ * download's checks, without the copy). The page asks before it starts
+ * one, because the browser would save a refusal as a file. A refusal is an
+ * ApiError with the status only: a HEAD answer has no text.
+ */
+export async function checkBackupDownload(): Promise<void> {
+  const response = await fetch(BACKUP_DOWNLOAD_URL, { method: 'HEAD' })
+  if (response.ok) return
+  if (response.status === 401) onSignedOut()
+  throw new ApiError(response.status, response.statusText)
+}
+
 export function getBackupInfo(signal?: AbortSignal): Promise<BackupInfo> {
   return getJSON('/ui/api/settings/backup', signal)
 }

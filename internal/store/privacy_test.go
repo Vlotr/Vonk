@@ -202,8 +202,10 @@ func TestDeleteUserData_Refuses(t *testing.T) {
 			t.Errorf("user id %q: %v, want ErrNoUserID", id, err)
 		}
 	}
-	if _, err := db.DeleteUserData(ctx, UserDataRequest{UserID: "jan", ProjectIDs: []int64{shop.ID, shop.ID + 99}}); !errors.Is(err, ErrUnknownProject) {
-		t.Errorf("an unknown project: %v, want ErrUnknownProject", err)
+	_, err := db.DeleteUserData(ctx, UserDataRequest{UserID: "jan", ProjectIDs: []int64{shop.ID, shop.ID + 99}})
+	var unknown *UnknownProjectError
+	if !errors.Is(err, ErrUnknownProject) || !errors.As(err, &unknown) || unknown.ID != shop.ID+99 {
+		t.Errorf("an unknown project: %v, want ErrUnknownProject naming project %d", err, shop.ID+99)
 	}
 	if n := countRows(t, db, "SELECT COUNT(*) FROM error_events"); n != 1 {
 		t.Errorf("%d events after refused deletions, want 1", n)

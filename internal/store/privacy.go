@@ -99,7 +99,7 @@ func (db *DB) DeleteUserData(ctx context.Context, req UserDataRequest) (UserData
 	}
 	for _, id := range ids {
 		if _, err := db.ProjectByID(ctx, id); errors.Is(err, ErrNotFound) {
-			return total, fmt.Errorf("%w: %d", ErrUnknownProject, id)
+			return total, &UnknownProjectError{ID: id}
 		} else if err != nil {
 			return total, err
 		}

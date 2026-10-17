@@ -76,16 +76,16 @@ type BackupInfo struct {
 }
 
 // CheckBackupFile checks that the SQLite file at path can be restored: it
-// is a SQLite database, PRAGMA integrity_check finds nothing wrong, and it
-// is this tool's (checkBackup). A refusal is a *BackupError. The file is
-// opened read-only and left as it is.
+// is a SQLite database, PRAGMA integrity_check and foreign_key_check find
+// nothing wrong, and it is this tool's (checkBackup). A refusal is a
+// *BackupError. The file is opened read-only and left as it is.
 func CheckBackupFile(ctx context.Context, path string) (BackupInfo, error) {
-	return checkBackup(ctx, path, "integrity_check")
+	return checkBackup(ctx, path, true)
 }
 
-// checkBackup checks the file at path with the PRAGMA check (integrity_check,
-// or quick_check, which skips the comparison of indexes with their tables:
-// at the start, after the full check ran when the file was staged), and
+// checkBackup checks the file at path with PRAGMA integrity_check (full),
+// or quick_check, which skips the comparison of indexes with their tables
+// (at the start, after the full check ran when the file was staged), and
 // that it is this tool's database:
 //
 //   - it has no triggers or views (checked first, on their own: they
@@ -97,12 +97,15 @@ func CheckBackupFile(ctx context.Context, path string) (BackupInfo, error) {
 //     table), none missing (an index), none changed (a column, a CHECK, a
 //     default, a quote, a line break);
 //   - every source map row names a file the tool made (storedFileName), as
-//     the server reads and removes those files.
+//     the server reads and removes those files;
+//   - full only: no row refers to a row that is not there (PRAGMA
+//     foreign_key_check), which the tool, with foreign keys always on,
+//     never writes.
 //
 // The file is opened immutable (no locks, no -wal or -shm files next to
 // it), in defensive mode, with trusted_schema off: nothing in its schema
 // may call functions while it is read.
-func checkBackup(ctx context.Context, path, check string) (BackupInfo, error) {
+func checkBackup(ctx context.Context, path string, full bool) (BackupInfo, error) {
 	head := make([]byte, len(sqliteHeader))
 	f, err := os.Open(path)
 	if err != nil {
@@ -122,6 +125,10 @@ func checkBackup(ctx context.Context, path, check string) (BackupInfo, error) {
 	defer db.Close()
 	db.SetMaxOpenConns(1)
 
+	check := "quick_check"
+	if full {
+		check = "integrity_check"
+	}
 	var result string
 	if err := db.QueryRowContext(ctx, "PRAGMA "+check+"(1)").Scan(&result); err != nil {
 		if ctx.Err() != nil {
@@ -188,7 +195,37 @@ func checkBackup(ctx context.Context, path, check string) (BackupInfo, error) {
 			return BackupInfo{}, err
 		}
 	}
+	if full {
+		if err := checkForeignKeys(ctx, db); err != nil {
+			return BackupInfo{}, err
+		}
+	}
 	return BackupInfo{Version: version}, nil
+}
+
+// checkForeignKeys refuses a backup with a row that refers to a row that
+// is not there (PRAGMA foreign_key_check names the first).
+func checkForeignKeys(ctx context.Context, db *sql.DB) error {
+	rows, err := db.QueryContext(ctx, "PRAGMA foreign_key_check")
+	if err != nil {
+		return notABackup("The file is damaged: SQLite cannot check its references (%v).", err)
+	}
+	defer rows.Close()
+	if rows.Next() {
+		var (
+			table, parent string
+			rowid         sql.NullInt64
+			fkid          int64
+		)
+		if err := rows.Scan(&table, &rowid, &parent, &fkid); err != nil {
+			return notABackup("The file is damaged: SQLite cannot check its references (%v).", err)
+		}
+		return notABackup("The file is not a backup this tool made: a row of %s refers to a row of %s that is not there.", table, parent)
+	}
+	if err := rows.Err(); err != nil {
+		return notABackup("The file is damaged: SQLite cannot check its references (%v).", err)
+	}
+	return nil
 }
 
 // backupVersion reads the backup's schema_migrations: exactly this
@@ -557,7 +594,7 @@ func ApplyPendingRestore(ctx context.Context, cfg config.Config, now time.Time) 
 
 	// quick_check: the full integrity check ran when the file was staged;
 	// the schema and the paths are checked again in full.
-	info, err := checkBackup(ctx, pending, "quick_check")
+	info, err := checkBackup(ctx, pending, false)
 	var refused *BackupError
 	if errors.As(err, &refused) {
 		rejected, err := freeBackupPath(cfg.DataDir, rejectedPrefix+now.UTC().Format(backupTimeFormat))

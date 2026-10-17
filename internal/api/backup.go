@@ -20,6 +20,7 @@ import (
 // pg_dump and restored with pg_restore):
 //
 //	GET    /ui/api/backup                   the whole database as a file to save (a VACUUM INTO snapshot)
+//	HEAD   /ui/api/backup                   would the download work now? (its checks, no copy; the page asks first)
 //	GET    /ui/api/settings/backup          what the page shows: the database, the automatic backups, a pending restore
 //	POST   /ui/api/settings/backup/restore  the body (application/octet-stream) is a backup to restore at the next start
 //	DELETE /ui/api/settings/backup/restore  cancel the pending restore
@@ -151,7 +152,10 @@ func (h *Handler) backupPageData(r *http.Request) (backupPageJSON, error) {
 
 // backupDownload answers GET /ui/api/backup with a snapshot of the whole
 // database as a file to save. Only one snapshot is made at a time, and only
-// when the disk has room for it; the copy is gone once it is sent.
+// when the disk has room for it; the copy is gone once it is sent. HEAD
+// (which the mux routes here too) runs the same checks and stops before
+// the copy: the page asks with it first, so a refusal shows on the page
+// instead of arriving as a downloaded file of JSON.
 func (h *Handler) backupDownload(w http.ResponseWriter, r *http.Request) {
 	if h.db.Postgres() {
 		httpjson.Error(w, http.StatusConflict, postgresBackupText)
@@ -174,6 +178,11 @@ func (h *Handler) backupDownload(w http.ResponseWriter, r *http.Request) {
 	case h.snapshots <- struct{}{}:
 	default:
 		httpjson.Error(w, http.StatusConflict, "A backup is being made already. Try again when it is done.")
+		return
+	}
+	if r.Method == http.MethodHead {
+		<-h.snapshots
+		w.WriteHeader(http.StatusOK)
 		return
 	}
 	f, err := h.db.Snapshot(r.Context())
