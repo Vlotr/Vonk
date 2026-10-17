@@ -64,6 +64,31 @@ func serve(args []string, getenv func(string) string, stderr io.Writer) int {
 	return 0
 }
 
+// applyPendingRestore makes a backup that waits in DATA_DIR (monitor
+// restore, Settings → Backup) the database, before anything opens it. A
+// backup the start refuses is kept aside and logged; the tool then starts
+// on the database it had. Only a failure to move the database is fatal:
+// the restore then stays pending.
+func applyPendingRestore(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
+	result, err := store.ApplyPendingRestore(ctx, cfg, time.Now())
+	switch {
+	case errors.Is(err, store.ErrRestoreOnPostgres):
+		logger.Warn(err.Error())
+		return nil
+	case errors.Is(err, store.ErrRestoreRefused):
+		logger.Error("restore refused: the tool starts on the database it had", "err", err, "kept_as", result.Rejected)
+		return nil
+	case errors.Is(err, store.ErrOldBackupsKept):
+		logger.Warn("backups: the restore is done, but old backups stay", "err", err)
+	case err != nil:
+		return fmt.Errorf("restore: %w; the backup still waits in %s", err, filepath.Join(cfg.DataDir, store.RestorePendingFile))
+	}
+	if result.Restored {
+		logger.Info("restored the database from the backup that waited", "version", result.Version, "previous_database", result.Backup)
+	}
+	return nil
+}
+
 func runServer(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	started := time.Now()
 	database := "sqlite " + cfg.SQLitePath
@@ -72,6 +97,12 @@ func runServer(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 	}
 	logger.Info("starting", "version", version, "addr", cfg.Addr, "base_url", cfg.BaseURL, "database", database, "tz", cfg.Location.String())
 
+	if err := store.RemoveTempFiles(cfg.DataDir); err != nil {
+		logger.Warn("files a stopped process left in DATA_DIR could not be removed", "err", err)
+	}
+	if err := applyPendingRestore(ctx, cfg, logger); err != nil {
+		return err
+	}
 	db, err := openDatabase(ctx, cfg, func(path string, warning error) {
 		if path != "" {
 			logger.Info("database backed up before the update", "path", path)

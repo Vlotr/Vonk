@@ -7,6 +7,9 @@
 //	monitor healthcheck                          exit 0 when the local server is healthy
 //	monitor project create --name NAME           create a project and print its keys
 //	monitor admin reset-password --email EMAIL   print a one-time link to choose a new password
+//	monitor restore FILE                         check a backup and restore it at the next start (SQLite)
+//	monitor restore --cancel                     keep the database as it is after all
+//	monitor delete-user-data --user-id ID        delete everything stored with that user id (--project ID to limit it)
 package main
 
 import (
@@ -24,6 +27,10 @@ const usage = `Usage:
   monitor healthcheck                          exit 0 when the local server is healthy, 1 otherwise
   monitor project create --name NAME           create a project and print its DSN and PostHog token
   monitor admin reset-password --email EMAIL   print a one-time link to choose a new password
+  monitor restore FILE                         check a backup and make it the database at the next start (SQLite)
+  monitor restore --cancel                     remove the backup that waits for the next start
+  monitor delete-user-data --user-id ID        delete everything stored with that user id, in every project
+                           [--project ID]...   or only in these
 
 Settings come from environment variables: SECRET_KEY and BASE_URL are required;
 DATABASE_URL, MAIL_URL, ADDR, DATA_DIR, LOG_LEVEL, TZ and SOURCEMAP_CACHE_MB are optional;
@@ -51,6 +58,10 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		return projectCommand(args, getenv, stdout, stderr)
 	case "admin":
 		return adminCommand(args, getenv, stdout, stderr)
+	case "restore":
+		return restoreCommand(args, getenv, stdout, stderr)
+	case "delete-user-data":
+		return deleteUserDataCommand(args, getenv, stdout, stderr)
 	case "help", "-h", "-help", "--help":
 		fmt.Fprint(stdout, usage)
 		return 0
