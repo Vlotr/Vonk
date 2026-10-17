@@ -90,7 +90,7 @@ Forgot your password? With `MAIL_URL` set, the login page mails a reset link. Wi
 
 ## Postgres
 
-SQLite in `DATA_DIR` is the default and needs nothing else. For a large installation, point `DATABASE_URL` at an empty Postgres database (tested with version 17) that the user in the URL owns: the tool makes its tables at the first start and updates them at every start after an upgrade, as with SQLite. Run one `monitor serve` per database; commands such as `docker exec <container> /monitor project create` work next to it.
+SQLite in `DATA_DIR` is the default and needs nothing else. For a large installation, point `DATABASE_URL` at an empty Postgres database (tested with version 17) that the user in the URL owns: the tool makes its tables at the first start and updates them at every start after an upgrade, as with SQLite. Run one `monitor serve` per database; commands such as `docker exec <container> /monitor project create` work next to it. While Postgres restarts or fails over (up to 2 minutes), the tool keeps the events it accepted and asks the SDKs to wait (429 with `Retry-After`); `/health` reports the database as failing meanwhile.
 
 The tool makes no backups of a Postgres database, also not before an update: it says so in the log at every start and on Settings → Status. Back it up with your database host's backups or with `pg_dump`, also before upgrading the tool:
 
