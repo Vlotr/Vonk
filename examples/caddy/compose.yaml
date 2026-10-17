@@ -1,0 +1,42 @@
+# The monitoring tool behind Caddy, which gets and renews the HTTPS
+# certificate. Put DOMAIN and SECRET_KEY in .env next to this file:
+#
+#   printf 'DOMAIN=monitor.example.com\nSECRET_KEY=%s\n' "$(openssl rand -hex 32)" > .env
+#   docker compose up -d
+#
+# See docs/https-caddy.md. Replace OWNER with the account that publishes
+# the image, or use monitor:dev from `make docker`.
+services:
+  caddy:
+    image: caddy:2
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp" # HTTP/3
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in .env to the tool's domain, such as monitor.example.com}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data # certificates: keep this volume
+      - caddy_config:/config
+    restart: unless-stopped
+
+  app:
+    image: ghcr.io/OWNER/monitor:1
+    # No ports: only Caddy reaches it, on the network Compose makes.
+    environment:
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY in .env, for example to the output of openssl rand -hex 32}
+      BASE_URL: https://${DOMAIN}
+      # Summaries go out at 08:00 on this clock.
+      TZ: Europe/Amsterdam
+      # MAIL_URL: smtp://user:password@mail.example.com:587
+    volumes: ["data:/data"]
+    restart: unless-stopped
+    # On a stop the tool finishes running requests and writes the events it
+    # accepted; Docker's default of 10 s can cut that short.
+    stop_grace_period: 30s
+
+volumes:
+  data:
+  caddy_data:
+  caddy_config:
