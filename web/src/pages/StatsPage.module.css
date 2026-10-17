@@ -1,0 +1,97 @@
+/* Shared by the statistics screens, Pages (Pages.png) and Events, which
+   follows it: the headline with the period toggle on the right, level with
+   the sentence under it; the totals card (numbers left, chart right); the
+   table card under it. Sizes are the design's at 1360 px wide. */
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-4) var(--space-6);
+  margin-bottom: var(--space-6);
+}
+
+.heading {
+  flex: 1 1 400px;
+  min-width: 0;
+}
+
+/* Another period is on its way: the numbers of the old one stay, dimmed. */
+.stale {
+  opacity: 0.6;
+}
+
+.totals {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  padding: 19px var(--space-5) var(--space-5);
+}
+
+.numbers {
+  min-width: 0;
+}
+
+.stats {
+  display: flex;
+  flex-direction: column;
+  gap: 17px;
+  margin: 0;
+}
+
+.stats dt,
+.chartTitle {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-regular);
+  line-height: normal;
+}
+
+.stats dd {
+  margin: 5px 0 0;
+  color: var(--color-text);
+  font-size: var(--font-size-stat);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--letter-spacing-title);
+  line-height: var(--line-height-title);
+}
+
+.bots {
+  margin: 17px 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-label);
+}
+
+.chart {
+  min-width: 0;
+}
+
+.listCard {
+  margin-top: var(--space-6);
+}
+
+.cardHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+  padding: var(--card-padding-top) var(--space-4) 15px;
+}
+
+.sorted {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-small);
+}
+
+/* Text cells share a baseline, so mono names line up with the numbers. */
+.table td {
+  padding-top: 13px;
+  padding-bottom: 13px;
+  vertical-align: baseline;
+}
+
+/* The first number of a row (views, times). */
+.count {
+  font-weight: var(--font-weight-semibold);
+}

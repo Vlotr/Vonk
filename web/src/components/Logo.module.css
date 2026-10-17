@@ -1,0 +1,17 @@
+.logo {
+  flex: none;
+  width: 20px;
+  height: 20px;
+}
+
+.square {
+  fill: var(--color-logo-square);
+}
+
+.middle {
+  fill: var(--color-heat-2);
+}
+
+.corner {
+  fill: var(--color-accent);
+}

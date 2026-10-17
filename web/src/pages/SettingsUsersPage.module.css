@@ -1,0 +1,53 @@
+/* Settings → Users, in the style of Settings → Projects. */
+.failed {
+  margin-bottom: var(--space-4);
+}
+
+.card {
+  margin-bottom: var(--space-6);
+}
+
+.cardTitle {
+  padding: var(--card-padding-top) var(--space-4) 15px;
+}
+
+.roleColumn {
+  width: 140px;
+}
+
+.email {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text);
+  font-size: var(--font-size-name);
+  font-weight: var(--font-weight-semibold);
+  line-height: normal;
+  overflow-wrap: anywhere;
+}
+
+.meta {
+  margin-top: 3px;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-body);
+  line-height: normal;
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.ask {
+  margin-right: var(--space-2);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-small);
+}

@@ -1,0 +1,31 @@
+{
+  "method": "POST",
+  "path": "/api/1/envelope/",
+  "query": "",
+  "host": "127.0.0.1:19999",
+  "headers": {
+    "Accept": [
+      "*/*"
+    ],
+    "Accept-Encoding": [
+      "deflate, gzip, zstd"
+    ],
+    "Content-Encoding": [
+      "gzip"
+    ],
+    "Content-Length": [
+      "2387"
+    ],
+    "Content-Type": [
+      "application/x-sentry-envelope"
+    ],
+    "User-Agent": [
+      "sentry.php/4.34.0"
+    ],
+    "X-Sentry-Auth": [
+      "Sentry sentry_version=7, sentry_client=sentry.php/4.34.0, sentry_key=5f2b6a0c7d3e4f1a8b9c0d1e2f3a4b5c"
+    ]
+  },
+  "bodySize": 2387,
+  "received": "2026-10-16T11:56:49.800365Z"
+}

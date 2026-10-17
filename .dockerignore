@@ -1,0 +1,15 @@
+# Only cmd/, internal/, go.mod, go.sum and web/ are needed to build the image.
+.git
+.superpowers
+.DS_Store
+**/.DS_Store
+bin
+data
+docs
+e2e
+examples
+*.md
+*.pdf
+Monitoring dashboard-png
+web/node_modules
+web/dist

@@ -1,0 +1,26 @@
+# The tool as one container with all its data on one volume, as in the
+# spec's example. Build the image first with `make docker` (monitor:dev);
+# once there is a published image, put its name here instead.
+#
+#   export SECRET_KEY="$(openssl rand -hex 32)"   # keep it: it signs sessions and links
+#   docker compose up -d
+#
+# Then open BASE_URL and create the first account right away.
+services:
+  app:
+    image: monitor:dev
+    ports: ["8000:8000"]
+    environment:
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY to a long random string, for example the output of openssl rand -hex 32}
+      BASE_URL: ${BASE_URL:-http://localhost:8000}
+      # Summaries go out at 08:00 on this clock.
+      TZ: Europe/Amsterdam
+      # MAIL_URL: smtp://user:password@mail.example.com:587
+    volumes: ["data:/data"]
+    restart: unless-stopped
+    # On a stop the tool lets requests finish (up to 15 s), writes what is
+    # still queued and gives notifications 10 s; Docker's default of 10 s
+    # would cut that short.
+    stop_grace_period: 30s
+volumes:
+  data:

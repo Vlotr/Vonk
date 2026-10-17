@@ -1,0 +1,154 @@
+== index error_events_issue_timestamp (table error_events)
+CREATE INDEX error_events_issue_timestamp ON error_events (issue_id, timestamp)
+== index error_events_project_timestamp (table error_events)
+CREATE INDEX error_events_project_timestamp ON error_events (project_id, timestamp)
+== index error_events_project_user_timestamp (table error_events)
+CREATE INDEX error_events_project_user_timestamp ON error_events (project_id, user_id, timestamp)
+== index issues_project_last_seen (table issues)
+CREATE INDEX issues_project_last_seen ON issues (project_id, last_seen)
+== index issues_project_status_last_seen (table issues)
+CREATE INDEX issues_project_status_last_seen ON issues (project_id, status, last_seen)
+== index password_resets_user (table password_resets)
+CREATE INDEX password_resets_user ON password_resets (user_id)
+== index project_access_project (table project_access)
+CREATE INDEX project_access_project ON project_access (project_id)
+== index sessions_user (table sessions)
+CREATE INDEX sessions_user ON sessions (user_id)
+== index sqlite_autoindex_error_events_1 (table error_events)
+(no SQL: SQLite made it for a UNIQUE or PRIMARY KEY)
+== index sqlite_autoindex_invite_projects_1 (table invite_projects)
+(no SQL: SQLite made it for a UNIQUE or PRIMARY KEY)
+== index sqlite_autoindex_invites_1 (table invites)
+(no SQL: SQLite made it for a UNIQUE or PRIMARY KEY)
+== index sqlite_autoindex_issues_1 (table issues)
+(no SQL: SQLite made it for a UNIQUE or PRIMARY KEY)
+== index sqlite_autoindex_password_resets_1 (table password_resets)
+(no SQL: SQLite made it for a UNIQUE or PRIMARY KEY)
+== index sqlite_autoindex_project_access_1 (table project_access)
+(no SQL: SQLite made it for a UNIQUE or PRIMARY KEY)
+== index sqlite_autoindex_projects_1 (table projects)
+(no SQL: SQLite made it for a UNIQUE or PRIMARY KEY)
+== index sqlite_autoindex_projects_2 (table projects)
+(no SQL: SQLite made it for a UNIQUE or PRIMARY KEY)
+== index sqlite_autoindex_projects_3 (table projects)
+(no SQL: SQLite made it for a UNIQUE or PRIMARY KEY)
+== index sqlite_autoindex_sessions_1 (table sessions)
+(no SQL: SQLite made it for a UNIQUE or PRIMARY KEY)
+== index sqlite_autoindex_users_1 (table users)
+(no SQL: SQLite made it for a UNIQUE or PRIMARY KEY)
+== table error_events (table error_events)
+CREATE TABLE error_events (
+    id          INTEGER PRIMARY KEY,
+    issue_id    BIGINT NOT NULL REFERENCES issues (id) ON DELETE CASCADE,
+    project_id  BIGINT NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
+    event_id    TEXT   NOT NULL,
+    timestamp   BIGINT NOT NULL,
+    received_at BIGINT NOT NULL,
+    -- Empty when the SDK sent no user id.
+    user_id     TEXT   NOT NULL DEFAULT '',
+    url         TEXT   NOT NULL DEFAULT '',
+    route       TEXT   NOT NULL DEFAULT '',
+    release     TEXT   NOT NULL DEFAULT '',
+    environment TEXT   NOT NULL DEFAULT '',
+    platform    TEXT   NOT NULL DEFAULT '',
+    -- The scrubbed event as JSON.
+    data        TEXT   NOT NULL,
+    UNIQUE (project_id, event_id)
+)
+== table invite_projects (table invite_projects)
+CREATE TABLE invite_projects (
+    invite_id  BIGINT NOT NULL REFERENCES invites (id) ON DELETE CASCADE,
+    project_id BIGINT NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
+    PRIMARY KEY (invite_id, project_id)
+)
+== table invites (table invites)
+CREATE TABLE invites (
+    id         INTEGER PRIMARY KEY,
+    -- Trimmed and lowercase, like users.email.
+    email      TEXT   NOT NULL,
+    role       TEXT   NOT NULL,
+    token_hash TEXT   NOT NULL UNIQUE,
+    created_by BIGINT REFERENCES users (id) ON DELETE SET NULL,
+    created_at BIGINT NOT NULL,
+    expires_at BIGINT NOT NULL,
+    -- Set when the invite was accepted; an invite works once.
+    used_at    BIGINT
+)
+== table issues (table issues)
+CREATE TABLE issues (
+    id          INTEGER PRIMARY KEY,
+    project_id  BIGINT  NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
+    fingerprint TEXT    NOT NULL,
+    title       TEXT    NOT NULL,
+    message     TEXT    NOT NULL DEFAULT '',
+    culprit     TEXT    NOT NULL DEFAULT '',
+    -- laravel, browser or the SDK platform.
+    source      TEXT    NOT NULL DEFAULT '',
+    level       TEXT    NOT NULL DEFAULT 'error',
+    -- open, resolved or ignored.
+    status      TEXT    NOT NULL DEFAULT 'open',
+    first_seen  BIGINT  NOT NULL,
+    last_seen   BIGINT  NOT NULL,
+    resolved_at BIGINT,
+    times_seen  BIGINT  NOT NULL DEFAULT 0, regressed_at BIGINT,
+    UNIQUE (project_id, fingerprint)
+)
+== table password_resets (table password_resets)
+CREATE TABLE password_resets (
+    id         INTEGER PRIMARY KEY,
+    user_id    BIGINT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    token_hash TEXT   NOT NULL UNIQUE,
+    created_at BIGINT NOT NULL,
+    expires_at BIGINT NOT NULL,
+    -- Set when the link was used; a reset link works once.
+    used_at    BIGINT
+)
+== table project_access (table project_access)
+CREATE TABLE project_access (
+    user_id    BIGINT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    project_id BIGINT NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
+    PRIMARY KEY (user_id, project_id)
+)
+== table projects (table projects)
+CREATE TABLE projects (
+    id                    INTEGER PRIMARY KEY,
+    name                  TEXT    NOT NULL,
+    slug                  TEXT    NOT NULL UNIQUE,
+    sentry_key            TEXT    NOT NULL UNIQUE,
+    posthog_token         TEXT    NOT NULL UNIQUE,
+    -- NULL keeps data forever.
+    retention_days        INTEGER,
+    tracks_laravel        BOOLEAN NOT NULL DEFAULT FALSE,
+    tracks_browser        BOOLEAN NOT NULL DEFAULT FALSE,
+    tracks_pageviews      BOOLEAN NOT NULL DEFAULT FALSE,
+    rate_limit_per_minute INTEGER NOT NULL DEFAULT 1000,
+    created_at            BIGINT  NOT NULL
+)
+== table schema_migrations (table schema_migrations)
+CREATE TABLE schema_migrations (
+		version    INTEGER PRIMARY KEY,
+		name       TEXT    NOT NULL,
+		applied_at BIGINT  NOT NULL
+	)
+== table sessions (table sessions)
+CREATE TABLE sessions (
+    id         INTEGER PRIMARY KEY,
+    user_id    BIGINT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    token_hash TEXT   NOT NULL UNIQUE,
+    -- Sent back by the dashboard in X-CSRF-Token on every change.
+    csrf_token TEXT   NOT NULL,
+    created_at BIGINT NOT NULL,
+    -- Moves forward while the session is used (sliding expiry).
+    expires_at BIGINT NOT NULL
+)
+== table users (table users)
+CREATE TABLE users (
+    id            INTEGER PRIMARY KEY,
+    -- Trimmed and lowercase, so one address has one account.
+    email         TEXT    NOT NULL UNIQUE,
+    -- argon2id in PHC form: $argon2id$v=19$m=...,t=...,p=...$salt$hash
+    password_hash TEXT    NOT NULL,
+    -- admin or member.
+    role          TEXT    NOT NULL,
+    created_at    BIGINT  NOT NULL
+)

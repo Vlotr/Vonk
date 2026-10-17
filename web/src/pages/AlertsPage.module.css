@@ -1,0 +1,89 @@
+/* A project's alerts, in the style of Settings → Projects: a table card
+   with a checkbox per channel, and a card for the Slack webhook. */
+
+.mailOff,
+.failed {
+  margin: var(--space-4) 0 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-small);
+}
+
+.failed {
+  color: var(--color-highlight-text);
+}
+
+.card {
+  margin-top: var(--space-6);
+}
+
+.cardTitle {
+  padding: var(--card-padding-top) var(--space-4) 15px;
+}
+
+.padded {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--form-card-padding);
+}
+
+.name {
+  color: var(--color-text);
+  font-size: var(--font-size-name);
+  font-weight: var(--font-weight-semibold);
+  line-height: normal;
+}
+
+.meta {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-top: var(--meta-gap);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-body);
+  line-height: normal;
+}
+
+/* A sentence with a field in it. */
+.inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.threshold {
+  width: 72px;
+  height: var(--button-height);
+}
+
+.frequency {
+  width: 130px;
+  height: var(--button-height);
+}
+
+.when {
+  font-size: var(--font-size-small);
+}
+
+/* The checkbox columns, centered under their names. */
+.channel {
+  width: 96px;
+  text-align: center;
+}
+
+thead th.channel {
+  text-align: center;
+}
+
+.check {
+  width: var(--checkbox-size);
+  height: var(--checkbox-size);
+  margin: 0;
+  accent-color: var(--color-button-primary);
+  cursor: pointer;
+}
+
+.check:disabled {
+  cursor: not-allowed;
+}

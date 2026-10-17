@@ -1,0 +1,223 @@
+/* The row of controls: status tabs, then Source, Sort by and Search, each
+   with its label above. All sit on one bottom line, as in the design. */
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-3);
+  margin-top: 22px;
+}
+
+.tabs {
+  display: flex;
+  gap: var(--segmented-padding);
+  padding: var(--segmented-padding);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-segmented);
+  background: var(--color-surface);
+}
+
+.tab {
+  height: var(--button-height);
+  padding: 0 var(--button-padding-x);
+  border: 0;
+  border-radius: var(--radius-button);
+  background: none;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-semibold);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.tab:hover {
+  color: var(--color-text);
+}
+
+.count {
+  color: var(--color-text-muted);
+  font-weight: var(--font-weight-regular);
+}
+
+.tab[aria-pressed='true'] {
+  background: var(--color-button-primary);
+  color: var(--color-button-primary-text);
+}
+
+.tab[aria-pressed='true'] .count {
+  color: var(--color-button-primary-count);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.label {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-label);
+  line-height: normal;
+}
+
+.select,
+.input {
+  height: var(--button-height-large);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-button);
+  background-color: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--font-size-body);
+}
+
+/* Selects as wide as the design's; the arrow is ours (ChevronDownIcon), thin like the design's. */
+.selectBox {
+  position: relative;
+  display: flex;
+}
+
+.select {
+  appearance: none;
+  padding: 0 var(--space-6) 0 var(--space-4);
+  cursor: pointer;
+}
+
+.sourceSelect {
+  width: 121px;
+}
+
+.sortSelect {
+  width: 130px;
+}
+
+.chevron {
+  position: absolute;
+  top: 50%;
+  right: 3px;
+  width: 9px;
+  height: 5px;
+  color: var(--color-text);
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
+.search {
+  flex: 1;
+  min-width: 200px;
+}
+
+.input {
+  width: 100%;
+  padding: 0 var(--space-3);
+}
+
+.route,
+.failed {
+  margin: var(--space-4) 0 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-small);
+}
+
+.route code {
+  font-size: var(--font-size-culprit);
+}
+
+.failed {
+  color: var(--color-highlight-text);
+}
+
+.linkButton {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-link);
+  font-size: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.card {
+  margin-top: var(--space-6);
+}
+
+/* Rows of the previous filters, while the new ones load. */
+.stale {
+  opacity: 0.6;
+}
+
+.barsColumn {
+  width: calc(var(--hour-bars-width) + 2 * var(--space-4));
+}
+
+/* The design's Last seen column, a little wider than "12 min ago". */
+.lastSeenColumn {
+  width: 109px;
+  white-space: nowrap;
+}
+
+.title {
+  color: var(--color-text-secondary);
+  line-height: var(--line-height-body);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.title strong {
+  color: var(--color-text);
+  font-weight: var(--font-weight-semibold);
+}
+
+.title:hover strong {
+  text-decoration: underline;
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--meta-gap);
+}
+
+.culprit {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-culprit);
+  line-height: normal;
+  overflow-wrap: anywhere;
+}
+
+.events {
+  font-weight: var(--font-weight-semibold);
+}
+
+.lastSeen {
+  color: var(--color-text-secondary);
+}
+
+/* For screen readers only: the action column has no visible header. The
+   header cell anchors it, so it stays inside the table's scroll box. */
+.actionColumn {
+  position: relative;
+}
+
+.hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  min-height: var(--list-footer-height);
+  padding: 0 var(--space-4);
+  border-top: var(--border-width) solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-small);
+}

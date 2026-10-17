@@ -1,0 +1,46 @@
+/* Pages.png, besides what it shares with Events (StatsPage.module.css):
+   the table's column widths, the routes, the time bars and the errors. */
+.noTime {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-regular);
+  letter-spacing: normal;
+}
+
+/* Column widths of the design (cells include their padding); the page takes the rest. */
+.viewsColumn {
+  width: 133px;
+}
+
+.visitorsColumn {
+  width: 132px;
+}
+
+.timeColumn {
+  width: 415px;
+}
+
+.errorsColumn {
+  width: 118px;
+}
+
+/* The time bar stays in the middle of the row. */
+.table td.timeCell {
+  vertical-align: middle;
+}
+
+.route {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-code-path);
+  font-weight: var(--font-weight-medium);
+  overflow-wrap: anywhere;
+}
+
+.errors {
+  color: var(--color-errors-link);
+  font-weight: var(--font-weight-semibold);
+}
+
+.noErrors {
+  color: var(--color-text-secondary);
+}

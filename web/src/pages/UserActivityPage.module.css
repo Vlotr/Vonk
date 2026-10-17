@@ -1,0 +1,148 @@
+/* A user's activity, in the language of "Before this error" on the issue
+   page: round markers 24 px wide, pages in mono, times on the right. Each
+   day has its own heading; rows are split by thin lines. */
+.notice {
+  margin: var(--space-3) 0 0;
+}
+
+.card {
+  margin-top: var(--space-6);
+}
+
+.day + .day {
+  border-top: var(--border-width) solid var(--color-border);
+}
+
+.dayTitle {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: var(--border-width) solid var(--color-divider);
+  background: var(--color-surface-sunken);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-medium);
+  line-height: normal;
+}
+
+.items {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+}
+
+.item + .item {
+  border-top: var(--border-width) solid var(--color-divider);
+}
+
+.time {
+  flex: none;
+  width: 64px;
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-culprit);
+  line-height: normal;
+}
+
+.marker {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: var(--step-size);
+  height: var(--step-size);
+  border-radius: var(--radius-pill);
+}
+
+.pageMarker {
+  background: var(--color-step-bg);
+  color: var(--color-step-text);
+}
+
+.eventMarker {
+  background: var(--color-tag-bg);
+  color: var(--color-text-secondary);
+}
+
+.errorMarker {
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+}
+
+.icon {
+  width: var(--icon-size-small);
+  height: var(--icon-size-small);
+}
+
+.errorMark {
+  width: var(--step-size);
+  height: var(--step-size);
+}
+
+.main {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px var(--space-3);
+  min-width: 0;
+}
+
+.path,
+.event {
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-code);
+  line-height: normal;
+  overflow-wrap: anywhere;
+}
+
+.event {
+  font-weight: var(--font-weight-semibold);
+}
+
+.error {
+  color: var(--color-highlight-text);
+  font-weight: var(--font-weight-semibold);
+  text-decoration: none;
+}
+
+.error:hover {
+  text-decoration: underline;
+}
+
+.detail {
+  min-width: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-small);
+  line-height: normal;
+  overflow-wrap: anywhere;
+}
+
+.side {
+  flex: none;
+  max-width: 40%;
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-body);
+  line-height: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidePath {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-culprit);
+}
+
+.footer {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-4);
+  border-top: var(--border-width) solid var(--color-border);
+}

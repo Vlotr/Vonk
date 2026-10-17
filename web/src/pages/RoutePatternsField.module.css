@@ -1,0 +1,55 @@
+/* Route patterns on Edit project: the field, then recent paths and their
+   routes in two columns of mono text. */
+.patterns {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-top: var(--space-6);
+}
+
+.patterns code {
+  font-size: var(--font-size-culprit);
+}
+
+.textarea {
+  height: auto;
+  padding: var(--space-2) var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-code-path);
+  line-height: var(--line-height-code);
+  resize: vertical;
+}
+
+.preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.table {
+  width: 100%;
+  max-width: 760px;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-culprit);
+}
+
+.table th {
+  padding: var(--space-1) var(--space-4) var(--space-1) 0;
+  color: var(--color-text-muted);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-medium);
+  text-align: left;
+}
+
+.table td {
+  padding: var(--space-1) var(--space-4) var(--space-1) 0;
+  border-top: var(--border-width) solid var(--color-divider);
+  color: var(--color-text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.table td + td {
+  color: var(--color-text);
+}

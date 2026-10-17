@@ -1,0 +1,165 @@
+/* Forms as the New project card of Settings.png draws them: bold labels
+   over 44px fields with a grey-blue border, native checkboxes in the
+   dark of the primary button, and a muted note before the buttons. */
+
+/* A card with a form in it. The open one ("New project") has a dark border. */
+.card {
+  padding: var(--form-card-padding);
+  border: var(--border-width) solid var(--color-border-strong);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+}
+
+.title {
+  margin: 0 0 19px;
+  color: var(--color-text);
+  font-size: var(--font-size-heading);
+  font-weight: var(--font-weight-semibold);
+  line-height: normal;
+}
+
+/* Two fields side by side, the first a little wider, as Project name and Keep data for. */
+.columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.85fr);
+  gap: var(--space-5) var(--form-columns-gap);
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.label {
+  color: var(--color-text);
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold);
+  line-height: normal;
+}
+
+.hint {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-small);
+  line-height: normal;
+}
+
+.input,
+.select {
+  width: 100%;
+  height: var(--button-height-large);
+  border: var(--border-width) solid var(--color-input-border);
+  border-radius: var(--radius-button);
+  background-color: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--font-size-body);
+}
+
+.input {
+  padding: 0 var(--space-3);
+}
+
+.selectBox {
+  position: relative;
+  display: flex;
+}
+
+.select {
+  appearance: none;
+  padding: 0 var(--space-8) 0 var(--space-4);
+  cursor: pointer;
+}
+
+.chevron {
+  position: absolute;
+  top: 50%;
+  right: var(--space-4);
+  width: 8px;
+  height: 5px;
+  color: var(--color-text);
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
+/* "What do you want to track?" and its checkboxes. */
+.fieldset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.legend {
+  margin-bottom: 17px;
+  padding: 0;
+}
+
+.checks {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: fit-content;
+  color: var(--color-text);
+  font-size: var(--font-size-body);
+  line-height: normal;
+  cursor: pointer;
+}
+
+.check input {
+  width: var(--checkbox-size);
+  height: var(--checkbox-size);
+  margin: 3px 3px 3px 4px;
+  accent-color: var(--color-button-primary);
+  cursor: pointer;
+}
+
+.sdk {
+  margin-left: 12px;
+  color: var(--color-text-muted);
+}
+
+.note {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-small);
+  line-height: normal;
+}
+
+.error {
+  margin: 0;
+  color: var(--color-highlight-text);
+  font-size: var(--font-size-small);
+  line-height: normal;
+}
+
+.success {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-small);
+  line-height: normal;
+}
+
+.buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+@media (max-width: 720px) {
+  .columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

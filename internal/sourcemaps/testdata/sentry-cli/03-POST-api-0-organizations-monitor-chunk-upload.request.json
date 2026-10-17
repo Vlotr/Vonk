@@ -1,0 +1,24 @@
+{
+  "method": "POST",
+  "path": "/api/0/organizations/monitor/chunk-upload/",
+  "query": "",
+  "host": "127.0.0.1:19998",
+  "headers": {
+    "Accept": [
+      "*/*"
+    ],
+    "Authorization": [
+      "Bearer sntrys_fixture"
+    ],
+    "Content-Length": [
+      "2202"
+    ],
+    "Content-Type": [
+      "multipart/form-data; boundary=------------------------VmdclAK1LzQL3lo8lODfQH"
+    ],
+    "User-Agent": [
+      "sentry-cli/3.8.0"
+    ]
+  },
+  "bodySize": 2202
+}

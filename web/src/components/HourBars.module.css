@@ -1,0 +1,80 @@
+.bars,
+.wide,
+.blocks {
+  display: flex;
+}
+
+.bars {
+  gap: 2px;
+  width: var(--hour-bars-width);
+  height: 20px;
+}
+
+.wide {
+  gap: 2px;
+  width: var(--hour-bars-wide-width);
+  height: var(--hour-bars-wide-height);
+}
+
+.blocks {
+  gap: 3px;
+  height: 44px;
+}
+
+.hour {
+  flex: 1;
+}
+
+.bars .hour,
+.wide .hour {
+  border-radius: var(--radius-hour-bar);
+}
+
+.blocks .hour {
+  border-radius: var(--radius-hour-block);
+}
+
+.level0 {
+  background: var(--color-heat-0);
+}
+
+.level1 {
+  background: var(--color-heat-1);
+}
+
+.level2 {
+  background: var(--color-heat-2);
+}
+
+.level3 {
+  background: var(--color-heat-3);
+}
+
+.level4 {
+  background: var(--color-heat-4);
+}
+
+.legend {
+  display: flex;
+  align-items: center;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-label);
+  line-height: normal;
+  white-space: nowrap;
+}
+
+.legendEnd {
+  margin-left: 9px;
+}
+
+.legendSquares {
+  display: flex;
+  gap: 2px;
+  margin-left: 8px;
+}
+
+.legendSquare {
+  width: var(--legend-square);
+  height: var(--legend-square);
+  border-radius: var(--radius-hour-bar);
+}

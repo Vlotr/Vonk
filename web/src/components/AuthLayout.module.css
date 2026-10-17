@@ -1,0 +1,36 @@
+/* The sign-in pages: one column in the middle, as wide as a form needs. */
+.page {
+  display: flex;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 12vh var(--space-4) var(--space-10);
+}
+
+.column {
+  width: 100%;
+  max-width: var(--auth-width);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  margin-bottom: var(--space-8);
+  color: var(--color-text);
+  font-size: var(--font-size-brand);
+  font-weight: var(--font-weight-bold);
+}
+
+.card {
+  margin-top: var(--space-6);
+  padding: var(--space-6);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+}
+
+.footer {
+  margin: var(--space-5) 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-small);
+}

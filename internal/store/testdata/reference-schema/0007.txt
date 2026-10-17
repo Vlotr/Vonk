@@ -1,0 +1,373 @@
+== index api_token_projects_project (table api_token_projects)
+CREATE INDEX api_token_projects_project ON api_token_projects (project_id)
+== index custom_events_project_at (table custom_events)
+CREATE INDEX custom_events_project_at ON custom_events (project_id, at)
+== index custom_events_project_user_at (table custom_events)
+CREATE INDEX custom_events_project_user_at ON custom_events (project_id, user_id, at)
+== index error_events_issue_timestamp (table error_events)
+CREATE INDEX error_events_issue_timestamp ON error_events (issue_id, timestamp)
+== index error_events_project_timestamp (table error_events)
+CREATE INDEX error_events_project_timestamp ON error_events (project_id, timestamp)
+== index error_events_project_user_timestamp (table error_events)
+CREATE INDEX error_events_project_user_timestamp ON error_events (project_id, user_id, timestamp)
+== index issues_project_last_seen (table issues)
+CREATE INDEX issues_project_last_seen ON issues (project_id, last_seen)
+== index issues_project_status_last_seen (table issues)
+CREATE INDEX issues_project_status_last_seen ON issues (project_id, status, last_seen)
+== index pageleaves_project_at (table pageleaves)
+CREATE INDEX pageleaves_project_at ON pageleaves (project_id, at)
+== index pageleaves_project_pageview (table pageleaves)
+CREATE INDEX pageleaves_project_pageview ON pageleaves (project_id, pageview_id, session_id, window_id, at)
+== index pageviews_project_start (table pageviews)
+CREATE INDEX pageviews_project_start ON pageviews (project_id, start)
+== index pageviews_project_tab_start (table pageviews)
+CREATE INDEX pageviews_project_tab_start ON pageviews (project_id, session_id, window_id, start)
+== index pageviews_project_user_start (table pageviews)
+CREATE INDEX pageviews_project_user_start ON pageviews (project_id, user_id, start)
+== index password_resets_user (table password_resets)
+CREATE INDEX password_resets_user ON password_resets (user_id)
+== index project_access_project (table project_access)
+CREATE INDEX project_access_project ON project_access (project_id)
+== index sessions_user (table sessions)
+CREATE INDEX sessions_user ON sessions (user_id)
+== index source_maps_project_bundle (table source_maps)
+CREATE INDEX source_maps_project_bundle ON source_maps (project_id, bundle)
+== index source_maps_project_debug_id (table source_maps)
+CREATE INDEX source_maps_project_debug_id ON source_maps (project_id, debug_id)
+== index source_maps_project_release_file (table source_maps)
+CREATE INDEX source_maps_project_release_file ON source_maps (project_id, release, file)
+== index source_maps_project_uploaded (table source_maps)
+CREATE INDEX source_maps_project_uploaded ON source_maps (project_id, uploaded_at)
+== index sqlite_autoindex_alert_state_1 (table alert_state)
+(no SQL: SQLite made it for a UNIQUE or PRIMARY KEY)
+== index sqlite_autoindex_alerts_1 (table alerts)
+(no SQL: SQLite made it for a UNIQUE or PRIMARY KEY)
+== index sqlite_autoindex_api_token_projects_1 (table api_token_projects)
+(no SQL: SQLite made it for a UNIQUE or PRIMARY KEY)
+== index sqlite_autoindex_api_tokens_1 (table api_tokens)
+(no SQL: SQLite made it for a UNIQUE or PRIMARY KEY)
+== index sqlite_autoindex_custom_events_1 (table custom_events)
+(no SQL: SQLite made it for a UNIQUE or PRIMARY KEY)
+== index sqlite_autoindex_error_events_1 (table error_events)
+(no SQL: SQLite made it for a UNIQUE or PRIMARY KEY)
+== index sqlite_autoindex_event_hourly_1 (table event_hourly)
+(no SQL: SQLite made it for a UNIQUE or PRIMARY KEY)
+== index sqlite_autoindex_hourly_stats_1 (table hourly_stats)
+(no SQL: SQLite made it for a UNIQUE or PRIMARY KEY)
+== index sqlite_autoindex_invite_projects_1 (table invite_projects)
+(no SQL: SQLite made it for a UNIQUE or PRIMARY KEY)
+== index sqlite_autoindex_invites_1 (table invites)
+(no SQL: SQLite made it for a UNIQUE or PRIMARY KEY)
+== index sqlite_autoindex_issues_1 (table issues)
+(no SQL: SQLite made it for a UNIQUE or PRIMARY KEY)
+== index sqlite_autoindex_pageleaves_1 (table pageleaves)
+(no SQL: SQLite made it for a UNIQUE or PRIMARY KEY)
+== index sqlite_autoindex_pageviews_1 (table pageviews)
+(no SQL: SQLite made it for a UNIQUE or PRIMARY KEY)
+== index sqlite_autoindex_password_resets_1 (table password_resets)
+(no SQL: SQLite made it for a UNIQUE or PRIMARY KEY)
+== index sqlite_autoindex_project_access_1 (table project_access)
+(no SQL: SQLite made it for a UNIQUE or PRIMARY KEY)
+== index sqlite_autoindex_projects_1 (table projects)
+(no SQL: SQLite made it for a UNIQUE or PRIMARY KEY)
+== index sqlite_autoindex_projects_2 (table projects)
+(no SQL: SQLite made it for a UNIQUE or PRIMARY KEY)
+== index sqlite_autoindex_projects_3 (table projects)
+(no SQL: SQLite made it for a UNIQUE or PRIMARY KEY)
+== index sqlite_autoindex_sessions_1 (table sessions)
+(no SQL: SQLite made it for a UNIQUE or PRIMARY KEY)
+== index sqlite_autoindex_settings_1 (table settings)
+(no SQL: SQLite made it for a UNIQUE or PRIMARY KEY)
+== index sqlite_autoindex_stats_dirty_hours_1 (table stats_dirty_hours)
+(no SQL: SQLite made it for a UNIQUE or PRIMARY KEY)
+== index sqlite_autoindex_users_1 (table users)
+(no SQL: SQLite made it for a UNIQUE or PRIMARY KEY)
+== table alert_state (table alert_state)
+CREATE TABLE alert_state (
+    name       TEXT   PRIMARY KEY,
+    -- NULL for the tool's own (admin) alerts; a deleted project takes its rows along.
+    project_id BIGINT REFERENCES projects (id) ON DELETE CASCADE,
+    -- The period a digest last covered, or the text of the last admin alert.
+    value      TEXT   NOT NULL DEFAULT '',
+    sent_at    BIGINT NOT NULL
+)
+== table alerts (table alerts)
+CREATE TABLE alerts (
+    id         INTEGER PRIMARY KEY,
+    project_id BIGINT  NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
+    -- new_issue, regression, spike or digest.
+    kind       TEXT    NOT NULL,
+    -- email or slack.
+    channel    TEXT    NOT NULL,
+    enabled    BOOLEAN NOT NULL,
+    -- spike: fire at this many times the usual hourly rate of errors.
+    threshold  INTEGER,
+    -- digest: daily, weekly or monthly.
+    frequency  TEXT    NOT NULL DEFAULT '',
+    UNIQUE (project_id, kind, channel)
+)
+== table api_token_projects (table api_token_projects)
+CREATE TABLE api_token_projects (
+    token_id   BIGINT NOT NULL REFERENCES api_tokens (id) ON DELETE CASCADE,
+    project_id BIGINT NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
+    PRIMARY KEY (token_id, project_id)
+)
+== table api_tokens (table api_tokens)
+CREATE TABLE api_tokens (
+    id           INTEGER PRIMARY KEY,
+    name         TEXT   NOT NULL,
+    token_hash   TEXT   NOT NULL UNIQUE,
+    -- The token's last four characters, so admins can tell tokens apart.
+    hint         TEXT   NOT NULL DEFAULT '',
+    created_by   BIGINT REFERENCES users (id) ON DELETE SET NULL,
+    created_at   BIGINT NOT NULL,
+    -- When an upload last signed in with it; NULL when never.
+    last_used_at BIGINT
+)
+== table custom_events (table custom_events)
+CREATE TABLE custom_events (
+    id         INTEGER PRIMARY KEY,
+    project_id BIGINT  NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
+    -- The event's uuid, so an SDK that sends it again stores it once.
+    event_id   TEXT    NOT NULL,
+    name       TEXT    NOT NULL,
+    -- distinct_id: anonymous until the app calls identify.
+    user_id    TEXT    NOT NULL DEFAULT '',
+    -- The page it happened on: its path (secrets masked) and route.
+    path       TEXT    NOT NULL DEFAULT '',
+    route      TEXT    NOT NULL DEFAULT '',
+    at         BIGINT  NOT NULL,
+    -- Bots are stored but counted apart.
+    is_bot     BOOLEAN NOT NULL DEFAULT FALSE,
+    -- The app's own properties (not the SDK's "$" ones), scrubbed, as JSON.
+    properties TEXT    NOT NULL DEFAULT '{}',
+    UNIQUE (project_id, event_id)
+)
+== table error_events (table error_events)
+CREATE TABLE error_events (
+    id          INTEGER PRIMARY KEY,
+    issue_id    BIGINT NOT NULL REFERENCES issues (id) ON DELETE CASCADE,
+    project_id  BIGINT NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
+    event_id    TEXT   NOT NULL,
+    timestamp   BIGINT NOT NULL,
+    received_at BIGINT NOT NULL,
+    -- Empty when the SDK sent no user id.
+    user_id     TEXT   NOT NULL DEFAULT '',
+    url         TEXT   NOT NULL DEFAULT '',
+    route       TEXT   NOT NULL DEFAULT '',
+    release     TEXT   NOT NULL DEFAULT '',
+    environment TEXT   NOT NULL DEFAULT '',
+    platform    TEXT   NOT NULL DEFAULT '',
+    -- The scrubbed event as JSON.
+    data        TEXT   NOT NULL,
+    UNIQUE (project_id, event_id)
+)
+== table event_hourly (table event_hourly)
+CREATE TABLE event_hourly (
+    id         INTEGER PRIMARY KEY,
+    project_id BIGINT NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
+    name       TEXT   NOT NULL,
+    -- The hour's start, unix milliseconds.
+    hour       BIGINT NOT NULL,
+    -- Events sent by people (bots are only in bots).
+    events     BIGINT NOT NULL DEFAULT 0,
+    -- The people's user ids as a mergeable sketch (internal/hll).
+    users_hll  BLOB   NOT NULL,
+    bots       BIGINT NOT NULL DEFAULT 0,
+    UNIQUE (project_id, hour, name)
+)
+== table hourly_stats (table hourly_stats)
+CREATE TABLE hourly_stats (
+    id                INTEGER PRIMARY KEY,
+    project_id        BIGINT NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
+    route             TEXT   NOT NULL,
+    -- The hour's start, unix milliseconds.
+    hour              BIGINT NOT NULL,
+    -- Page views by people (bots are only in bots).
+    views             BIGINT NOT NULL DEFAULT 0,
+    -- The people's user ids as a mergeable sketch (internal/hll), so
+    -- visitors of a day or week can be counted from the hours.
+    visitors_hll      BLOB   NOT NULL,
+    -- The page views with a duration (closed, plausible) and their sum.
+    total_duration_ms BIGINT NOT NULL DEFAULT 0,
+    duration_count    BIGINT NOT NULL DEFAULT 0,
+    bots              BIGINT NOT NULL DEFAULT 0,
+    -- Error events on this route in this hour.
+    errors            BIGINT NOT NULL DEFAULT 0,
+    UNIQUE (project_id, hour, route)
+)
+== table invite_projects (table invite_projects)
+CREATE TABLE invite_projects (
+    invite_id  BIGINT NOT NULL REFERENCES invites (id) ON DELETE CASCADE,
+    project_id BIGINT NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
+    PRIMARY KEY (invite_id, project_id)
+)
+== table invites (table invites)
+CREATE TABLE invites (
+    id         INTEGER PRIMARY KEY,
+    -- Trimmed and lowercase, like users.email.
+    email      TEXT   NOT NULL,
+    role       TEXT   NOT NULL,
+    token_hash TEXT   NOT NULL UNIQUE,
+    created_by BIGINT REFERENCES users (id) ON DELETE SET NULL,
+    created_at BIGINT NOT NULL,
+    expires_at BIGINT NOT NULL,
+    -- Set when the invite was accepted; an invite works once.
+    used_at    BIGINT
+)
+== table issues (table issues)
+CREATE TABLE issues (
+    id          INTEGER PRIMARY KEY,
+    project_id  BIGINT  NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
+    fingerprint TEXT    NOT NULL,
+    title       TEXT    NOT NULL,
+    message     TEXT    NOT NULL DEFAULT '',
+    culprit     TEXT    NOT NULL DEFAULT '',
+    -- laravel, browser or the SDK platform.
+    source      TEXT    NOT NULL DEFAULT '',
+    level       TEXT    NOT NULL DEFAULT 'error',
+    -- open, resolved or ignored.
+    status      TEXT    NOT NULL DEFAULT 'open',
+    first_seen  BIGINT  NOT NULL,
+    last_seen   BIGINT  NOT NULL,
+    resolved_at BIGINT,
+    times_seen  BIGINT  NOT NULL DEFAULT 0, regressed_at BIGINT, first_release TEXT NOT NULL DEFAULT '', regressed_release TEXT NOT NULL DEFAULT '',
+    UNIQUE (project_id, fingerprint)
+)
+== table pageleaves (table pageleaves)
+CREATE TABLE pageleaves (
+    id          INTEGER PRIMARY KEY,
+    project_id  BIGINT NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
+    -- The uuid of the $pageleave event, so a resent one is stored once.
+    event_id    TEXT   NOT NULL,
+    -- The page view it closes ($pageview_id); '' when the SDK did not
+    -- say, and then it closes the latest page view of its tab before it.
+    pageview_id TEXT   NOT NULL DEFAULT '',
+    session_id  TEXT   NOT NULL DEFAULT '',
+    window_id   TEXT   NOT NULL DEFAULT '',
+    at          BIGINT NOT NULL,
+    UNIQUE (project_id, event_id)
+)
+== table pageviews (table pageviews)
+CREATE TABLE pageviews (
+    id                     INTEGER PRIMARY KEY,
+    project_id             BIGINT  NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
+    -- $pageview_id (posthog-js: the uuid of the $pageview event), so an
+    -- SDK that sends the same page view again stores it once.
+    pageview_id            TEXT    NOT NULL,
+    -- $session_id and $window_id (one browser tab); '' when the SDK sent none.
+    session_id             TEXT    NOT NULL DEFAULT '',
+    window_id              TEXT    NOT NULL DEFAULT '',
+    -- distinct_id: anonymous until the app calls identify.
+    user_id                TEXT    NOT NULL DEFAULT '',
+    route                  TEXT    NOT NULL,
+    -- The URL's path, without query and fragment.
+    path                   TEXT    NOT NULL DEFAULT '',
+    start                  BIGINT  NOT NULL,
+    -- Time on the page: until its $pageleave or the next $pageview in the
+    -- same tab, whichever came first. NULL while open, and when the time
+    -- is not plausible (negative, or more than 6 hours).
+    duration_ms            BIGINT,
+    -- TRUE until something closes it: "the user left the page".
+    left_without_pageleave BOOLEAN NOT NULL DEFAULT TRUE,
+    -- Bots are stored but counted apart.
+    is_bot                 BOOLEAN NOT NULL DEFAULT FALSE,
+    UNIQUE (project_id, pageview_id)
+)
+== table password_resets (table password_resets)
+CREATE TABLE password_resets (
+    id         INTEGER PRIMARY KEY,
+    user_id    BIGINT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    token_hash TEXT   NOT NULL UNIQUE,
+    created_at BIGINT NOT NULL,
+    expires_at BIGINT NOT NULL,
+    -- Set when the link was used; a reset link works once.
+    used_at    BIGINT
+)
+== table project_access (table project_access)
+CREATE TABLE project_access (
+    user_id    BIGINT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    project_id BIGINT NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
+    PRIMARY KEY (user_id, project_id)
+)
+== table projects (table projects)
+CREATE TABLE projects (
+    id                    INTEGER PRIMARY KEY,
+    name                  TEXT    NOT NULL,
+    slug                  TEXT    NOT NULL UNIQUE,
+    sentry_key            TEXT    NOT NULL UNIQUE,
+    posthog_token         TEXT    NOT NULL UNIQUE,
+    -- NULL keeps data forever.
+    retention_days        INTEGER,
+    tracks_laravel        BOOLEAN NOT NULL DEFAULT FALSE,
+    tracks_browser        BOOLEAN NOT NULL DEFAULT FALSE,
+    tracks_pageviews      BOOLEAN NOT NULL DEFAULT FALSE,
+    rate_limit_per_minute INTEGER NOT NULL DEFAULT 1000,
+    created_at            BIGINT  NOT NULL
+, slack_webhook_url TEXT NOT NULL DEFAULT '', route_patterns TEXT NOT NULL DEFAULT '[]')
+== table schema_migrations (table schema_migrations)
+CREATE TABLE schema_migrations (
+		version    INTEGER PRIMARY KEY,
+		name       TEXT    NOT NULL,
+		applied_at BIGINT  NOT NULL
+	)
+== table sessions (table sessions)
+CREATE TABLE sessions (
+    id         INTEGER PRIMARY KEY,
+    user_id    BIGINT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    token_hash TEXT   NOT NULL UNIQUE,
+    -- Sent back by the dashboard in X-CSRF-Token on every change.
+    csrf_token TEXT   NOT NULL,
+    created_at BIGINT NOT NULL,
+    -- Moves forward while the session is used (sliding expiry).
+    expires_at BIGINT NOT NULL
+)
+== table settings (table settings)
+CREATE TABLE settings (
+    name       TEXT   PRIMARY KEY,
+    value      TEXT   NOT NULL,
+    updated_at BIGINT NOT NULL
+)
+== table source_maps (table source_maps)
+CREATE TABLE source_maps (
+    id          INTEGER PRIMARY KEY,
+    project_id  BIGINT NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
+    -- The release the bundle was uploaded for; '' when it named none
+    -- (uploads with debug ids need no release).
+    release     TEXT   NOT NULL DEFAULT '',
+    dist        TEXT   NOT NULL DEFAULT '',
+    -- The file's URL as the bundle names it, such as ~/assets/index-D8xk2Lp1.js.map
+    -- (~ stands for any scheme and host).
+    file        TEXT   NOT NULL,
+    -- source_map or minified_source.
+    kind        TEXT   NOT NULL,
+    -- The debug id that ties a minified file to its source map; '' without one.
+    debug_id    TEXT   NOT NULL DEFAULT '',
+    -- For a minified file: the source map it points to (its Sourcemap
+    -- header or sourceMappingURL), relative to file; '' when it names none.
+    sourcemap   TEXT   NOT NULL DEFAULT '',
+    -- The SHA-1 of the bundle it came in, so the same bundle uploaded again
+    -- is stored once.
+    bundle      TEXT   NOT NULL,
+    -- Relative to <DATA_DIR>/sourcemaps/.
+    path        TEXT   NOT NULL,
+    size        BIGINT NOT NULL,
+    uploaded_at BIGINT NOT NULL
+)
+== table stats_dirty_hours (table stats_dirty_hours)
+CREATE TABLE stats_dirty_hours (
+    project_id BIGINT NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
+    hour       BIGINT NOT NULL,
+    PRIMARY KEY (project_id, hour)
+)
+== table users (table users)
+CREATE TABLE users (
+    id            INTEGER PRIMARY KEY,
+    -- Trimmed and lowercase, so one address has one account.
+    email         TEXT    NOT NULL UNIQUE,
+    -- argon2id in PHC form: $argon2id$v=19$m=...,t=...,p=...$salt$hash
+    password_hash TEXT    NOT NULL,
+    -- admin or member.
+    role          TEXT    NOT NULL,
+    created_at    BIGINT  NOT NULL
+)
