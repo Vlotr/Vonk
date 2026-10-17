@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/url"
 	"path"
 	"strconv"
@@ -337,6 +338,20 @@ func (s *Service) tooLarge(row store.SourceMapFile, parsedBytes int64) (any, int
 	return unusable{errors.New("file too large to symbolicate with")}, unusableBytes, nil
 }
 
+// unreadable is what the cache keeps for a file that could not be read:
+// a missing one (a restored backup holds the rows, not the files; or the
+// file was just removed with its row) is logged once and then known as
+// unusable, as its path is never used again; other errors are not kept,
+// so the next event tries again.
+func (s *Service) unreadable(row store.SourceMapFile, err error) (any, int64, error) {
+	if !errors.Is(err, fs.ErrNotExist) {
+		return nil, 0, err
+	}
+	s.log.Warn("sourcemaps: the file of an upload is missing; upload the source maps again to use them (after a restore, for one)",
+		"file", row.File, "project", row.ProjectID)
+	return unusable{err}, unusableBytes, nil
+}
+
 // parsedMap returns a stored source map parsed, from the cache, which
 // knows it by its path on disk: a random name never used again, so a newer
 // file (another project's) can never get an older file's entry.
@@ -347,7 +362,7 @@ func (s *Service) parsedMap(row store.SourceMapFile) (*sourceMap, error) {
 		}
 		data, err := s.readFile(row)
 		if err != nil {
-			return nil, 0, err
+			return s.unreadable(row, err)
 		}
 		m, err := parseSourceMap(data)
 		if err != nil {
@@ -380,7 +395,7 @@ func (s *Service) minifiedLines(row store.SourceMapFile) ([]codeLine, error) {
 		}
 		data, err := s.readFile(row)
 		if err != nil {
-			return nil, 0, err
+			return s.unreadable(row, err)
 		}
 		lines := splitCode(string(data))
 		size := int64(len(data)) + int64(len(lines))*32

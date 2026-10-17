@@ -187,3 +187,25 @@ func TestParsedMap_KnowsFilesByPath(t *testing.T) {
 		t.Errorf("the second file got the first one's map: %v", b.sources)
 	}
 }
+
+// After a restore the database can name files that are not on disk (a
+// backup holds the rows, not the files): each missing file is logged once
+// and then known as unusable, not looked for again for every event.
+func TestSymbolicate_MissingFileIsLoggedOnce(t *testing.T) {
+	env := newTestEnv(t)
+	ctx := context.Background()
+	var logs bytes.Buffer
+	env.svc.log = slog.New(slog.NewTextHandler(&logs, nil))
+	env.storeBuild(t, env.project.ID, buildA, "", true)
+	if err := os.RemoveAll(filepath.Join(env.svc.dir, "1")); err != nil {
+		t.Fatal(err)
+	}
+	for range 5 {
+		if env.svc.Symbolicate(ctx, env.project.ID, browserEvent(t, buildA, "", true)) {
+			t.Fatal("symbolicated without the map's file")
+		}
+	}
+	if n := strings.Count(logs.String(), "level=WARN"); n != 1 || !strings.Contains(logs.String(), "missing") {
+		t.Errorf("want one warning that the file is missing, got:\n%s", logs.String())
+	}
+}
