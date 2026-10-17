@@ -254,8 +254,8 @@ function AutomaticCard({ info }: { info: BackupInfo }) {
         Automatic backups
       </h2>
       <p className={`${styles.text} ${styles.listIntro}`}>
-        Made when the tool starts, before each database update and before a restore, in <code>{info.backupsDir}</code>. The five newest of each kind
-        are kept.
+        Made by the tool before it updates the database (at the first start of a new version) and before a restore, in{' '}
+        <code>{info.backupsDir}</code>. The five newest of each kind are kept.
       </p>
       {info.backups.length === 0 ? (
         <p className={`${page.empty} ${styles.empty}`}>No automatic backups yet.</p>

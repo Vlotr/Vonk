@@ -39,11 +39,15 @@ var defaultRetryDelays = []time.Duration{200 * time.Millisecond, time.Second, 5 
 // While the database cannot be reached at all (store.Unavailable: Postgres
 // restarting or failing over, the network to it cut), the writer keeps the
 // batch and tries again, waiting 200 ms and then twice as long each time up
-// to 5 s, for up to 2 minutes per batch (its error events, page events and
-// custom events together). It takes nothing off the queue meanwhile, so
-// the queue fills and ingest answers 429 with Retry-After: the SDKs keep
-// their events too, and memory stays bounded. Once Close is called, it
-// waits for the database at most 5 s more, within the shutdown's budget.
+// to 5 s, for up to 2 minutes from the start of the flush (its error
+// events, page events and custom events share the window); then the batch
+// is dropped and counted, and the next one gets its own window. It takes
+// nothing off the queue meanwhile. New SDK requests get 503 with
+// Retry-After: 60 then, since the handlers' project lookup fails first
+// (refusals.go), so the SDKs keep their events and memory stays bounded:
+// the queue's caps, plus the batch being written, which sits outside them
+// (up to 500 events of up to 1 MiB each). Once Close is called, it waits
+// for the database at most 5 s more, within the shutdown's budget.
 const (
 	defaultUnavailableFor     = 2 * time.Minute
 	defaultUnavailableWait    = 200 * time.Millisecond
