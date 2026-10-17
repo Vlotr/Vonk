@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -87,12 +88,14 @@ func CheckBackupFile(ctx context.Context, path string) (BackupInfo, error) {
 // at the start, after the full check ran when the file was staged), and
 // that it is this tool's database:
 //
+//   - it has no triggers or views (checked first, on their own: they
+//     would run inside the tool);
 //   - schema_migrations lists exactly this binary's migrations 1..v, with
 //     their names, and v is no newer than the binary's newest;
-//   - every table, index, view and trigger (sqlite_master) is the one
-//     those migrations make (referenceSchema): no extra objects (virtual
-//     tables, triggers, views), none missing (a unique index), none
-//     changed (a column, a CHECK, a default);
+//   - every row of sqlite_master equals, byte for byte, what those
+//     migrations make (referenceSchema): no extra objects (a virtual
+//     table), none missing (an index), none changed (a column, a CHECK, a
+//     default, a quote, a line break);
 //   - every source map row names a file the tool made (storedFileName), as
 //     the server reads and removes those files.
 //
@@ -138,6 +141,15 @@ func checkBackup(ctx context.Context, path, check string) (BackupInfo, error) {
 	if tables == 0 {
 		return BackupInfo{}, notABackup("The file is a SQLite database, but not a backup of this tool: it has no schema_migrations table.")
 	}
+	// First and on its own: triggers and views would run inside the tool,
+	// whatever else the comparison below finds.
+	var extras int
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sqlite_master WHERE type IN ('trigger', 'view')").Scan(&extras); err != nil {
+		return BackupInfo{}, notABackup("The file is damaged: SQLite cannot read its tables (%v).", err)
+	}
+	if extras > 0 {
+		return BackupInfo{}, notABackup("The file is not a backup of this tool: it has triggers or views, which the tool never makes.")
+	}
 
 	files, err := migrationFilesOf(sqliteDialect)
 	if err != nil {
@@ -162,9 +174,16 @@ func checkBackup(ctx context.Context, path, check string) (BackupInfo, error) {
 		return BackupInfo{}, notABackup("The file is damaged: SQLite cannot read its tables (%v).", err)
 	}
 	if diff := schemaDifference(got, want); diff != "" {
-		return BackupInfo{}, notABackup("The file is not a backup of this tool: its database is not the tool's at version %d (%s).", version, diff)
+		reason := fmt.Sprintf("The backup's schema does not match this version of the tool at database version %d: %s.", version, diff)
+		if latest := files[len(files)-1].version; version < latest {
+			reason += fmt.Sprintf(" The backup is from an older version of the tool (database version %d; this one is at %d): "+
+				"restore it with the version of the tool that made it, then update the tool.", version, latest)
+		} else {
+			reason += " Restore a backup this version of the tool made, unchanged."
+		}
+		return BackupInfo{}, notABackup("%s", reason)
 	}
-	if _, ok := want["source_maps"]; ok {
+	if slices.ContainsFunc(want, func(r schemaRow) bool { return r.typ == "table" && r.name == "source_maps" }) {
 		if err := checkSourceMapPaths(ctx, db); err != nil {
 			return BackupInfo{}, err
 		}
@@ -218,15 +237,18 @@ func backupVersion(ctx context.Context, db *sql.DB, files []migration) (int, err
 	return version, nil
 }
 
-// schemaObject is one row of sqlite_master: a table, index, view or trigger.
-type schemaObject struct {
-	typ, table, sql string // sql normalized (normalSQL)
+// schemaRow is one row of sqlite_master as SQLite wrote it (its root
+// page aside): a table, index, view or trigger. noSQL marks the indexes
+// SQLite makes itself for UNIQUE and PRIMARY KEY, which have no SQL.
+type schemaRow struct {
+	typ, name, table, sql string
+	noSQL                 bool
 }
 
 // referenceSchema returns the schema a database of this tool has after the
 // migrations files: they run, as Migrate runs them, on an empty database
-// in memory.
-func referenceSchema(ctx context.Context, files []migration) (map[string]schemaObject, error) {
+// in memory, with the SQLite this binary is built with.
+func referenceSchema(ctx context.Context, files []migration) ([]schemaRow, error) {
 	raw, err := sql.Open("sqlite", ":memory:?_pragma=foreign_keys(1)")
 	if err != nil {
 		return nil, err
@@ -241,62 +263,88 @@ func referenceSchema(ctx context.Context, files []migration) (map[string]schemaO
 	return schemaOf(ctx, raw)
 }
 
-// schemaOf reads a SQLite database's sqlite_master by name.
-func schemaOf(ctx context.Context, db *sql.DB) (map[string]schemaObject, error) {
-	rows, err := db.QueryContext(ctx, "SELECT type, name, tbl_name, COALESCE(sql, '') FROM sqlite_master")
+// schemaOf reads every row of a SQLite database's sqlite_master, sorted.
+// Nothing is normalized: quotes, line breaks and comments in the SQL are
+// part of what it means (a quoted "INTEGER PRIMARY KEY" is a type name, a
+// line break ends a comment), so the text must be the same byte for byte.
+// sqlite_sequence, which SQLite makes itself for AUTOINCREMENT, compares
+// like any table; sqlite_stat* (ANALYZE, which the tool never runs) would
+// be an extra table.
+func schemaOf(ctx context.Context, db *sql.DB) ([]schemaRow, error) {
+	rows, err := db.QueryContext(ctx, "SELECT type, name, tbl_name, COALESCE(sql, ''), sql IS NULL FROM sqlite_master")
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	objects := map[string]schemaObject{}
+	var list []schemaRow
 	for rows.Next() {
-		var name string
-		var o schemaObject
-		if err := rows.Scan(&o.typ, &name, &o.table, &o.sql); err != nil {
+		var r schemaRow
+		if err := rows.Scan(&r.typ, &r.name, &r.table, &r.sql, &r.noSQL); err != nil {
 			return nil, err
 		}
-		o.sql = normalSQL(o.sql)
-		objects[name] = o
+		list = append(list, r)
 	}
-	return objects, rows.Err()
+	sort.Slice(list, func(i, j int) bool {
+		a, b := list[i], list[j]
+		if a.typ != b.typ {
+			return a.typ < b.typ
+		}
+		if a.name != b.name {
+			return a.name < b.name
+		}
+		if a.table != b.table {
+			return a.table < b.table
+		}
+		return a.sql < b.sql
+	})
+	return list, rows.Err()
 }
 
-// normalSQL writes a CREATE statement the same way however it was spaced
-// and quoted: SQLite keeps the text as written, and quotes names it
-// rewrote itself (ALTER TABLE ... RENAME TO).
-func normalSQL(statement string) string {
-	return strings.Join(strings.Fields(strings.ReplaceAll(statement, `"`, "")), " ")
-}
-
-// schemaDifference names the first object (by name) that got has and want
-// does not, that want has and got does not, or that differs; "" when they
-// are the same.
-func schemaDifference(got, want map[string]schemaObject) string {
-	names := map[string]bool{}
-	for name := range got {
-		names[name] = true
+// schemaDifference compares two sorted schemas row by row and names the
+// first difference, by type and name: an object only in got, one only in
+// want, one there twice, or one defined differently; "" when they are the
+// same in every row.
+func schemaDifference(got, want []schemaRow) string {
+	if slices.Equal(got, want) {
+		return ""
 	}
-	for name := range want {
-		names[name] = true
+	type key struct{ typ, name string }
+	byKey := func(list []schemaRow) map[key][]schemaRow {
+		m := map[key][]schemaRow{}
+		for _, r := range list {
+			m[key{r.typ, r.name}] = append(m[key{r.typ, r.name}], r)
+		}
+		return m
 	}
-	sorted := make([]string, 0, len(names))
-	for name := range names {
-		sorted = append(sorted, name)
+	g, w := byKey(got), byKey(want)
+	keys := []key{}
+	for k := range g {
+		keys = append(keys, k)
 	}
-	sort.Strings(sorted)
-	for _, name := range sorted {
-		g, inGot := got[name]
-		w, inWant := want[name]
-		switch {
-		case !inWant:
-			return fmt.Sprintf("it has the %s %q, which the tool never makes", g.typ, name)
-		case !inGot:
-			return fmt.Sprintf("it lacks the %s %q", w.typ, name)
-		case g != w:
-			return fmt.Sprintf("its %s %q is not defined as the tool's", g.typ, name)
+	for k := range w {
+		if _, ok := g[k]; !ok {
+			keys = append(keys, k)
 		}
 	}
-	return ""
+	sort.Slice(keys, func(i, j int) bool {
+		if keys[i].name != keys[j].name {
+			return keys[i].name < keys[j].name
+		}
+		return keys[i].typ < keys[j].typ
+	})
+	for _, k := range keys {
+		switch gr, wr := g[k], w[k]; {
+		case len(wr) == 0:
+			return fmt.Sprintf("it has the %s %q, which this version does not make", k.typ, k.name)
+		case len(gr) == 0:
+			return fmt.Sprintf("it lacks the %s %q", k.typ, k.name)
+		case len(gr) != len(wr):
+			return fmt.Sprintf("it has the %s %q more than once", k.typ, k.name)
+		case !slices.Equal(gr, wr):
+			return fmt.Sprintf("its %s %q is defined differently", k.typ, k.name)
+		}
+	}
+	return "its tables and indexes differ"
 }
 
 // storedFileName is the shape of source_maps.path for a file the tool
@@ -483,13 +531,19 @@ type RestoreResult struct {
 
 // ApplyPendingRestore makes the pending restore the database. Run it at
 // the start of the server, before the database is opened: nothing may
-// have the database open meanwhile. It checks the file again
-// (CheckBackupFile): a refusal moves it aside to restore-rejected-<time>.db
-// and returns ErrRestoreRefused, leaving the current database as it was.
-// Otherwise the current database (and the write-ahead log it could not
-// fold in, if any) moves to backups/pre-restore-<version>-<time>.db, and
-// the pending file takes its place. On Postgres a pending file is left
-// alone (ErrRestoreOnPostgres).
+// have the database open meanwhile.
+//
+// It checks the file again (checkBackup with PRAGMA quick_check, as the
+// full integrity check ran when it was staged; the triggers and views, the
+// schema and the source map paths in full): a refusal moves it aside to
+// restore-rejected-<time>.db and returns ErrRestoreRefused, leaving the
+// current database as it was. Otherwise the current database, with its
+// write-ahead log folded in, moves to backups/pre-restore-<version>-<time>.db
+// (moveAside); a log still next to it moves into backups/ too and the
+// shared memory goes (clearSideFiles), also after a start that stopped
+// between the two; DATA_DIR is synced and the pending file takes the
+// database's place. On Postgres a pending file is left alone
+// (ErrRestoreOnPostgres).
 func ApplyPendingRestore(ctx context.Context, cfg config.Config, now time.Time) (RestoreResult, error) {
 	pending := filepath.Join(cfg.DataDir, RestorePendingFile)
 	if _, err := os.Stat(pending); errors.Is(err, os.ErrNotExist) {
@@ -534,6 +588,9 @@ func ApplyPendingRestore(ctx context.Context, cfg config.Config, now time.Time) 
 		}
 		return RestoreResult{}, fmt.Errorf("the files next to the database could not be moved before the restore: %w", err)
 	}
+	// The old database's entries are gone from DATA_DIR on disk before
+	// the new one arrives under its name.
+	syncDir(filepath.Dir(cfg.SQLitePath))
 	if err := os.Rename(pending, cfg.SQLitePath); err != nil {
 		return result, fmt.Errorf("put the restored database in place: %w (the database from before is in %s)", err, result.Backup)
 	}
@@ -589,11 +646,11 @@ func clearSideFiles(path, dir, backup string, now time.Time) error {
 			if err := os.MkdirAll(dir, 0o750); err != nil {
 				return err
 			}
-			orphan, err := freeBackupPath(dir, "orphaned-"+now.UTC().Format(backupTimeFormat))
+			orphan, err := freeName(dir, "orphaned-"+now.UTC().Format(backupTimeFormat), ".db-wal")
 			if err != nil {
 				return err
 			}
-			target = orphan + "-wal"
+			target = orphan
 		}
 		if err := os.Rename(path+"-wal", target); err != nil {
 			return err

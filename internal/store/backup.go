@@ -193,10 +193,16 @@ func (db *DB) appliedVersions(ctx context.Context) (map[int]bool, error) {
 // freeBackupPath returns dir/base.db, or dir/base-2.db and so on when that
 // name is taken (two starts in one second).
 func freeBackupPath(dir, base string) (string, error) {
+	return freeName(dir, base, ".db")
+}
+
+// freeName returns dir/base+ext, or dir/base-2+ext and so on when that
+// name is taken: the name checked is the name the caller writes.
+func freeName(dir, base, ext string) (string, error) {
 	for n := 1; n < 100; n++ {
-		name := base + ".db"
+		name := base + ext
 		if n > 1 {
-			name = fmt.Sprintf("%s-%d.db", base, n)
+			name = fmt.Sprintf("%s-%d%s", base, n, ext)
 		}
 		path := filepath.Join(dir, name)
 		if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {

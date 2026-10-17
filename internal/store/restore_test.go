@@ -206,11 +206,24 @@ func TestRestore_RejectsCorruptOrNewerSchema(t *testing.T) {
 		{"newer schema", file(changed(t, good, "INSERT INTO schema_migrations VALUES (9999, '9999_future.sql', 0)")), "newer version"},
 		{"another schema", file(changed(t, good, "UPDATE schema_migrations SET name = '0001_other.sql' WHERE version = 1")), "not a backup of this tool"},
 		{"triggers", file(changed(t, good, "CREATE TRIGGER t AFTER INSERT ON projects BEGIN DELETE FROM users; END")), "not a backup of this tool"},
-		// The schema must be the tool's, object by object.
-		{"a virtual table", file(changed(t, good, "CREATE VIRTUAL TABLE notes USING fts5(body)")), "not a backup of this tool"},
-		{"a dropped index", file(changed(t, good, "DROP INDEX source_maps_project_debug_id")), "not a backup of this tool"},
-		{"an added column", file(changed(t, good, "ALTER TABLE projects ADD COLUMN extra TEXT CHECK (length(extra) < 5)")), "not a backup of this tool"},
-		{"a changed view of the data", file(changed(t, good, "CREATE VIEW everyone AS SELECT * FROM users")), "not a backup of this tool"},
+		{"a view", file(changed(t, good, "CREATE VIEW everyone AS SELECT * FROM users")), "triggers or views"},
+		// A trigger shares no namespace with indexes: one may carry an index's name.
+		{"a trigger named like an index", file(changed(t, good, `CREATE TRIGGER issues_project_last_seen AFTER INSERT ON projects
+			BEGIN INSERT INTO settings (name, value, updated_at) VALUES ('taken', 'over', 0); END;
+			DROP INDEX issues_project_last_seen;
+			CREATE INDEX issues_project_last_seen ON issues (project_id, last_seen)`)), "triggers or views"},
+		// The schema must be the tool's, row by row of sqlite_master, as SQLite wrote it.
+		{"a virtual table", file(changed(t, good, "CREATE VIRTUAL TABLE notes USING fts5(body)")), "does not match this version"},
+		{"a dropped index", file(changed(t, good, "DROP INDEX source_maps_project_debug_id")), "does not match this version"},
+		{"an added column", file(changed(t, good, "ALTER TABLE projects ADD COLUMN extra TEXT CHECK (length(extra) < 5)")), "does not match this version"},
+		{"constraints turned into a quoted type", file(changed(t, good, `PRAGMA writable_schema = ON;
+			UPDATE sqlite_master SET sql = replace(replace(sql, 'id         INTEGER PRIMARY KEY,', 'id         "INTEGER PRIMARY KEY",'),
+				'user_id    BIGINT NOT NULL REFERENCES users (id) ON DELETE CASCADE', 'user_id    "BIGINT NOT NULL REFERENCES users (id) ON DELETE CASCADE"')
+				WHERE name = 'sessions';
+			PRAGMA writable_schema = OFF`)), "does not match this version"},
+		{"a column pulled into a comment", file(changed(t, good, `PRAGMA writable_schema = ON;
+			UPDATE sqlite_master SET sql = replace(sql, 'on every change.' || char(10), 'on every change. ') WHERE name = 'sessions';
+			PRAGMA writable_schema = OFF`)), "does not match this version"},
 		{"a gap in its updates", file(changed(t, good, "DELETE FROM schema_migrations WHERE version = 3")), "update 3"},
 		// Rows the tool turns into file paths must be the tool's own names.
 		{"a source map outside its folder", file(changed(t, good, `INSERT INTO source_maps (project_id, file, kind, bundle, path, size, uploaded_at)
@@ -556,15 +569,16 @@ func TestApplyPendingRestore_ALeftoverLogNeverMeetsTheRestoredDatabase(t *testin
 // can read the file: a file put in place without StageRestore is refused.
 func TestApplyPendingRestore_ChecksTheSchemaAndPathsAgain(t *testing.T) {
 	good := makeBackup(t, "Restored")
-	for name, statements := range map[string]string{
-		"a crafted path": `INSERT INTO source_maps (project_id, file, kind, bundle, path, size, uploaded_at)
-			VALUES (1, '~/a.js.map', 'source_map', 'b', '../monitor.db', 1, 0)`,
-		"an extra table": "CREATE TABLE notes (body TEXT)",
+	for name, tc := range map[string]struct{ statements, says string }{
+		"a crafted path": {`INSERT INTO source_maps (project_id, file, kind, bundle, path, size, uploaded_at)
+			VALUES (1, '~/a.js.map', 'source_map', 'b', '../monitor.db', 1, 0)`, "not a file the tool made"},
+		"an extra table": {"CREATE TABLE notes (body TEXT)", "does not match this version"},
+		"a trigger":      {"CREATE TRIGGER t AFTER INSERT ON projects BEGIN DELETE FROM users; END", "triggers or views"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()
 			makeDatabase(t, dir, "Current")
-			data, err := os.ReadFile(changed(t, good, statements))
+			data, err := os.ReadFile(changed(t, good, tc.statements))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -572,12 +586,132 @@ func TestApplyPendingRestore_ChecksTheSchemaAndPathsAgain(t *testing.T) {
 				t.Fatal(err)
 			}
 			res, err := ApplyPendingRestore(context.Background(), sqliteConfig(dir), time.Now())
-			if !errors.Is(err, ErrRestoreRefused) || res.Restored || !strings.Contains(err.Error(), "not a backup of this tool") {
+			if !errors.Is(err, ErrRestoreRefused) || res.Restored || !strings.Contains(err.Error(), tc.says) {
 				t.Errorf("result = %+v, %v; want refused", res, err)
 			}
 			if got := projectNames(t, filepath.Join(dir, "monitor.db")); got != "Current" {
 				t.Errorf("projects = %q, want the database unchanged", got)
 			}
 		})
+	}
+}
+
+// sessionsSQL is the CREATE TABLE text of sessions in the SQLite file at path.
+func sessionsSQL(t *testing.T, path string) string {
+	t.Helper()
+	db, err := sql.Open("sqlite", path+"?_query_only=1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var text string
+	if err := db.QueryRow("SELECT sql FROM sqlite_master WHERE name = 'sessions'").Scan(&text); err != nil {
+		t.Fatal(err)
+	}
+	return text
+}
+
+// The crafted schemas above really changed what they claim to change, so
+// the cases test the comparison and not a statement that did nothing.
+func TestRestore_CraftedSchemasAreWhatTheySay(t *testing.T) {
+	good := makeBackup(t, "Restored")
+	quoted := sessionsSQL(t, changed(t, good, `PRAGMA writable_schema = ON;
+		UPDATE sqlite_master SET sql = replace(sql, 'id         INTEGER PRIMARY KEY,', 'id         "INTEGER PRIMARY KEY",') WHERE name = 'sessions';
+		PRAGMA writable_schema = OFF`))
+	if !strings.Contains(quoted, `"INTEGER PRIMARY KEY"`) {
+		t.Errorf("the quoted type was not written: %s", quoted)
+	}
+	commented := sessionsSQL(t, changed(t, good, `PRAGMA writable_schema = ON;
+		UPDATE sqlite_master SET sql = replace(sql, 'on every change.' || char(10), 'on every change. ') WHERE name = 'sessions';
+		PRAGMA writable_schema = OFF`))
+	if strings.Contains(commented, "every change.\n") || !strings.Contains(commented, "every change.     csrf_token") {
+		t.Errorf("the column was not pulled into the comment: %s", commented)
+	}
+}
+
+// A backup this binary makes at any of its versions passes; an older one
+// is refused only when its schema was changed, and then the message
+// points to the tool version that made it.
+func TestCheckBackupFile_EveryVersionOfThisBinary(t *testing.T) {
+	ctx := context.Background()
+	files := mustMigrations(t)
+	for k := 1; k <= len(files); k++ {
+		db, _ := openSQLiteUnmigrated(t)
+		if err := db.migrate(ctx, files[:k]); err != nil {
+			t.Fatal(err)
+		}
+		f, err := db.Snapshot(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, err := io.ReadAll(f)
+		f.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		path := filepath.Join(t.TempDir(), "backup.db")
+		if err := os.WriteFile(path, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		info, err := CheckBackupFile(ctx, path)
+		if err != nil || info.Version != files[k-1].version {
+			t.Errorf("a backup at version %d: %+v, %v; want it accepted", files[k-1].version, info, err)
+		}
+		if k == 1 {
+			_, err := CheckBackupFile(ctx, changed(t, path, "CREATE TABLE notes (body TEXT)"))
+			if err == nil || !strings.Contains(err.Error(), "restore it with the version of the tool that made it") {
+				t.Errorf("a changed backup at version 1: %v, want the message to name the tool version that made it", err)
+			}
+		}
+	}
+}
+
+// The comparison keys objects by type and name: a trigger that carries an
+// index's name is an extra object, not a replacement of the index, also
+// without the explicit refusal of triggers that comes before it.
+func TestSchemaDifference_TypeAndName(t *testing.T) {
+	index := schemaRow{typ: "index", name: "issues_project_last_seen", table: "issues", sql: "CREATE INDEX issues_project_last_seen ON issues (project_id, last_seen)"}
+	trigger := schemaRow{typ: "trigger", name: "issues_project_last_seen", table: "projects", sql: "CREATE TRIGGER issues_project_last_seen AFTER INSERT ON projects BEGIN SELECT 1; END"}
+	want := []schemaRow{index}
+	if got := schemaDifference([]schemaRow{index, trigger}, want); !strings.Contains(got, `trigger "issues_project_last_seen"`) {
+		t.Errorf("a trigger with an index's name: %q", got)
+	}
+	if got := schemaDifference([]schemaRow{index, index}, want); !strings.Contains(got, "more than once") {
+		t.Errorf("an object twice: %q", got)
+	}
+	changedSpace := index
+	changedSpace.sql = "CREATE INDEX issues_project_last_seen ON issues (project_id,  last_seen)"
+	if got := schemaDifference([]schemaRow{changedSpace}, want); !strings.Contains(got, "defined differently") {
+		t.Errorf("one space more: %q, want it to count", got)
+	}
+	if got := schemaDifference([]schemaRow{index}, want); got != "" {
+		t.Errorf("the same schema: %q", got)
+	}
+}
+
+// Two leftover logs kept in one second get two names: the name checked
+// for being free is the one written (orphaned-<time>.db-wal).
+func TestApplyPendingRestore_LeftoverLogsNeverOverwriteEachOther(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Date(2026, 10, 17, 9, 31, 0, 0, time.UTC)
+	if err := os.MkdirAll(filepath.Join(dir, "backups"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	earlier := filepath.Join(dir, "backups", "orphaned-20261017T093100Z.db-wal")
+	if err := os.WriteFile(earlier, []byte("the earlier log"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "monitor.db-wal"), []byte("a later log"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stagedBackup(t, dir)
+	if res, err := ApplyPendingRestore(context.Background(), sqliteConfig(dir), now); err != nil || !res.Restored {
+		t.Fatalf("result = %+v, %v", res, err)
+	}
+	if b, err := os.ReadFile(earlier); err != nil || string(b) != "the earlier log" {
+		t.Errorf("the earlier log = %q, %v; it was overwritten", b, err)
+	}
+	if b, err := os.ReadFile(filepath.Join(dir, "backups", "orphaned-20261017T093100Z-2.db-wal")); err != nil || string(b) != "a later log" {
+		t.Errorf("the later log = %q, %v; want it next to the earlier one", b, err)
 	}
 }
