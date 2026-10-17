@@ -27,7 +27,8 @@ function series(name: string, counts: number[]): EventSeries {
     range: '7d',
     count: counts.reduce((a, b) => a + b, 0),
     users: 3,
-    series: days.map((d, i) => ({ start: `${d}T00:00:00+02:00`, count: counts[i] ?? 0 })),
+    // Days start at midnight in the browser's zone (the API is asked with tz), so the labels hold in every zone.
+    series: days.map((d, i) => ({ start: new Date(`${d}T00:00:00`).toISOString(), count: counts[i] ?? 0 })),
   }
 }
 
