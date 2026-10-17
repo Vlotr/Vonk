@@ -168,6 +168,11 @@ func openPostgres(ctx context.Context, rawURL string) (*DB, error) {
 	return &DB{write: &pool{write, postgresDialect}, read: &pool{read, postgresDialect}, d: postgresDialect}, nil
 }
 
+// DataDir is DATA_DIR: where backups/, a pending restore and the SQLite file live.
+func (db *DB) DataDir() string {
+	return db.dataDir
+}
+
 // Postgres reports whether the database is Postgres (DATABASE_URL) rather than SQLite.
 func (db *DB) Postgres() bool {
 	return db.d == postgresDialect

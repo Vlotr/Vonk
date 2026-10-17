@@ -558,3 +558,49 @@ func TestConcurrent_MigrateAtOnce(t *testing.T) {
 		t.Errorf("schema_migrations has %d rows (%v), want %d", n, err, len(files))
 	}
 }
+
+// An event of the user that the writer stores while the user's data is
+// deleted: the issue's counter matches the events it keeps afterwards
+// (on Postgres the deletion takes the event's issue after the writer; on
+// SQLite the writer goes first and the deletion takes its event too).
+func TestConcurrent_UserEventStoredWhileTheirDataIsDeleted(t *testing.T) {
+	db := openTestDB(t)
+	ctx := context.Background()
+	p := addProject(t, db, "Webshop")
+	if _, err := db.SaveErrorEvents(ctx, []NewErrorEvent{userEvent(p.ID, 1, "fp", "jan", "first", at(-time.Hour)),
+		userEvent(p.ID, 2, "fp", "piet", "piet's", at(-30*time.Minute))}); err != nil {
+		t.Fatal(err)
+	}
+	issue, err := scanIssue(db.read.QueryRowContext(ctx, "SELECT "+issueColumns+" FROM issues WHERE fingerprint = 'fp'"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = whileHeld(t, db, func(ctx context.Context, tx *writeTx) error {
+		// The writer: the issue locked, one more event of jan and the counter.
+		if exists, err := projectExists(ctx, tx, p.ID); err != nil || !exists {
+			return err
+		}
+		var id int64
+		if err := tx.QueryRowContext(ctx, "SELECT id FROM issues WHERE id = ?"+tx.forUpdate(), issue.ID).Scan(&id); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO error_events (issue_id, project_id, event_id, timestamp, received_at, user_id, data)
+			VALUES (?, ?, ?, ?, ?, 'jan', '{}')`, issue.ID, p.ID, eventID(3), at(-time.Minute).UnixMilli(), at(0).UnixMilli()); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, "UPDATE issues SET times_seen = times_seen + 1 WHERE id = ?", issue.ID)
+		return err
+	}, func() error {
+		_, err := db.DeleteUserData(ctx, UserDataRequest{UserID: "jan", Describe: describeTest})
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := db.IssueByID(ctx, issue.ID)
+	events := countRows(t, db, "SELECT COUNT(*) FROM error_events WHERE issue_id = ?", issue.ID)
+	if err != nil || after.TimesSeen != int64(events) {
+		t.Errorf("issue counts %d events (%v), %d are stored", after.TimesSeen, err, events)
+	}
+}

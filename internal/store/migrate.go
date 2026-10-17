@@ -114,7 +114,12 @@ func (db *DB) applyMigration(ctx context.Context, m migration) error {
 // migrationFiles returns the embedded migrations of the database's
 // dialect, sorted by version.
 func (db *DB) migrationFiles() ([]migration, error) {
-	migrationsDir := "migrations/" + string(db.d)
+	return migrationFilesOf(db.d)
+}
+
+// migrationFilesOf returns the embedded migrations of a dialect, sorted by version.
+func migrationFilesOf(d dialect) ([]migration, error) {
+	migrationsDir := "migrations/" + string(d)
 	entries, err := fs.ReadDir(migrationsFS, migrationsDir)
 	if err != nil {
 		return nil, fmt.Errorf("read migrations: %w", err)

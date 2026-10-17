@@ -2,26 +2,36 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
 
-// Backups made before a database update live in <DATA_DIR>/backups as
-// pre-migrate-<version>-<time>.db: a complete SQLite copy of the database
-// as it was at that version. The five newest are kept. They are made of
-// SQLite only: a Postgres database is backed up with pg_dump, by whoever
-// runs it (ErrNoBackups).
+// The automatic backups live in <DATA_DIR>/backups: pre-migrate-<version>-<time>.db
+// is a complete SQLite copy of the database as it was at that version,
+// made before a database update; pre-restore-<version>-<time>.db is the
+// database a restore replaced (restore.go). The five newest of each kind
+// are kept. They are made of SQLite only: a Postgres database is backed up
+// with pg_dump, by whoever runs it (ErrNoBackups).
 
 const (
 	backupDir        = "backups"
 	preMigratePrefix = "pre-migrate-"
-	keepPreMigrate   = 5
+	preRestorePrefix = "pre-restore-"
+	keepBackups      = 5 // of each kind
 	backupTimeFormat = "20060102T150405Z"
+)
+
+// The kinds of automatic backups (BackupFile.Kind).
+const (
+	BackupBeforeUpdate  = "pre-migrate"
+	BackupBeforeRestore = "pre-restore"
 )
 
 // ErrOldBackupsKept means the new backup was made, but some of the old
@@ -38,8 +48,12 @@ var removeBackup = os.Remove
 
 // BackupFile is one backup in <DATA_DIR>/backups.
 type BackupFile struct {
-	Name      string
-	Path      string
+	Name string
+	Path string
+	// Kind is BackupBeforeUpdate or BackupBeforeRestore.
+	Kind string
+	// Version is the database version the copy is at.
+	Version   int
 	SizeBytes int64
 	CreatedAt time.Time
 }
@@ -101,10 +115,52 @@ func (db *DB) backupBeforeMigrate(ctx context.Context, files []migration, now ti
 		os.Remove(path) // a partial copy is no backup
 		return "", fmt.Errorf("copy the database to %s: %w", path, err)
 	}
-	if err := prunePreMigrate(dir); err != nil {
+	if err := pruneBackups(dir, BackupBeforeUpdate); err != nil {
 		return path, fmt.Errorf("%w: %w", ErrOldBackupsKept, err)
 	}
 	return path, nil
+}
+
+// Snapshot writes a consistent copy of the whole database (VACUUM INTO,
+// compact, the write-ahead log included) to a new file in DATA_DIR and
+// returns it open for reading, already removed from the directory: the
+// copy disappears when the file is closed, also when the process stops
+// halfway. It reads through its own connection, so the ingest writer goes
+// on meanwhile. It needs free disk space for a copy of the database. On
+// Postgres it returns ErrNoBackups.
+func (db *DB) Snapshot(ctx context.Context) (*os.File, error) {
+	if db.Postgres() {
+		return nil, ErrNoBackups
+	}
+	tmp, err := os.CreateTemp(db.dataDir, tempPrefix+"snapshot-*.db")
+	if err != nil {
+		return nil, err
+	}
+	path := tmp.Name()
+	tmp.Close() // VACUUM INTO writes into an empty file
+	defer os.Remove(path)
+
+	if err := db.vacuumInto(ctx, path); err != nil {
+		return nil, fmt.Errorf("copy the database: %w", err)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	return f, nil // removed by the deferred call; the open file stays readable
+}
+
+// vacuumInto copies the database to path on a connection of its own: the
+// read pool's connections are query-only, and the write connection is the
+// ingest writer's.
+func (db *DB) vacuumInto(ctx context.Context, path string) error {
+	conn, err := sql.Open("sqlite", db.path+"?_busy_timeout="+strconv.Itoa(busyTimeoutMillis))
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	_, err = conn.ExecContext(ctx, "VACUUM INTO ?", path)
+	return err
 }
 
 // appliedVersions returns the migrations that ran; none for a new database.
@@ -150,26 +206,40 @@ func freeBackupPath(dir, base string) (string, error) {
 	return "", fmt.Errorf("no free backup name for %s in %s", base, dir)
 }
 
-// prunePreMigrate removes pre-migration backups beyond the five newest.
-// Other files in the directory are left alone.
-func prunePreMigrate(dir string) error {
+// pruneBackups removes backups of one kind beyond the five newest (with
+// the write-ahead log a restore may have kept next to one). Other files in
+// the directory are left alone.
+func pruneBackups(dir, kind string) error {
 	backups, err := listBackups(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
 	if err != nil {
 		return err
 	}
 	var errs []error
-	for i, b := range backups {
-		if i >= keepPreMigrate {
-			if err := removeBackup(b.Path); err != nil {
-				errs = append(errs, err)
-			}
+	kept := 0
+	for _, b := range backups {
+		if b.Kind != kind {
+			continue
+		}
+		if kept++; kept <= keepBackups {
+			continue
+		}
+		if err := removeBackup(b.Path); err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		if err := os.Remove(b.Path + "-wal"); err != nil && !errors.Is(err, os.ErrNotExist) {
+			errs = append(errs, err)
 		}
 	}
 	return errors.Join(errs...)
 }
 
-// Backups returns the pre-migration backups, the newest first; none on
-// Postgres, which the tool does not back up.
+// Backups returns the automatic backups (before updates and before
+// restores), the newest first; none on Postgres, which the tool does not
+// back up.
 func (db *DB) Backups() ([]BackupFile, error) {
 	if db.Postgres() {
 		return []BackupFile{}, nil
@@ -181,7 +251,7 @@ func (db *DB) Backups() ([]BackupFile, error) {
 	return backups, err
 }
 
-// listBackups reads the pre-migration backups in dir, the newest first (by
+// listBackups reads the automatic backups in dir, the newest first (by
 // the time in their name, then the name).
 func listBackups(dir string) ([]BackupFile, error) {
 	entries, err := os.ReadDir(dir)
@@ -191,12 +261,22 @@ func listBackups(dir string) ([]BackupFile, error) {
 	backups := []BackupFile{}
 	for _, e := range entries {
 		name := e.Name()
-		if e.IsDir() || !strings.HasPrefix(name, preMigratePrefix) || !strings.HasSuffix(name, ".db") {
+		if e.IsDir() || !strings.HasSuffix(name, ".db") {
 			continue
 		}
-		// pre-migrate-0003-20261016T120000Z.db or ...Z-2.db
-		_, rest, ok := strings.Cut(strings.TrimPrefix(name, preMigratePrefix), "-")
-		if !ok || len(rest) < len(backupTimeFormat) {
+		var kind, rest string
+		switch {
+		case strings.HasPrefix(name, preMigratePrefix):
+			kind, rest = BackupBeforeUpdate, strings.TrimPrefix(name, preMigratePrefix)
+		case strings.HasPrefix(name, preRestorePrefix):
+			kind, rest = BackupBeforeRestore, strings.TrimPrefix(name, preRestorePrefix)
+		default:
+			continue
+		}
+		// 0003-20261016T120000Z.db or ...Z-2.db
+		number, rest, ok := strings.Cut(rest, "-")
+		version, err := strconv.Atoi(number)
+		if !ok || err != nil || len(rest) < len(backupTimeFormat) {
 			continue
 		}
 		created, err := time.Parse(backupTimeFormat, rest[:len(backupTimeFormat)])
@@ -207,7 +287,8 @@ func listBackups(dir string) ([]BackupFile, error) {
 		if err != nil {
 			continue
 		}
-		backups = append(backups, BackupFile{Name: name, Path: filepath.Join(dir, name), SizeBytes: info.Size(), CreatedAt: created})
+		backups = append(backups, BackupFile{Name: name, Path: filepath.Join(dir, name), Kind: kind, Version: version,
+			SizeBytes: info.Size(), CreatedAt: created})
 	}
 	sort.Slice(backups, func(i, j int) bool {
 		if !backups[i].CreatedAt.Equal(backups[j].CreatedAt) {
