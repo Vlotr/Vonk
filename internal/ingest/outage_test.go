@@ -33,15 +33,15 @@ func TestWriter_KeepsABatchWhileTheDatabaseIsUnreachable(t *testing.T) {
 		io.ErrUnexpectedEOF,
 	}
 	calls := 0
-	ok := w.save(3, time.Now().Add(w.unavailableFor), func() error {
+	err := w.save(3, time.Now().Add(w.unavailableFor), func() error {
 		calls++
 		if calls <= 10 {
 			return unreachable[calls%len(unreachable)]
 		}
 		return nil
 	})
-	if !ok || calls != 11 || w.Stats().LostEvents != 0 {
-		t.Errorf("save = %v after %d calls, stats %+v; want stored after 10 failures", ok, calls, w.Stats())
+	if err != nil || calls != 11 || w.Stats().LostEvents != 0 {
+		t.Errorf("save = %v after %d calls, stats %+v; want stored after 10 failures", err, calls, w.Stats())
 	}
 	if strings.Contains(env.logs.String(), "level=ERROR") || !strings.Contains(env.logs.String(), "cannot be reached") {
 		t.Errorf("logs:\n%s", env.logs.String())
@@ -50,7 +50,7 @@ func TestWriter_KeepsABatchWhileTheDatabaseIsUnreachable(t *testing.T) {
 	// Unreachable for longer than it is kept: dropped and counted.
 	w.unavailableFor = 20 * time.Millisecond
 	start := time.Now()
-	if w.save(2, time.Now().Add(w.unavailableFor), func() error { return unreachable[0] }) || w.Stats().LostEvents != 2 {
+	if w.save(2, time.Now().Add(w.unavailableFor), func() error { return unreachable[0] }) == nil || w.Stats().LostEvents != 2 {
 		t.Errorf("an outage longer than kept: stats %+v, want 2 lost", w.Stats())
 	}
 	if took := time.Since(start); took > time.Second {

@@ -49,6 +49,8 @@ What the SDK endpoints answer:
 
 During a database outage the events already accepted are not lost at once: the writer keeps the batch it is writing (up to 500 events, of up to 1 MiB each, on top of the queue's limits) and tries again for up to 2 minutes from the start of that write. After that the batch is dropped, admins get an alert ("events the database could not store"), and the next batch gets its own 2 minutes. New requests get 503 meanwhile, so the SDKs keep their events and send them again later.
 
+Before it stores an event, the tool removes NUL characters from it (Postgres stores no NUL in text; a Laravel `QueryException` with a binary UUID in its message has them) and cuts user ids, releases and environments to 200 bytes. Should the database still refuse a value of one event (on Postgres an SQLSTATE of class 22 or 54), only that event is lost: the writer writes the rest of the batch in smaller parts, logs `the database refused a value of an event; the event is dropped` with the kind of event, its project and the error code (never the value), and admins get the "could not store" alert.
+
 ## Page views do not show
 
 - Page views must be on for the project (Settings → Projects → Add page views), or the sidebar has no Pages.

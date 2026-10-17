@@ -5,6 +5,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
@@ -84,11 +85,13 @@ type Writer struct {
 
 // WriterStats count what the writer could not store, since the start.
 type WriterStats struct {
-	// FailedBatches are batches the database refused after every retry.
+	// FailedBatches are writes the database refused after every retry,
+	// and single events with a value it refuses (savePart).
 	FailedBatches int64
-	// LostEvents are the events of those batches; they are not stored.
+	// LostEvents are the events of those writes; they are not stored.
 	LostEvents int64
-	// LastError is the database's answer to the last failed batch.
+	// LastError is the database's answer to the last failed write; for a
+	// refused value, only its error code.
 	LastError string
 }
 
@@ -195,11 +198,12 @@ func (w *Writer) drain(ctx context.Context, batch []Item) {
 
 // flush writes one batch, retrying when the database fails, and then
 // tells the hooks about new and regressed issues. Error events, page
-// events and custom events go in a transaction each. A part that still
-// fails after the retries is logged and dropped, so one bad moment never
-// stops ingest. The parts share one window for a database that cannot be
-// reached (unavailableFor from the start of the flush), so a batch waits
-// for it at most that long, not once per part.
+// events and custom events go in a transaction each (savePart), split in
+// smaller ones only when the database refuses a value of one event. A
+// part that still fails after the retries is logged and dropped, so one
+// bad moment never stops ingest. The parts share one window for a
+// database that cannot be reached (unavailableFor from the start of the
+// flush), so a batch waits for it at most that long, not once per part.
 func (w *Writer) flush(ctx context.Context, batch []Item) {
 	giveUp := time.Now().Add(w.unavailableFor)
 	var (
@@ -230,50 +234,120 @@ func (w *Writer) flush(ctx context.Context, batch []Item) {
 
 	if len(errorEvents) > 0 {
 		var result store.SaveResult
-		if w.save(len(errorEvents), giveUp, func() (err error) {
-			result, err = w.db.SaveErrorEvents(ctx, errorEvents)
+		savePart(w, "error event", errorEvents, giveUp, func(part []store.NewErrorEvent) error {
+			r, err := w.db.SaveErrorEvents(ctx, part)
+			if err == nil {
+				result.Stored += r.Stored
+				result.Duplicates += r.Duplicates
+				result.Orphaned += r.Orphaned
+				result.NewIssues = append(result.NewIssues, r.NewIssues...)
+				result.Regressed = append(result.Regressed, r.Regressed...)
+			}
 			return err
-		}) {
-			w.stored.add(time.Now(), result.Stored)
-			if result.Orphaned > 0 {
-				w.log.Warn("ingest: events of deleted projects skipped", "events", result.Orphaned)
-			}
-			w.log.Debug("ingest: batch written", "stored", result.Stored, "duplicates", result.Duplicates,
-				"new_issues", len(result.NewIssues), "regressed_issues", len(result.Regressed))
-			for _, issue := range result.NewIssues {
-				w.hooks.OnIssueCreated(ctx, issue)
-			}
-			for _, issue := range result.Regressed {
-				w.hooks.OnIssueRegressed(ctx, issue)
-			}
+		})
+		w.stored.add(time.Now(), result.Stored)
+		if result.Orphaned > 0 {
+			w.log.Warn("ingest: events of deleted projects skipped", "events", result.Orphaned)
+		}
+		w.log.Debug("ingest: batch written", "stored", result.Stored, "duplicates", result.Duplicates,
+			"new_issues", len(result.NewIssues), "regressed_issues", len(result.Regressed))
+		for _, issue := range result.NewIssues {
+			w.hooks.OnIssueCreated(ctx, issue)
+		}
+		for _, issue := range result.Regressed {
+			w.hooks.OnIssueRegressed(ctx, issue)
 		}
 	}
 	if len(pageEvents) > 0 {
 		var result store.PageSaveResult
-		if w.save(len(pageEvents), giveUp, func() (err error) {
-			result, err = w.db.SavePageEvents(ctx, pageEvents)
-			return err
-		}) {
-			w.stored.add(time.Now(), result.Stored)
-			if result.Orphaned > 0 {
-				w.log.Warn("ingest: page events of deleted projects skipped", "events", result.Orphaned)
+		savePart(w, "page event", pageEvents, giveUp, func(part []store.PageEvent) error {
+			r, err := w.db.SavePageEvents(ctx, part)
+			if err == nil {
+				result.Stored += r.Stored
+				result.Duplicates += r.Duplicates
+				result.Orphaned += r.Orphaned
 			}
-			w.log.Debug("ingest: page events written", "stored", result.Stored, "duplicates", result.Duplicates)
+			return err
+		})
+		w.stored.add(time.Now(), result.Stored)
+		if result.Orphaned > 0 {
+			w.log.Warn("ingest: page events of deleted projects skipped", "events", result.Orphaned)
 		}
+		w.log.Debug("ingest: page events written", "stored", result.Stored, "duplicates", result.Duplicates)
 	}
 	if len(customEvents) > 0 {
 		var result store.CustomSaveResult
-		if w.save(len(customEvents), giveUp, func() (err error) {
-			result, err = w.db.SaveCustomEvents(ctx, customEvents)
-			return err
-		}) {
-			w.stored.add(time.Now(), result.Stored)
-			if result.Orphaned > 0 {
-				w.log.Warn("ingest: custom events of deleted projects skipped", "events", result.Orphaned)
+		savePart(w, "custom event", customEvents, giveUp, func(part []store.CustomEvent) error {
+			r, err := w.db.SaveCustomEvents(ctx, part)
+			if err == nil {
+				result.Stored += r.Stored
+				result.Duplicates += r.Duplicates
+				result.Orphaned += r.Orphaned
 			}
-			w.log.Debug("ingest: custom events written", "stored", result.Stored, "duplicates", result.Duplicates)
+			return err
+		})
+		w.stored.add(time.Now(), result.Stored)
+		if result.Orphaned > 0 {
+			w.log.Warn("ingest: custom events of deleted projects skipped", "events", result.Orphaned)
 		}
+		w.log.Debug("ingest: custom events written", "stored", result.Stored, "duplicates", result.Duplicates)
 	}
+}
+
+// savePart writes the events of one part of a batch (its error events,
+// page events or custom events) with write, which stores the events it is
+// given in one transaction and keeps the result of a write that succeeds.
+// save retries a write the database refuses or cannot reach. When the
+// database refuses a value of one event instead (store.DataError: a NUL in
+// text, an index entry too large), the same write would fail every time,
+// so savePart splits the events in two halves and writes each on its own,
+// down to single events: only an event that holds such a value is dropped,
+// counted and logged (dropRefused). Every other event ends up in exactly
+// one write that succeeded, after the writes before it: a resent event id
+// is still found to be a duplicate, an issue counts each event once, and
+// each write marks the hours of its own events. The halves share the
+// flush's window for an unreachable database (giveUp).
+func savePart[E any](w *Writer, kind string, events []E, giveUp time.Time, write func([]E) error) {
+	err := w.save(len(events), giveUp, func() error { return write(events) })
+	switch {
+	case err == nil || !store.DataError(err):
+		// Written, or dropped and counted by save.
+	case len(events) == 1:
+		w.dropRefused(kind, events[0], err)
+	default:
+		half := len(events) / 2
+		savePart(w, kind, events[:half], giveUp, write)
+		savePart(w, kind, events[half:], giveUp, write)
+	}
+}
+
+// dropRefused drops one event whose value the database refuses: it counts
+// it as lost (the admin alert reads that) and logs it once, by its kind,
+// project and the database's error code only, since the error's message
+// can quote the value, and the value can be personal data.
+func (w *Writer) dropRefused(kind string, event any, err error) {
+	project := projectOf(event)
+	code := store.ErrorCode(err)
+	w.log.Error("ingest: the database refused a value of an event; the event is dropped",
+		"kind", kind, "project", project, "code", code)
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.stats.FailedBatches++
+	w.stats.LostEvents++
+	w.stats.LastError = fmt.Sprintf("%s for a value of one %s of project %d; that event was dropped", code, kind, project)
+}
+
+// projectOf returns the project of an event savePart writes.
+func projectOf(event any) int64 {
+	switch e := event.(type) {
+	case store.NewErrorEvent:
+		return e.ProjectID
+	case store.PageEvent:
+		return e.ProjectID
+	case store.CustomEvent:
+		return e.ProjectID
+	}
+	return 0
 }
 
 // stopping notes that the writer stops: from now on it waits for a
@@ -298,13 +372,15 @@ func (w *Writer) keepUntil(giveUp time.Time) time.Time {
 	return giveUp
 }
 
-// save runs write until it succeeds and reports whether it did. A write
-// the database refuses is tried again after each of retryDelays; one that
-// fails because the database cannot be reached is tried again with
-// backoff until giveUp (the flush's window, see unavailableFor), or the
-// stop deadline when that is sooner. When it never succeeds, the n events
-// are counted as lost.
-func (w *Writer) save(n int, giveUp time.Time, write func() error) bool {
+// save runs write until it succeeds and returns nil, or returns the error
+// that made it give up. A write the database refuses is tried again after
+// each of retryDelays; one that fails because the database cannot be
+// reached is tried again with backoff until giveUp (the flush's window,
+// see unavailableFor), or the stop deadline when that is sooner. When it
+// never succeeds, the n events are counted as lost. A data error
+// (store.DataError) is returned at once, neither retried nor counted nor
+// logged: the same write would fail again, and savePart splits it.
+func (w *Writer) save(n int, giveUp time.Time, write func() error) error {
 	wait := w.unavailableWait
 	refused := 0
 	for attempt := 1; ; attempt++ {
@@ -313,7 +389,10 @@ func (w *Writer) save(n int, giveUp time.Time, write func() error) bool {
 			if attempt > 1 {
 				w.log.Info("ingest: database write succeeded after retries", "events", n, "attempts", attempt)
 			}
-			return true
+			return nil
+		}
+		if store.DataError(err) {
+			return err
 		}
 		if store.Unavailable(err) {
 			if until := w.keepUntil(giveUp); time.Now().Before(until) {
@@ -334,7 +413,7 @@ func (w *Writer) save(n int, giveUp time.Time, write func() error) bool {
 		w.stats.LostEvents += int64(n)
 		w.stats.LastError = err.Error()
 		w.mu.Unlock()
-		return false
+		return err
 	}
 }
 
