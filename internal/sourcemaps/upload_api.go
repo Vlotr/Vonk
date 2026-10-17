@@ -402,10 +402,10 @@ func (s *Service) uploadError(w http.ResponseWriter, r *http.Request, err error)
 // unavailable answers 503 when the database fails.
 func (s *Service) unavailable(w http.ResponseWriter, r *http.Request, err error) {
 	if httpjson.ClientGone(r) {
-		s.log.Debug("sourcemaps: the client went away", "path", r.URL.Path, "err", err)
+		s.log.Debug("sourcemaps: the client went away", "path", httpjson.LogPath(r.URL.Path), "err", err)
 		return
 	}
-	s.log.Error("sourcemaps: upload API", "path", r.URL.Path, "err", err)
+	s.log.Error("sourcemaps: upload API", "path", httpjson.LogPath(r.URL.Path), "err", err)
 	w.Header().Set("Retry-After", "60")
 	detail(w, http.StatusServiceUnavailable, "The database is not available. Try again in a minute.")
 }

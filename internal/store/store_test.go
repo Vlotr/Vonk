@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"regexp"
 	"strings"
@@ -395,5 +396,41 @@ func TestOpen_SQLiteDefensive(t *testing.T) {
 		if on != 0 {
 			t.Error("writable_schema could be turned on: the write pool is not in defensive mode")
 		}
+	}
+}
+
+// A database that a newer version of the tool updated is refused, with
+// what to do, before anything is written: this version does not know the
+// newer tables and could damage them (ruling 48).
+func TestMigrate_RefusesADatabaseANewerVersionUpdated(t *testing.T) {
+	db := openTestDB(t)
+	ctx := context.Background()
+	files := mustMigrations(t)
+	newest := files[len(files)-1].version
+	if _, err := db.write.ExecContext(ctx, "INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)",
+		newest+1, "9999_from_a_newer_version.sql", 0); err != nil {
+		t.Fatal(err)
+	}
+
+	err := db.Migrate(ctx)
+	if !errors.Is(err, ErrNewerDatabase) {
+		t.Fatalf("Migrate on a newer database = %v, want ErrNewerDatabase", err)
+	}
+	wayBack := "pre-migrate" // SQLite's automatic backup; Postgres has the pg_dump the operator made
+	if db.Postgres() {
+		wayBack = "pg_dump"
+	}
+	for _, want := range []string{fmt.Sprintf("version %d", newest+1), fmt.Sprintf("up to %d", newest), wayBack} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("message %q does not say %q", err, want)
+		}
+	}
+	var rows int
+	if err := db.read.QueryRowContext(ctx, "SELECT COUNT(*) FROM schema_migrations").Scan(&rows); err != nil || rows != newest+1 {
+		t.Errorf("schema_migrations has %d rows (%v), want %d: nothing written", rows, err, newest+1)
+	}
+	// The pre-migrate backup has nothing to do either.
+	if path, err := db.BackupBeforeMigrate(ctx); path != "" || (err != nil && !errors.Is(err, ErrNoBackups)) {
+		t.Errorf("BackupBeforeMigrate on a newer database = %q, %v; want no backup", path, err)
 	}
 }

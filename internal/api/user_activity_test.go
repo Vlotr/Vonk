@@ -1,14 +1,17 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
 	"testing"
 	"time"
 
+	"monitor/internal/auth"
 	"monitor/internal/store"
 )
 
@@ -173,5 +176,55 @@ func TestUserActivity_BadQuery(t *testing.T) {
 	}
 	if rec := env.get(t, activityPath(999, "42", "")); rec.Code != http.StatusNotFound {
 		t.Errorf("unknown project = %d, want 404", rec.Code)
+	}
+}
+
+// The user activity route carries a user id, often an email address, in
+// its path. When a request to it fails, every log line names the route with
+// the id masked, as the request log does: the session check's when the
+// browser went away before it, the activity query's when the browser went
+// away after it (debug), and the query's when the database fails (error).
+func TestUserActivity_FailuresLogNoUserID(t *testing.T) {
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	env := newTestEnv(t, func(o *auth.Options) { o.Logger = logger })
+	env.api.log = logger
+	shop := env.project(t, "Webshop")
+	path := fmt.Sprintf("/ui/api/projects/%d/users/jan.de.vries%%40example.com/activity", shop.ID)
+	signedIn := env.handler
+	cancelled := func(r *http.Request) *http.Request {
+		ctx, cancel := context.WithCancel(r.Context())
+		cancel()
+		return r.WithContext(ctx)
+	}
+
+	// Gone before the session check.
+	env.handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { signedIn.ServeHTTP(w, cancelled(r)) })
+	env.as(t, env.admin, "GET", path, "")
+	// Gone after it, during the query.
+	env.handler = env.auth.RequireUser(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		env.guarded.ServeHTTP(w, cancelled(r))
+	}))
+	env.as(t, env.admin, "GET", path, "")
+	// The database fails after the session check.
+	env.handler = env.auth.RequireUser(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		env.db.Close()
+		env.guarded.ServeHTTP(w, r)
+	}))
+	if rec := env.as(t, env.admin, "GET", path, ""); rec.Code != http.StatusInternalServerError {
+		t.Errorf("activity with the database closed = %d, want 500", rec.Code)
+	}
+
+	lines := logs.String()
+	for _, want := range []string{"auth: the client went away", "dashboard api: the client went away", "level=ERROR msg=\"dashboard api\""} {
+		if !strings.Contains(lines, want) {
+			t.Errorf("logs lack %q:\n%s", want, lines)
+		}
+	}
+	if masked := fmt.Sprintf("path=/ui/api/projects/%d/users/:userId/activity", shop.ID); strings.Count(lines, masked) != 3 {
+		t.Errorf("want 3 lines with %s:\n%s", masked, lines)
+	}
+	if strings.Contains(lines, "jan") {
+		t.Errorf("a log line names the user id:\n%s", lines)
 	}
 }

@@ -1,5 +1,6 @@
 // Package httpjson writes the JSON responses every endpoint shares: a value
 // with a status, or an error as {"error":"..."}. Read decodes JSON requests.
+// LogPath is a request's path as every log line writes it.
 package httpjson
 
 import (
@@ -7,6 +8,7 @@ import (
 	"errors"
 	"mime"
 	"net/http"
+	"strings"
 )
 
 // Write writes v as a JSON response with status.
@@ -19,6 +21,38 @@ func Write(w http.ResponseWriter, status int, v any) {
 // Error writes {"error": message} with status.
 func Error(w http.ResponseWriter, status int, message string) {
 	Write(w, status, map[string]string{"error": message})
+}
+
+// LogPath is path as a log line may show it: the user activity page
+// (/projects/{id}/users/{userId}) and its API
+// (/ui/api/projects/{id}/users/{userId}/activity) get ":userId" in place
+// of the user id, which is often an email address. path is the decoded
+// path (an encoded slash is a slash), so the id may span segments. Other
+// paths stay as they are. Every log line that names a request's path uses
+// it: the request log, panics, and the error helpers of the dashboard API,
+// sign-in and the upload API.
+func LogPath(path string) string {
+	for _, page := range []struct{ prefix, suffix string }{
+		{"/ui/api/projects/", "/activity"},
+		{"/projects/", ""},
+	} {
+		rest, ok := strings.CutPrefix(path, page.prefix)
+		if !ok {
+			continue
+		}
+		project, rest, ok := strings.Cut(rest, "/")
+		if !ok || project == "" {
+			continue
+		}
+		user, ok := strings.CutPrefix(rest, "users/")
+		if !ok {
+			continue
+		}
+		if user, ok = strings.CutSuffix(user, page.suffix); ok && user != "" {
+			return page.prefix + project + "/users/:userId" + page.suffix
+		}
+	}
+	return path
 }
 
 // ClientGone reports whether the request's client went away (it closed

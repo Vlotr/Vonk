@@ -177,10 +177,10 @@ func isAPI(r *http.Request) bool {
 // internalError logs err and answers 500 without details.
 func (s *Service) internalError(w http.ResponseWriter, r *http.Request, err error) {
 	if httpjson.ClientGone(r) {
-		s.log.Debug("auth: the client went away", "path", r.URL.Path, "err", err)
+		s.log.Debug("auth: the client went away", "path", httpjson.LogPath(r.URL.Path), "err", err)
 		return
 	}
-	s.log.Error("auth", "path", r.URL.Path, "err", err)
+	s.log.Error("auth", "path", httpjson.LogPath(r.URL.Path), "err", err)
 	if isAPI(r) {
 		httpjson.Error(w, http.StatusInternalServerError, "internal error")
 		return

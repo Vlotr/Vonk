@@ -162,7 +162,7 @@ func dashboardHeaders(next http.Handler) http.Handler {
 // logRequests logs one line per request. It leaves out the query string
 // (SDKs can put keys there) and the client address (IP addresses are never
 // stored), and masks the user id in the path of the user activity page
-// and its API (loggedPath).
+// and its API (httpjson.LogPath).
 func logRequests(logger *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -178,41 +178,12 @@ func logRequests(logger *slog.Logger, next http.Handler) http.Handler {
 		}
 		logger.Log(r.Context(), level, "request",
 			"method", r.Method,
-			"path", loggedPath(r.URL.Path),
+			"path", httpjson.LogPath(r.URL.Path),
 			"status", rec.status,
 			"bytes", rec.bytes,
 			"duration", time.Since(start).Round(time.Microsecond),
 		)
 	})
-}
-
-// loggedPath is the path as the request log shows it: the user activity
-// page (/projects/{id}/users/{userId}) and its API
-// (/ui/api/projects/{id}/users/{userId}/activity) with ":userId" in place
-// of the user id, which is often an email address and is decoded here (an
-// encoded slash is a slash), so it may span segments. Other paths stay.
-func loggedPath(path string) string {
-	for _, page := range []struct{ prefix, suffix string }{
-		{"/ui/api/projects/", "/activity"},
-		{"/projects/", ""},
-	} {
-		rest, ok := strings.CutPrefix(path, page.prefix)
-		if !ok {
-			continue
-		}
-		project, rest, ok := strings.Cut(rest, "/")
-		if !ok || project == "" {
-			continue
-		}
-		user, ok := strings.CutPrefix(rest, "users/")
-		if !ok {
-			continue
-		}
-		if user, ok = strings.CutSuffix(user, page.suffix); ok && user != "" {
-			return page.prefix + project + "/users/:userId" + page.suffix
-		}
-	}
-	return path
 }
 
 // recoverPanics turns a panicking handler into a 500 and a log line instead of a dropped connection.
@@ -226,7 +197,7 @@ func recoverPanics(logger *slog.Logger, next http.Handler) http.Handler {
 			if err == http.ErrAbortHandler {
 				panic(err) // the documented way to abort a response; let net/http handle it
 			}
-			logger.Error("handler panicked", "method", r.Method, "path", loggedPath(r.URL.Path), "panic", err)
+			logger.Error("handler panicked", "method", r.Method, "path", httpjson.LogPath(r.URL.Path), "panic", err)
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 		}()
 		next.ServeHTTP(w, r)

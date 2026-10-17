@@ -70,3 +70,21 @@ func TestClientGone(t *testing.T) {
 		t.Error("a request whose client went away does not count as gone")
 	}
 }
+
+func TestLogPath(t *testing.T) {
+	for path, want := range map[string]string{
+		"/ui/api/projects/1/users/jan@example.com/activity": "/ui/api/projects/1/users/:userId/activity",
+		"/ui/api/projects/12/users/team/jan/activity":       "/ui/api/projects/12/users/:userId/activity", // %2F decoded
+		"/projects/1/users/jan@example.com":                 "/projects/1/users/:userId",
+		"/projects/1/users/team/jan":                        "/projects/1/users/:userId",
+		"/projects/1/users/":                                "/projects/1/users/",
+		"/ui/api/projects/1/users//activity":                "/ui/api/projects/1/users//activity",
+		"/ui/api/projects/1/issues":                         "/ui/api/projects/1/issues",
+		"/ui/api/settings/users/3":                          "/ui/api/settings/users/3",
+		"/api/1/envelope/":                                  "/api/1/envelope/",
+	} {
+		if got := LogPath(path); got != want {
+			t.Errorf("LogPath(%q) = %q, want %q", path, got, want)
+		}
+	}
+}

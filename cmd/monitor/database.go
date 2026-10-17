@@ -41,6 +41,9 @@ func openDatabase(ctx context.Context, cfg config.Config, backedUp func(path str
 	}
 	if err := db.Migrate(ctx); err != nil {
 		db.Close()
+		if errors.Is(err, store.ErrNewerDatabase) {
+			return nil, err // nothing failed: it says what to do
+		}
 		if path != "" {
 			return nil, fmt.Errorf("database migration failed: %w (the database as it was before is in %s)", err, path)
 		}

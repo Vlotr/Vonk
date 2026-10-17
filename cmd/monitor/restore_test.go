@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"database/sql"
+	"errors"
 	"io"
 	"log/slog"
 	"os"
@@ -243,5 +245,60 @@ func TestRestoreCommand_RefusesPostgres(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if code := run([]string{"restore", "backup.db"}, getenv, &stdout, &stderr); code != 1 || !strings.Contains(stderr.String(), "pg_restore") {
 		t.Errorf("restore on Postgres = %d, stderr:\n%s", code, stderr.String())
+	}
+}
+
+// markNewer makes the database in dir look updated by a newer version of
+// the tool: a migration this binary does not have.
+func markNewer(t *testing.T, dir string) {
+	t.Helper()
+	db, err := sql.Open("sqlite", filepath.Join(dir, "monitor.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec("INSERT INTO schema_migrations (version, name, applied_at) VALUES (9999, '9999_newer.sql', 0)"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A database a newer version updated stops every command and the server
+// with what to do (ruling 48); going back as docs/updating.md says (stage
+// the older backup, then start this version) still works, because the
+// restore is applied before the database is opened.
+func TestStart_RefusesADatabaseANewerVersionUpdated(t *testing.T) {
+	older := t.TempDir()
+	createProject(t, older, "Before the update")
+	backup := backupOf(t, older)
+
+	dir := t.TempDir()
+	createProject(t, dir, "After the update")
+	markNewer(t, dir)
+
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"project", "create", "--name", "More"}, testEnv(dir), &stdout, &stderr); code != 1 ||
+		!strings.Contains(stderr.String(), "a newer version of the tool updated this database") ||
+		!strings.Contains(stderr.String(), "version 9999") || !strings.Contains(stderr.String(), "monitor restore") {
+		t.Errorf("project create on a newer database = %d:\n%s", code, stderr.String())
+	}
+	cfg, err := config.Load(testEnv(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var log syncBuffer
+	// A server that starts anyway stops after 5 s, and the test fails instead of hanging.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := runServer(ctx, cfg, slog.New(slog.NewTextHandler(&log, nil))); !errors.Is(err, store.ErrNewerDatabase) {
+		t.Errorf("serve on a newer database = %v, want ErrNewerDatabase\n%s", err, log.String())
+	}
+
+	stderr.Reset()
+	if code := run([]string{"restore", backup}, testEnv(dir), &stdout, &stderr); code != 0 {
+		t.Fatalf("restore = %d: %s", code, stderr.String())
+	}
+	log2 := startAndStop(t, dir)
+	if got := projectsIn(t, filepath.Join(dir, "monitor.db")); got != "Before the update" {
+		t.Errorf("projects after going back = %q, want the backup's\n%s", got, log2)
 	}
 }

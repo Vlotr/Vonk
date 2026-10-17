@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"embed"
+	"errors"
 	"fmt"
 	"io/fs"
 	"path"
@@ -20,6 +21,10 @@ import (
 //go:embed migrations
 var migrationsFS embed.FS
 
+// ErrNewerDatabase means a newer version of the tool updated the database:
+// its schema_migrations names a version this binary does not have.
+var ErrNewerDatabase = errors.New("a newer version of the tool updated this database")
+
 // migration is one SQL file.
 type migration struct {
 	version int    // NNNN from the file name
@@ -29,7 +34,9 @@ type migration struct {
 
 // Migrate applies every migration that has not run yet. It is safe to call on
 // every start and from several processes at once: each migration runs in its
-// own write transaction together with its schema_migrations row.
+// own write transaction together with its schema_migrations row. A database
+// that a newer version of the tool updated is refused (ErrNewerDatabase)
+// before anything is written: this version would not know its newer tables.
 func (db *DB) Migrate(ctx context.Context) error {
 	files, err := db.migrationFiles()
 	if err != nil {
@@ -44,6 +51,9 @@ func (db *DB) migrate(ctx context.Context, files []migration) error {
 	if err := db.createSchemaMigrations(ctx); err != nil {
 		return fmt.Errorf("create schema_migrations: %w", err)
 	}
+	if err := db.refuseNewer(ctx, files); err != nil {
+		return err
+	}
 
 	for _, m := range files {
 		if err := db.applyMigration(ctx, m); err != nil {
@@ -51,6 +61,33 @@ func (db *DB) migrate(ctx context.Context, files []migration) error {
 		}
 	}
 	return nil
+}
+
+// refuseNewer returns ErrNewerDatabase, with what to do, when the database
+// has a migration newer than the newest of files. The way back is the
+// pre-migrate backup the newer version made before its update: a restore
+// that waits is applied before this check (serve applies it before it
+// opens the database), so staging that backup and starting this version
+// works.
+func (db *DB) refuseNewer(ctx context.Context, files []migration) error {
+	if len(files) == 0 {
+		return nil
+	}
+	var newest int
+	if err := db.read.QueryRowContext(ctx, "SELECT COALESCE(MAX(version), 0) FROM schema_migrations").Scan(&newest); err != nil {
+		return fmt.Errorf("read schema_migrations: %w", err)
+	}
+	known := files[len(files)-1].version
+	if newest <= known {
+		return nil
+	}
+	back := "stage its pre-migrate backup (DATA_DIR/backups/pre-migrate-<version>-<time>.db) with \"monitor restore\", then start this version"
+	if db.Postgres() {
+		back = "restore the pg_dump made before the update with pg_restore, then start this version"
+	}
+	return fmt.Errorf("%w: the database is at version %d, and this version of the tool knows up to %d. "+
+		"Run the newer version again, or go back to the database from before the update: %s; see docs/updating.md",
+		ErrNewerDatabase, newest, known, back)
 }
 
 // createSchemaMigrations makes the table that records the migrations, once.

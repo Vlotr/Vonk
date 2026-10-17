@@ -103,7 +103,7 @@ func (h *PosthogHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(path, "/s/"):
 		httpjson.Write(w, http.StatusOK, map[string]string{"status": "Ok"}) // session recordings: not kept
 	default:
-		h.logger.Debug("posthog: unknown path; answered 200", "method", r.Method, "path", r.URL.Path)
+		h.logger.Debug("posthog: unknown path; answered 200", "method", r.Method, "path", httpjson.LogPath(r.URL.Path))
 		httpjson.Write(w, http.StatusOK, map[string]string{})
 	}
 }
