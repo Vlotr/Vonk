@@ -7,9 +7,15 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"monitor/internal/auth"
+	"monitor/internal/store"
 )
 
 func TestDeleteUserDataAPI(t *testing.T) {
@@ -82,5 +88,57 @@ func TestDeleteUserDataAPI(t *testing.T) {
 		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), tc.says) {
 			t.Errorf("%s: %d %s, want 400 saying %q", tc.name, rec.Code, rec.Body, tc.says)
 		}
+	}
+}
+
+// The new changes need the session's CSRF token like every change: with
+// the cookie alone, or a wrong token, they are refused (403) and nothing
+// changes; with the session's token (env.send sends it) they go through.
+func TestBackupAndPrivacy_NeedTheCSRFToken(t *testing.T) {
+	env := newTestEnv(t)
+	shop := env.project(t, "Webshop")
+	env.save(t, shop.ID, phpEvent(t, eventSpec{id: hexID(1), userID: "jan"}))
+	pending := filepath.Join(env.dir, store.RestorePendingFile)
+	if err := os.WriteFile(pending, []byte("waiting"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	send := func(method, path, contentType, body, token string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		if contentType != "" {
+			req.Header.Set("Content-Type", contentType)
+		}
+		req.AddCookie(env.admin.cookie)
+		if token != "" {
+			req.Header.Set(auth.CSRFHeader, token)
+		}
+		rec := httptest.NewRecorder()
+		env.handler.ServeHTTP(rec, req)
+		return rec
+	}
+	changes := []struct{ method, path, contentType, body string }{
+		{"POST", "/ui/api/settings/backup/restore", "application/octet-stream", "SQLite format 3\x00 a backup"},
+		{"DELETE", "/ui/api/settings/backup/restore", "", ""},
+		{"POST", "/ui/api/privacy/delete-user", "application/json", `{"userId":"jan"}`},
+	}
+	for _, token := range []string{"", "not-the-session's-token"} {
+		for _, c := range changes {
+			if rec := send(c.method, c.path, c.contentType, c.body, token); rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "X-CSRF-Token") {
+				t.Errorf("%s %s with token %q = %d %s, want 403", c.method, c.path, token, rec.Code, rec.Body)
+			}
+		}
+	}
+	if b, err := os.ReadFile(pending); err != nil || string(b) != "waiting" {
+		t.Errorf("the pending restore after refused requests: %q, %v", b, err)
+	}
+	if n, _ := env.db.CountErrorEvents(context.Background(), shop.ID); n != 1 {
+		t.Errorf("%d events after a refused deletion, want 1", n)
+	}
+
+	// The session's own token: the deletion goes through.
+	if rec := send("POST", "/ui/api/privacy/delete-user", "application/json", `{"userId":"jan"}`, env.admin.csrf); rec.Code != http.StatusOK {
+		t.Errorf("with the token = %d %s, want 200", rec.Code, rec.Body)
+	}
+	if n, _ := env.db.CountErrorEvents(context.Background(), shop.ID); n != 0 {
+		t.Errorf("%d events after the deletion, want 0", n)
 	}
 }
