@@ -9,7 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
-	"unicode/utf8"
+
+	"monitor/internal/text"
 )
 
 // topFrames is how many frames, counted from where the exception was thrown, decide the group.
@@ -75,18 +76,25 @@ type Summary struct {
 }
 
 // Summarize returns the title, message and culprit of an event, from the
-// same exception that Fingerprint uses.
+// same exception that Fingerprint uses, cleaned for the database
+// (text.Clean): a browser frame's URL is decoded for the culprit, and "%00"
+// or "%ff" in it would give a NUL or invalid UTF-8.
 func Summarize(e *Event) Summary {
+	s := summarize(e)
+	return Summary{Title: text.Clean(s.Title), Message: text.Clean(s.Message), Culprit: text.Clean(s.Culprit)}
+}
+
+func summarize(e *Event) Summary {
 	exc := MainException(e)
 	if exc == nil {
 		title, _, _ := strings.Cut(strings.TrimSpace(e.Message), "\n")
 		if title == "" {
 			title = "<unlabeled event>"
 		}
-		return Summary{Title: shorten(title, maxTitleRunes), Message: shorten(e.Message, maxMessageRunes)}
+		return Summary{Title: text.Shorten(title, maxTitleRunes), Message: text.Shorten(e.Message, maxMessageRunes)}
 	}
 
-	s := Summary{Title: exc.Type, Message: shorten(exc.Value, maxMessageRunes)}
+	s := Summary{Title: exc.Type, Message: text.Shorten(exc.Value, maxMessageRunes)}
 	if s.Title == "" {
 		s.Title = "Error"
 	}
@@ -95,7 +103,7 @@ func Summarize(e *Event) Summary {
 		// still shows in the stack trace and decides the fingerprint.
 		s.Title = "Unhandled rejection"
 	}
-	s.Title = shorten(s.Title, maxTitleRunes)
+	s.Title = text.Shorten(s.Title, maxTitleRunes)
 	if frames := groupingFrames(exc.Frames); len(frames) > 0 {
 		top := frames[len(frames)-1]
 		s.Culprit = culpritFile(e, top)
@@ -326,15 +334,6 @@ func isDefaultMarker(v string) bool {
 func hash(parts []string) string {
 	sum := sha256.Sum256([]byte(strings.Join(parts, "\n")))
 	return hex.EncodeToString(sum[:16])
-}
-
-// shorten cuts s to at most n runes, ending with "…" when it was cut.
-func shorten(s string, n int) string {
-	if utf8.RuneCountInString(s) <= n {
-		return s
-	}
-	runes := []rune(s)
-	return string(runes[:n-1]) + "…"
 }
 
 func isDigits(s string) bool {

@@ -158,3 +158,60 @@ func TestEvent_SetEventID(t *testing.T) {
 		t.Errorf("EventID = %q, JSON = %s", ev.EventID, out)
 	}
 }
+
+// Postgres refuses a NUL in any text column, and an index entry over 2704
+// bytes, so one such event would fail the write of its whole batch. The
+// event is cleaned as it is read: every string of it loses its NULs (the
+// stored JSON too, so nothing read back from it brings one), and the user
+// id (indexed), release and environment are cut to 200 bytes, in the
+// typed fields and in Raw alike.
+func TestDecodeEvent_CleansValuesForTheDatabase(t *testing.T) {
+	long := strings.Repeat("u", 6000)
+	ev := decode(t, `{"event_id":"9ec79c33ec9942ab8353589fcb2e04dc","platform":"php\u0000",
+		"message":"failed\u0000",
+		"exception":{"values":[{"type":"Query\u0000Exception","value":"binding 0x\u0000\u0011é",
+			"stacktrace":{"frames":[{"filename":"/app/a\u0000.php","function":"run","context_line":"x\u0000"}]}}]},
+		"user":{"id":"`+long+`","email":"anna\u0000@example.com"},
+		"release":"`+strings.Repeat("r", 300)+`","environment":"`+strings.Repeat("é", 150)+`",
+		"request":{"url":"https://shop.example.com/a\u0000b","headers":{"X-Ke\u0000y":"v\u0000"}},
+		"extra":{"nested":[{"deep\u0000":"\u0000value"}]}}`)
+
+	if ev.Platform != "php" || ev.Message != "failed" || ev.Request.URL != "https://shop.example.com/ab" {
+		t.Errorf("typed fields keep a NUL: platform %q, message %q, url %q", ev.Platform, ev.Message, ev.Request.URL)
+	}
+	if exc := ev.Exceptions[0]; exc.Type != "QueryException" || exc.Value != "binding 0x\u0011é" || exc.Frames[0].Filename != "/app/a.php" {
+		t.Errorf("exception = %+v", exc)
+	}
+	if ev.User.Email != "anna@example.com" || ev.Request.Headers["X-Key"] != "v" {
+		t.Errorf("user email %q, headers %v", ev.User.Email, ev.Request.Headers)
+	}
+	if len(ev.User.ID) != 200 || len(ev.Release) != 200 || len(ev.Environment) != 200 || ev.Environment != strings.Repeat("é", 100) {
+		t.Errorf("user id %d bytes, release %d, environment %d; want 200 each", len(ev.User.ID), len(ev.Release), len(ev.Environment))
+	}
+	data, err := ev.JSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), `\u0000`) || strings.Contains(string(data), long) {
+		t.Errorf("stored JSON keeps a NUL or the whole user id")
+	}
+	var back map[string]any
+	if err := json.Unmarshal(data, &back); err != nil {
+		t.Fatal(err)
+	}
+	if user := back["user"].(map[string]any); user["id"] != ev.User.ID || back["release"] != ev.Release || back["environment"] != ev.Environment {
+		t.Errorf("stored JSON and typed fields differ: user %v, release %v", user["id"], back["release"])
+	}
+	if !strings.Contains(string(data), `{"deep":"value"}`) {
+		t.Errorf("nested values keep their NUL: %s", data)
+	}
+
+	// Anything that changes Raw afterwards (scrub, symbolication) calls
+	// Refresh, which cleans again.
+	ev.Raw["message"] = "again\x00"
+	ev.Raw["user"] = map[string]any{"id": json.Number(strings.Repeat("9", 300))}
+	ev.Refresh()
+	if ev.Message != "again" || ev.User.ID != strings.Repeat("9", 200) {
+		t.Errorf("after Refresh: message %q, user id %d bytes", ev.Message, len(ev.User.ID))
+	}
+}

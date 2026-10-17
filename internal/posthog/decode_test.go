@@ -256,6 +256,37 @@ func TestPosthog_ScrubsProperties(t *testing.T) {
 	}
 }
 
+// Postgres refuses a NUL in any text column, and one refused value fails
+// the write of the whole batch: every string of an event loses its NULs
+// as it is read, the properties (stored as JSON for custom events) too.
+func TestPosthog_RemovesNULs(t *testing.T) {
+	body := `{"api_key":"phc_a","batch":[{"event":"signed_up\u0000","uuid":"c2\u0000","properties":{
+		"distinct_id":"anna\u0000","$current_url":"https://portal.example.com/a\u0000b","$session_id":"s\u0000",
+		"$window_id":"w\u0000","$pageview_id":"v\u0000","$raw_user_agent":"UA\u0000","pl\u0000an":"pro\u0000",
+		"nested":{"list":["a\u0000"]}}}]}`
+	batch, err := ParseBody([]byte(body), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ev := batch.Events[0]
+	for name, v := range map[string]string{"name": ev.Name, "uuid": ev.UUID, "distinct_id": ev.DistinctID, "url": ev.URL,
+		"session": ev.SessionID, "window": ev.WindowID, "pageview": ev.PageviewID, "user agent": ev.RawUserAgent} {
+		if strings.ContainsRune(v, 0) {
+			t.Errorf("%s keeps a NUL: %q", name, v)
+		}
+	}
+	if ev.Name != "signed_up" || ev.DistinctID != "anna" || ev.URL != "https://portal.example.com/ab" {
+		t.Errorf("name %q, user %q, url %q", ev.Name, ev.DistinctID, ev.URL)
+	}
+	stored, err := json.Marshal(ev.OwnProperties())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(stored) != `{"nested":{"list":["a"]},"plan":"pro"}` {
+		t.Errorf("own properties = %s", stored)
+	}
+}
+
 func FuzzParsePosthogBody(f *testing.F) {
 	for _, name := range []string{"02-pageview-load", "04-pageview-history", "05-identify", "07-custom", "08-pageleave"} {
 		body := mustFixture(f, name)
@@ -274,6 +305,11 @@ func FuzzParsePosthogBody(f *testing.F) {
 			ev := &batch.Events[i]
 			if ev.Name == "" {
 				t.Fatal("an event without a name was kept")
+			}
+			for _, v := range []string{ev.Name, ev.UUID, ev.DistinctID, ev.URL, ev.SessionID, ev.WindowID, ev.PageviewID} {
+				if strings.ContainsRune(v, 0) || len(v) > maxURLBytes {
+					t.Fatalf("a value for a column keeps a NUL or is too long: %q", v)
+				}
 			}
 			ev.Scrub()
 			ev.Time(time.Now())

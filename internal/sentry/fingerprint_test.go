@@ -394,3 +394,14 @@ func TestSummarize(t *testing.T) {
 		t.Errorf("long title/message not shortened: %d / %d runes", len([]rune(long.Title)), len([]rune(long.Message)))
 	}
 }
+
+// A browser frame's URL is decoded for the culprit, so "%00" and "%ff"
+// would give a NUL and invalid UTF-8, which Postgres refuses.
+func TestSummarize_CulpritFromAnEncodedURLIsClean(t *testing.T) {
+	ev := decode(t, `{"platform":"javascript","exception":{"values":[{"type":"TypeError","value":"x",
+		"stacktrace":{"frames":[{"filename":"https://shop.example.com/assets/a%00b%ffc.js","function":"f","lineno":3,"in_app":true}]}}]}}`)
+	s := sentry.Summarize(ev)
+	if s.Culprit != "assets/ab�c.js:3" {
+		t.Errorf("culprit = %q, want assets/ab�c.js:3", s.Culprit)
+	}
+}

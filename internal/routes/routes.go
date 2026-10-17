@@ -31,6 +31,9 @@ package routes
 import (
 	"net/url"
 	"strings"
+	"unicode/utf8"
+
+	"monitor/internal/text"
 )
 
 // MaxLength is the longest route, in bytes; longer ones are cut.
@@ -69,7 +72,7 @@ func Path(s string) string {
 			segments[i] = mask
 		}
 	}
-	return cut("/"+strings.Join(segments, "/"), MaxPathLength)
+	return text.Cut("/"+strings.Join(segments, "/"), MaxPathLength)
 }
 
 // MaskURL returns a URL (or a path) as it was sent, but with the segments
@@ -126,31 +129,21 @@ func split(path string) []string {
 // decode returns a segment with its percent-encoding undone, except for
 // "%" and "/", which stay encoded: so decoding never adds a segment, and a
 // decoded segment decodes to itself. A segment with an invalid escape
-// ("100%") stays as it is.
+// ("100%"), or one whose escapes decode to a NUL or to invalid UTF-8
+// ("a%00b", "caf%C3"), stays as it is: Postgres refuses both in text.
 func decode(segment string) string {
 	if !strings.Contains(segment, "%") {
 		return segment
 	}
 	decoded, err := url.PathUnescape(segment)
-	if err != nil {
+	if err != nil || strings.IndexByte(decoded, 0) >= 0 || !utf8.ValidString(decoded) {
 		return segment
 	}
 	return strings.NewReplacer("%", "%25", "/", "%2F").Replace(decoded)
 }
 
 func join(segments []string) string {
-	return cut("/"+strings.Join(segments, "/"), MaxLength)
-}
-
-// cut shortens s to at most n bytes, without splitting a character.
-func cut(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	for n > 0 && s[n]&0xc0 == 0x80 { // a continuation byte of a UTF-8 character
-		n--
-	}
-	return s[:n]
+	return text.Cut("/"+strings.Join(segments, "/"), MaxLength)
 }
 
 // matches reports whether a pattern's segments match a path's: the same

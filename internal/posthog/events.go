@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"monitor/internal/scrub"
+	"monitor/internal/text"
 )
 
 // Event names the dashboard counts.
@@ -112,26 +113,29 @@ func (e *Event) OwnProperties() map[string]any {
 }
 
 // eventFrom reads one event object. It returns false for an object
-// without an event name.
+// without an event name. Every string of it loses its NUL characters
+// first (text.CleanJSON): Postgres refuses them in text, and one refused
+// value would fail the write of the whole batch.
 func eventFrom(raw map[string]any, size int) (Event, bool) {
+	text.CleanJSON(raw)
 	props, _ := raw["properties"].(map[string]any)
 	if props == nil {
 		props = map[string]any{}
 	}
 	e := Event{
-		UUID:           cut(str(raw["uuid"]), maxIDBytes),
-		Name:           cut(str(raw["event"]), maxIDBytes),
-		DistinctID:     cut(firstOf(raw["distinct_id"], props["distinct_id"], props["$distinct_id"]), maxIDBytes),
+		UUID:           text.Cut(str(raw["uuid"]), maxIDBytes),
+		Name:           text.Cut(str(raw["event"]), maxIDBytes),
+		DistinctID:     text.Cut(firstOf(raw["distinct_id"], props["distinct_id"], props["$distinct_id"]), maxIDBytes),
 		Token:          firstOf(props["token"], raw["api_key"], raw["token"]),
 		Timestamp:      timestamp(raw["timestamp"]),
 		SentAt:         timestamp(raw["sent_at"]),
-		URL:            cut(str(props["$current_url"]), maxURLBytes),
-		Pathname:       cut(str(props["$pathname"]), maxURLBytes),
-		SessionID:      cut(str(props["$session_id"]), maxIDBytes),
-		WindowID:       cut(str(props["$window_id"]), maxIDBytes),
-		PageviewID:     cut(str(props["$pageview_id"]), maxIDBytes),
-		PrevPageviewID: cut(str(props["$prev_pageview_id"]), maxIDBytes),
-		RawUserAgent:   cut(str(props["$raw_user_agent"]), maxURLBytes),
+		URL:            text.Cut(str(props["$current_url"]), maxURLBytes),
+		Pathname:       text.Cut(str(props["$pathname"]), maxURLBytes),
+		SessionID:      text.Cut(str(props["$session_id"]), maxIDBytes),
+		WindowID:       text.Cut(str(props["$window_id"]), maxIDBytes),
+		PageviewID:     text.Cut(str(props["$pageview_id"]), maxIDBytes),
+		PrevPageviewID: text.Cut(str(props["$prev_pageview_id"]), maxIDBytes),
+		RawUserAgent:   text.Cut(str(props["$raw_user_agent"]), maxURLBytes),
 		BrowserType:    str(props["$browser_type"]),
 		Properties:     props,
 		Size:           size,
@@ -187,16 +191,3 @@ func timestamp(v any) time.Time {
 	}
 	return time.Time{}
 }
-
-// cut shortens s to at most n bytes, at a character boundary.
-func cut(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	for n > 0 && !utf8Start(s[n]) {
-		n--
-	}
-	return s[:n]
-}
-
-func utf8Start(b byte) bool { return b&0xc0 != 0x80 }

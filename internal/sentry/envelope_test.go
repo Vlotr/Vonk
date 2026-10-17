@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"monitor/internal/scrub"
 	"monitor/internal/sentry"
@@ -345,8 +346,19 @@ func FuzzParseEnvelope(f *testing.F) {
 		for _, ev := range env.Events {
 			scrub.Event(ev)
 			sentry.Fingerprint(ev)
-			sentry.Summarize(ev)
+			summary := sentry.Summarize(ev)
 			sentry.Source(ev)
+			// What the writer puts in columns, Postgres must take: no NUL,
+			// valid UTF-8, and indexed values short enough.
+			for _, v := range []string{summary.Title, summary.Message, summary.Culprit, ev.User.ID, ev.Release,
+				ev.Environment, ev.Platform, ev.Level, ev.Request.URL} {
+				if strings.ContainsRune(v, 0) || !utf8.ValidString(v) {
+					t.Fatalf("a value for a column is not text Postgres stores: %q", v)
+				}
+			}
+			if len(ev.User.ID) > 200 || len(ev.Release) > 200 || len(ev.Environment) > 200 {
+				t.Fatalf("user id, release or environment longer than 200 bytes")
+			}
 			data, err := ev.JSON()
 			if err != nil {
 				t.Fatalf("JSON: %v", err)

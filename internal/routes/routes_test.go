@@ -100,8 +100,16 @@ func TestNormalize_PercentEncoding(t *testing.T) {
 		{"/sale/%zz", "/sale/%zz"},
 		// Encoded digits are still an id.
 		{"/orders/%31%32%33", "/orders/:id"},
+		// Escapes that decode to a NUL or to invalid UTF-8 leave their
+		// segment as sent: Postgres stores neither in text.
+		{"/orders/a%00b", "/orders/a%00b"},
+		{"/zoeken/caf%C3/x", "/zoeken/caf%C3/x"},
+		{"/x%ffy%20z", "/x%ffy%20z"},
 	}
 	for _, c := range cases {
+		if got := Path(c.path); strings.ContainsRune(got, 0) || !utf8.ValidString(got) {
+			t.Errorf("Path(%q) = %q, which Postgres refuses", c.path, got)
+		}
 		if got := Normalize(c.path, nil); got != c.want {
 			t.Errorf("Normalize(%q) = %q, want %q", c.path, got, c.want)
 		}

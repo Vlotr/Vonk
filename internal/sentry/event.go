@@ -11,7 +11,15 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"monitor/internal/text"
 )
+
+// maxIDBytes is the most bytes a user id, release or environment may have;
+// longer ones are cut. The user id is in an index, and Postgres refuses an
+// index entry over 2704 bytes (Sentry itself takes releases up to 200
+// characters).
+const maxIDBytes = 200
 
 // Event is one Sentry error event: the fields this tool reads, typed, plus the
 // whole event as the SDK sent it (Raw), which is what gets stored.
@@ -159,8 +167,11 @@ func (e *Event) SetEventID(id string) {
 }
 
 // Refresh reads the typed fields from Raw again, after Raw was changed.
+// First it cleans Raw for the database (cleanRaw), so the typed fields and
+// the stored JSON hold the same, storable values.
 func (e *Event) Refresh() {
 	raw, size := e.Raw, e.Size
+	cleanRaw(raw)
 	*e = Event{
 		Raw:         raw,
 		Size:        size,
@@ -180,6 +191,26 @@ func (e *Event) Refresh() {
 		SDK:         sdk(obj(raw["sdk"])),
 		Fingerprint: strs(raw["fingerprint"]),
 		DebugImages: debugImages(obj(raw["debug_meta"])),
+	}
+}
+
+// cleanRaw makes an event's values ones both databases store: every
+// string loses its NUL characters (text.CleanJSON; Postgres refuses them,
+// and one refused value fails the write of the whole batch), and the user
+// id, release and environment are cut to maxIDBytes.
+func cleanRaw(raw map[string]any) {
+	text.CleanJSON(raw)
+	cutValue(raw, "release")
+	cutValue(raw, "environment")
+	if u := obj(raw["user"]); u != nil {
+		cutValue(u, "id")
+	}
+}
+
+// cutValue cuts m[key] to maxIDBytes when it is longer, as a string.
+func cutValue(m map[string]any, key string) {
+	if s := str(m[key]); len(s) > maxIDBytes {
+		m[key] = text.Cut(s, maxIDBytes)
 	}
 }
 
