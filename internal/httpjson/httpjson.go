@@ -26,31 +26,33 @@ func Error(w http.ResponseWriter, status int, message string) {
 // LogPath is path as a log line may show it: the user activity page
 // (/projects/{id}/users/{userId}) and its API
 // (/ui/api/projects/{id}/users/{userId}/activity) get ":userId" in place
-// of the user id, which is often an email address. path is the decoded
-// path (an encoded slash is a slash), so the id may span segments. Other
-// paths stay as they are. Every log line that names a request's path uses
-// it: the request log, panics, and the error helpers of the dashboard API,
-// sign-in and the upload API.
+// of the user id, which is often an email address. Everything after
+// "users/" is masked, whatever it is: path is the decoded path (an
+// encoded slash is a slash), so the id may span segments, and a trailing
+// slash, a missing "/activity" or more segments must not let an id
+// through; only a final "/activity" stays. Other paths stay as they are.
+// Every log line that names a request's path uses it: the request log,
+// panics, and the error helpers of the dashboard API, sign-in and the
+// upload API.
 func LogPath(path string) string {
-	for _, page := range []struct{ prefix, suffix string }{
-		{"/ui/api/projects/", "/activity"},
-		{"/projects/", ""},
-	} {
-		rest, ok := strings.CutPrefix(path, page.prefix)
+	for _, prefix := range []string{"/ui/api/projects/", "/projects/"} {
+		rest, ok := strings.CutPrefix(path, prefix)
 		if !ok {
 			continue
 		}
 		project, rest, ok := strings.Cut(rest, "/")
-		if !ok || project == "" {
-			continue
-		}
-		user, ok := strings.CutPrefix(rest, "users/")
 		if !ok {
 			continue
 		}
-		if user, ok = strings.CutSuffix(user, page.suffix); ok && user != "" {
-			return page.prefix + project + "/users/:userId" + page.suffix
+		user, ok := strings.CutPrefix(rest, "users/")
+		if !ok || user == "" {
+			continue
 		}
+		masked := prefix + project + "/users/:userId"
+		if strings.HasSuffix(user, "/activity") {
+			masked += "/activity"
+		}
+		return masked
 	}
 	return path
 }

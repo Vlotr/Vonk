@@ -71,17 +71,33 @@ func TestClientGone(t *testing.T) {
 	}
 }
 
+// Everything after the users/ of the user activity page and its API is
+// masked, whatever follows the id: a trailing slash, no /activity, more
+// segments (an id may hold slashes), so no shape of the path logs an id.
 func TestLogPath(t *testing.T) {
 	for path, want := range map[string]string{
-		"/ui/api/projects/1/users/jan@example.com/activity": "/ui/api/projects/1/users/:userId/activity",
-		"/ui/api/projects/12/users/team/jan/activity":       "/ui/api/projects/12/users/:userId/activity", // %2F decoded
-		"/projects/1/users/jan@example.com":                 "/projects/1/users/:userId",
-		"/projects/1/users/team/jan":                        "/projects/1/users/:userId",
-		"/projects/1/users/":                                "/projects/1/users/",
-		"/ui/api/projects/1/users//activity":                "/ui/api/projects/1/users//activity",
-		"/ui/api/projects/1/issues":                         "/ui/api/projects/1/issues",
-		"/ui/api/settings/users/3":                          "/ui/api/settings/users/3",
-		"/api/1/envelope/":                                  "/api/1/envelope/",
+		"/ui/api/projects/1/users/jan@example.com/activity":       "/ui/api/projects/1/users/:userId/activity",
+		"/ui/api/projects/12/users/team/jan/activity":             "/ui/api/projects/12/users/:userId/activity", // %2F decoded
+		"/ui/api/projects/1/users/jan@example.com":                "/ui/api/projects/1/users/:userId",
+		"/ui/api/projects/1/users/jan@example.com/":               "/ui/api/projects/1/users/:userId",
+		"/ui/api/projects/1/users/jan@example.com/activity/":      "/ui/api/projects/1/users/:userId",
+		"/ui/api/projects/1/users/jan@example.com/activity/extra": "/ui/api/projects/1/users/:userId",
+		"/ui/api/projects/1/users/jan@example.com/other":          "/ui/api/projects/1/users/:userId",
+		"/ui/api/projects/1/users//activity":                      "/ui/api/projects/1/users/:userId/activity",
+		"/ui/api/projects/x/users/jan@example.com/activity":       "/ui/api/projects/x/users/:userId/activity",
+		"/projects/1/users/jan@example.com":                       "/projects/1/users/:userId",
+		"/projects/1/users/team/jan":                              "/projects/1/users/:userId",
+		"/projects/1/users/jan@example.com/":                      "/projects/1/users/:userId",
+		"/projects/1/users/jan@example.com/anything/else":         "/projects/1/users/:userId",
+		"/projects//users/jan@example.com":                        "/projects//users/:userId",
+		// Nothing after users/: no id to mask.
+		"/projects/1/users/":        "/projects/1/users/",
+		"/ui/api/projects/1/users/": "/ui/api/projects/1/users/",
+		"/projects/1/users":         "/projects/1/users",
+		"/ui/api/projects/1/issues": "/ui/api/projects/1/issues",
+		"/ui/api/settings/users/3":  "/ui/api/settings/users/3",
+		"/api/1/envelope/":          "/api/1/envelope/",
+		"/projects/1/usersjan":      "/projects/1/usersjan",
 	} {
 		if got := LogPath(path); got != want {
 			t.Errorf("LogPath(%q) = %q, want %q", path, got, want)
