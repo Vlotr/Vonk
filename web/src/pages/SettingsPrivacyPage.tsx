@@ -164,7 +164,7 @@ function DeleteUserData() {
       </section>
 
       {done && (
-        <section className={`${page.card} ${styles.result}`} aria-labelledby="done-title" role="status">
+        <section className={`${page.card} ${styles.result}`} aria-labelledby="done-title" aria-live="polite">
           <h2 id="done-title" className={page.cardTitle}>
             Done
           </h2>
