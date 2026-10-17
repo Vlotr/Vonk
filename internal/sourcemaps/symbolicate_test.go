@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -343,5 +344,39 @@ func TestSymbolicate_CacheSizeSetsTheLargestMap(t *testing.T) {
 		if got := env.svc.Symbolicate(context.Background(), env.project.ID, browserEvent(t, buildA, "", true)); got != want {
 			t.Errorf("cache of %d bytes for a map of %d: symbolicated = %v, want %v", cacheBytes, info.Size(), got, want)
 		}
+	}
+}
+
+// A lookup that fails on the database is logged with the frame's file
+// without its query: a minified file's URL can carry a token in its query
+// (docs/privacy.md, docs/troubleshooting.md).
+func TestSymbolicate_LookupErrorLogsTheFileWithoutItsQuery(t *testing.T) {
+	env := newTestEnv(t)
+	ctx := context.Background()
+	env.storeBuild(t, env.project.ID, buildA, "shop@1.0.0", false)
+	var logs bytes.Buffer
+	env.svc.log = slog.New(slog.NewTextHandler(&logs, nil))
+	if !env.svc.Symbolicate(ctx, env.project.ID, browserEvent(t, buildA, "shop@1.0.0", false)) {
+		t.Fatal("not symbolicated with the map stored")
+	}
+
+	env.db.Close()
+	ev := browserEvent(t, buildB, "shop@1.0.0", false)
+	for _, exc := range ev.Raw["exception"].(map[string]any)["values"].([]any) {
+		for _, f := range exc.(map[string]any)["stacktrace"].(map[string]any)["frames"].([]any) {
+			frame := f.(map[string]any)
+			frame["filename"] = frame["filename"].(string) + "?token=tok_secret123#frag"
+		}
+	}
+	ev.Refresh()
+	env.svc.Symbolicate(ctx, env.project.ID, ev)
+	if !strings.Contains(logs.String(), "look up a source map") {
+		t.Fatalf("the failed lookup is not logged:\n%s", logs.String())
+	}
+	if strings.Contains(logs.String(), "tok_secret123") || strings.Contains(logs.String(), "frag") {
+		t.Errorf("the log shows the file's query:\n%s", logs.String())
+	}
+	if !strings.Contains(logs.String(), "/assets/"+buildB.file) {
+		t.Errorf("the log does not name the file:\n%s", logs.String())
 	}
 }

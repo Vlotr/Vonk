@@ -215,7 +215,8 @@ func (f *finder) lookup(file string) *resolved {
 	}
 	r, err := f.find(file)
 	if err != nil && !errors.Is(err, store.ErrNotFound) && !errors.Is(err, errUnusable) {
-		f.s.log.Warn("sourcemaps: look up a source map", "project", f.projectID, "file", file, "err", err)
+		// Without its query and fragment, which can carry a token.
+		f.s.log.Warn("sourcemaps: look up a source map", "project", f.projectID, "file", withoutQuery(file), "err", err)
 	}
 	f.found[file] = r
 	return r
