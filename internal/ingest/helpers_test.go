@@ -93,8 +93,14 @@ func (env *testEnv) rawDB(t *testing.T) *sql.DB {
 
 func newTestEnv(t *testing.T, queueCapacity int) *testEnv {
 	t.Helper()
+	return newTestEnvAt(t, queueCapacity, storetest.DatabaseURL(t))
+}
+
+// newTestEnvAt is newTestEnv on the database at databaseURL ("" for SQLite).
+func newTestEnvAt(t *testing.T, queueCapacity int, databaseURL string) *testEnv {
+	t.Helper()
 	dir := t.TempDir()
-	cfg := config.Config{DataDir: dir, SQLitePath: filepath.Join(dir, "monitor.db"), DatabaseURL: storetest.DatabaseURL(t)}
+	cfg := config.Config{DataDir: dir, SQLitePath: filepath.Join(dir, "monitor.db"), DatabaseURL: databaseURL}
 	if cfg.DatabaseURL != "" {
 		cfg.SQLitePath = ""
 	}

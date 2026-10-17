@@ -30,10 +30,25 @@ const (
 	maxAge = 30 * 24 * time.Hour
 )
 
-// defaultRetryDelays are the waits between attempts when a batch fails to
-// write, for example on a full disk. SQLite itself already waits up to 5 s
-// for a lock before an attempt fails.
+// defaultRetryDelays are the waits between attempts when the database
+// refuses a batch, for example on a full disk or when Postgres ended it to
+// resolve a deadlock. SQLite itself already waits up to 5 s for a lock
+// before an attempt fails.
 var defaultRetryDelays = []time.Duration{200 * time.Millisecond, time.Second, 5 * time.Second}
+
+// While the database cannot be reached at all (store.Unavailable: Postgres
+// restarting or failing over, the network to it cut), the writer keeps the
+// batch and tries again, waiting 200 ms and then twice as long each time up
+// to 5 s, for up to 2 minutes. It takes nothing off the queue meanwhile, so
+// the queue fills and ingest answers 429 with Retry-After: the SDKs keep
+// their events too, and memory stays bounded. Once Close is called, it
+// waits for the database at most 5 s more, within the shutdown's budget.
+const (
+	defaultUnavailableFor     = 2 * time.Minute
+	defaultUnavailableWait    = 200 * time.Millisecond
+	defaultUnavailableMaxWait = 5 * time.Second
+	defaultStopGrace          = 5 * time.Second
+)
 
 // Writer takes items off the queue and writes them to the database in
 // batches: every second, or as soon as 500 items are waiting. It is the only
@@ -48,13 +63,16 @@ type Writer struct {
 	flushInterval time.Duration
 	batchSize     int
 	retryDelays   []time.Duration
+	// The waits for a database that cannot be reached (see the constants).
+	unavailableFor, unavailableWait, unavailableMaxWait, stopGrace time.Duration
 
 	stop      chan struct{}
 	closeOnce sync.Once
 	runOnce   sync.Once
 
-	mu    sync.Mutex
-	stats WriterStats
+	mu           sync.Mutex
+	stats        WriterStats
+	stopDeadline time.Time // set when the writer stops: the last wait for the database
 
 	stored hourCounter // events stored, per minute of the last hour
 }
@@ -94,6 +112,11 @@ func NewWriter(db *store.DB, queue *Queue, hooks issues.Hooks, logger *slog.Logg
 		batchSize:     defaultBatchSize,
 		retryDelays:   defaultRetryDelays,
 		stop:          make(chan struct{}),
+
+		unavailableFor:     defaultUnavailableFor,
+		unavailableWait:    defaultUnavailableWait,
+		unavailableMaxWait: defaultUnavailableMaxWait,
+		stopGrace:          defaultStopGrace,
 	}
 }
 
@@ -107,7 +130,10 @@ func (w *Writer) Run(ctx context.Context) {
 // returns when that is done. Stop the HTTP server first, so nothing is
 // queued after the last batch. Without a running Run, Close writes the queue itself.
 func (w *Writer) Close() {
-	w.closeOnce.Do(func() { close(w.stop) })
+	w.closeOnce.Do(func() {
+		w.stopping()
+		close(w.stop)
+	})
 	// Waits for a running Run to finish, or runs the final flush here.
 	w.runOnce.Do(func() { w.run(context.Background()) })
 }
@@ -132,6 +158,7 @@ func (w *Writer) run(ctx context.Context) {
 				batch = batch[:0]
 			}
 		case <-ctx.Done():
+			w.stopping()
 			w.drain(context.WithoutCancel(ctx), batch)
 			return
 		case <-w.stop:
@@ -241,26 +268,65 @@ func (w *Writer) flush(ctx context.Context, batch []Item) {
 	}
 }
 
-// save runs write until it succeeds, waiting retryDelays between
-// attempts, and reports whether it did. When it never does, the n events
-// are counted as lost.
+// stopping notes that the writer stops: from now on it waits for a
+// database that cannot be reached at most stopGrace.
+func (w *Writer) stopping() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.stopDeadline.IsZero() {
+		w.stopDeadline = time.Now().Add(w.stopGrace)
+	}
+}
+
+// keepUntil returns until when a batch first refused at the moment that
+// gives giveUp may wait for an unreachable database: giveUp, or the stop
+// deadline when that is sooner.
+func (w *Writer) keepUntil(giveUp time.Time) time.Time {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if !w.stopDeadline.IsZero() && w.stopDeadline.Before(giveUp) {
+		return w.stopDeadline
+	}
+	return giveUp
+}
+
+// save runs write until it succeeds and reports whether it did. A write
+// the database refuses is tried again after each of retryDelays; one that
+// fails because the database cannot be reached is tried again with
+// backoff while it is kept (see unavailableFor). When it never succeeds,
+// the n events are counted as lost.
 func (w *Writer) save(n int, write func() error) bool {
-	for attempt := 0; ; attempt++ {
+	giveUp := time.Now().Add(w.unavailableFor)
+	wait := w.unavailableWait
+	refused := 0
+	for attempt := 1; ; attempt++ {
 		err := write()
 		if err == nil {
+			if attempt > 1 {
+				w.log.Info("ingest: database write succeeded after retries", "events", n, "attempts", attempt)
+			}
 			return true
 		}
-		if attempt == len(w.retryDelays) {
-			w.log.Error("ingest: database write failed; events dropped", "events", n, "attempts", attempt+1, "err", err)
-			w.mu.Lock()
-			w.stats.FailedBatches++
-			w.stats.LostEvents += int64(n)
-			w.stats.LastError = err.Error()
-			w.mu.Unlock()
-			return false
+		if store.Unavailable(err) {
+			if until := w.keepUntil(giveUp); time.Now().Before(until) {
+				w.log.Warn("ingest: the database cannot be reached; keeping the events and trying again", "events", n, "attempt", attempt, "err", err)
+				time.Sleep(min(wait, time.Until(until)))
+				wait = min(2*wait, w.unavailableMaxWait)
+				continue
+			}
+		} else if refused < len(w.retryDelays) {
+			w.log.Warn("ingest: database write failed; retrying", "events", n, "attempt", attempt, "err", err)
+			time.Sleep(w.retryDelays[refused])
+			refused++
+			continue
 		}
-		w.log.Warn("ingest: database write failed; retrying", "events", n, "attempt", attempt+1, "err", err)
-		time.Sleep(w.retryDelays[attempt])
+		w.log.Error("ingest: database write failed; events dropped", "events", n, "attempts", attempt, "err", err)
+		w.mu.Lock()
+		w.stats.FailedBatches++
+		w.stats.LostEvents += int64(n)
+		w.stats.LastError = err.Error()
+		w.mu.Unlock()
+		return false
 	}
 }
 
