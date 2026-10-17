@@ -174,7 +174,7 @@ More: a token uploads only to its projects (403 for others) and names `BASE_URL`
 Each project's Alerts page (admins change it; members who see the project read it) sends, by email (with `MAIL_URL`) and to a Slack incoming webhook:
 
 - **New issue** and **returning issue** (a resolved issue that gets a new event; with the release it came back in). At most 30 a project and channel an hour, then one message says how many more were held back.
-- **Spike**: the last hour has at least the threshold (5 by default) times the usual hourly number of errors, and at least 10; at most once in 6 hours.
+- **Spike**: the last hour has at least the threshold (5 by default) times the usual hourly number of errors, and at least 10; at most once in 6 hours. Errors of ignored issues do not count, in the last hour nor in the usual number.
 - **Summary**: daily, weekly (Mondays) or monthly (the 1st), at 08:00 in `TZ`.
 
 Mail goes to everyone who may see the project. The webhook must be `https://` ("Send test message" checks it). Admins also hear about the tool itself (a disk running full, events that could not be stored or were turned away), at most once in 12 hours each, by mail and on the admins' webhook in Settings → Status.

@@ -45,12 +45,14 @@ func (n *Notifier) checkSpike(ctx context.Context, p store.Project) error {
 	now := n.now()
 	hourAgo := now.Add(-time.Hour)
 	// Events up to an hour ahead of the clock (a client clock that is off)
-	// count in the last hour, as on the dashboard.
-	last, err := n.db.CountErrorEventsBetween(ctx, p.ID, hourAgo, now.Add(time.Hour))
+	// count in the last hour, as on the dashboard. Events of ignored
+	// issues count in neither period: ignoring an issue silences its
+	// spikes, and its noise does not raise the usual rate.
+	last, err := n.db.CountErrorEventsBetween(ctx, p.ID, hourAgo, now.Add(time.Hour), store.NotIgnored)
 	if err != nil || last < spikeMinimum {
 		return err
 	}
-	before, err := n.db.CountErrorEventsBetween(ctx, p.ID, hourAgo.Add(-spikeBaseline), hourAgo)
+	before, err := n.db.CountErrorEventsBetween(ctx, p.ID, hourAgo.Add(-spikeBaseline), hourAgo, store.NotIgnored)
 	if err != nil {
 		return err
 	}
@@ -59,7 +61,7 @@ func (n *Notifier) checkSpike(ctx context.Context, p store.Project) error {
 		return nil
 	}
 
-	top, err := n.db.TopIssuesBetween(ctx, p.ID, hourAgo, now.Add(time.Hour), 3)
+	top, err := n.db.TopIssuesBetween(ctx, p.ID, hourAgo, now.Add(time.Hour), 3, store.NotIgnored)
 	if err != nil {
 		return err
 	}

@@ -133,3 +133,55 @@ func TestSpike_Cooldown(t *testing.T) {
 		t.Errorf("spikes with spike alerts off = %d, want still 2", n)
 	}
 }
+
+// ignore sets the issue with this fingerprint to ignored.
+func (e *testEnv) ignore(t *testing.T, projectID int64, fingerprint string) {
+	t.Helper()
+	list, err := e.db.ListIssues(context.Background(), projectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, issue := range list {
+		if issue.Fingerprint == fingerprint {
+			if _, err := e.db.SetIssueStatus(context.Background(), issue.ID, store.IssueIgnored, e.clock.Now()); err != nil {
+				t.Fatal(err)
+			}
+			return
+		}
+	}
+	t.Fatalf("no issue %q", fingerprint)
+}
+
+// Events of ignored issues count neither in the last hour nor in the 7
+// days before: ignoring a noisy issue silences its spikes, and its noise
+// does not hide the spike of another issue.
+func TestSpike_IgnoredIssuesDoNotCount(t *testing.T) {
+	env := newEnv(t)
+	env.withSlack(t, env.shop.ID)
+	env.usualWeek(t, env.shop.ID, 2)
+	env.saveAt(t, env.shop.ID, "noisy", env.clock.Now().Add(-10*time.Minute), 50)
+	env.ignore(t, env.shop.ID, "noisy")
+	env.checkSpikes(t)
+	if got := env.spikes(); len(got) != 0 {
+		t.Fatalf("an ignored issue's 50 errors spiked: %q", got)
+	}
+
+	other := newEnv(t)
+	other.withSlack(t, other.shop.ID)
+	other.usualWeek(t, other.shop.ID, 2)
+	lastHour := other.clock.Now().Add(-time.Hour)
+	for h := 1; h <= 7*24; h++ { // 20 an hour all week, ignored
+		other.saveAt(t, other.shop.ID, "noisy", lastHour.Add(-time.Duration(h)*time.Hour+2*time.Minute), 20)
+	}
+	other.ignore(t, other.shop.ID, "noisy")
+	other.saveAt(t, other.shop.ID, "noisy", other.clock.Now().Add(-20*time.Minute), 20)
+	other.saveAt(t, other.shop.ID, "deadlock", other.clock.Now().Add(-10*time.Minute), 10)
+	other.checkSpikes(t)
+	got := other.spikes()
+	if len(got) != 1 {
+		t.Fatalf("spikes = %q, want one: 10 errors against the usual 2 an hour of the issues not ignored", got)
+	}
+	if !strings.Contains(got[0], "10 errors in the last hour, 5 times the usual 2 an hour") || strings.Contains(got[0], "noisy") {
+		t.Errorf("spike message = %q, want the 10 errors and the 2 an hour without the ignored issue", got[0])
+	}
+}

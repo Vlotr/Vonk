@@ -88,7 +88,7 @@ func (n *Notifier) sendDigest(ctx context.Context, p store.Project, at time.Time
 	if !due {
 		return nil
 	}
-	total, err := n.db.CountErrorEventsBetween(ctx, p.ID, period.from, period.to)
+	total, err := n.db.CountErrorEventsBetween(ctx, p.ID, period.from, period.to, store.AnyIssue)
 	if err != nil {
 		return err
 	}
@@ -96,7 +96,7 @@ func (n *Notifier) sendDigest(ctx context.Context, p store.Project, at time.Time
 	if err != nil {
 		return err
 	}
-	top, err := n.db.TopIssuesBetween(ctx, p.ID, period.from, period.to, digestTop)
+	top, err := n.db.TopIssuesBetween(ctx, p.ID, period.from, period.to, digestTop, store.AnyIssue)
 	if err != nil {
 		return err
 	}
