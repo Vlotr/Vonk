@@ -5,11 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"monitor/internal/store"
+	"monitor/internal/store/storetest"
 )
 
 // TestAccessMatrix calls every route that shows or changes project data as
@@ -151,6 +154,27 @@ func TestAccessMatrix(t *testing.T) {
 		}
 	}
 
+	// A restore waiting for the next start, which a refused cancel or upload leaves alone.
+	pendingFile := filepath.Join(env.dir, store.RestorePendingFile)
+	if err := os.WriteFile(pendingFile, []byte("matrix-pending"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pendingStays := func(t *testing.T) {
+		if b, err := os.ReadFile(pendingFile); err != nil || string(b) != "matrix-pending" {
+			t.Errorf("the pending restore after a refused request: %q, %v", b, err)
+		}
+	}
+	// Backups are SQLite's: on Postgres the admin is told to use pg_dump and pg_restore.
+	backupCode, uploadCode := http.StatusOK, http.StatusUnsupportedMediaType
+	if storetest.Postgres() {
+		backupCode, uploadCode = http.StatusConflict, http.StatusConflict
+	}
+	shopUserKept := func(t *testing.T) {
+		if items, err := env.db.UserActivity(ctx, shop.ID, "secret-shop-user", testNow.Add(time.Hour), 10); err != nil || len(items) == 0 {
+			t.Errorf("the user's data after a refused deletion: %d items, %v", len(items), err)
+		}
+	}
+
 	shopIssues := fmt.Sprintf("/ui/api/projects/%d/issues", shop.ID)
 	shopPages := fmt.Sprintf("/ui/api/projects/%d/pages", shop.ID)
 	shopAlertsPath := fmt.Sprintf("/ui/api/projects/%d/alerts", shop.ID)
@@ -248,6 +272,17 @@ func TestAccessMatrix(t *testing.T) {
 		{name: "settings: admin Slack test", method: "POST", path: "/ui/api/settings/admin-slack/test",
 			body: `{"webhookUrl":"https://hooks.slack.com/services/matrix-admin-test"}`, adminOnly: true, adminCode: 200,
 			unchanged: noPostTo("https://hooks.slack.com/services/matrix-admin-test")},
+		// A member with the whole database would see every project.
+		{name: "backup: download", method: "GET", path: "/ui/api/backup", adminOnly: true, adminCode: backupCode},
+		{name: "settings: backup", method: "GET", path: "/ui/api/settings/backup", adminOnly: true, adminCode: 200},
+		// The admin's JSON body is no backup file (415); a member never gets that far.
+		{name: "settings: restore upload", method: "POST", path: "/ui/api/settings/backup/restore",
+			body: `{}`, adminOnly: true, adminCode: uploadCode, unchanged: pendingStays},
+		{name: "settings: cancel restore", method: "DELETE", path: "/ui/api/settings/backup/restore",
+			adminOnly: true, adminCode: backupCode, unchanged: pendingStays},
+		// Last: the admin's request deletes the user the rows above read.
+		{name: "privacy: delete a user's data", method: "POST", path: "/ui/api/privacy/delete-user",
+			body: `{"userId":"secret-shop-user"}`, adminOnly: true, adminCode: 200, unchanged: shopUserKept},
 	}
 
 	users := []struct {
@@ -338,7 +373,8 @@ func TestAccessMatrix_SignedOut(t *testing.T) {
 	for _, path := range []string{"/ui/api/projects", "/ui/api/overview", fmt.Sprintf("/ui/api/projects/%d/issues", shop.ID),
 		fmt.Sprintf("/ui/api/projects/%d/pages", shop.ID), fmt.Sprintf("/ui/api/projects/%d/events", shop.ID),
 		fmt.Sprintf("/ui/api/projects/%d/events/checkout", shop.ID), fmt.Sprintf("/ui/api/projects/%d/users/42/activity", shop.ID),
-		"/ui/api/settings/projects", "/ui/api/settings/users", "/ui/api/settings/api-tokens", "/ui/api/me"} {
+		"/ui/api/settings/projects", "/ui/api/settings/users", "/ui/api/settings/api-tokens", "/ui/api/settings/backup", "/ui/api/backup",
+		"/ui/api/me"} {
 		if rec := env.as(t, nil, "GET", path, ""); rec.Code != http.StatusUnauthorized {
 			t.Errorf("GET %s signed out = %d, want 401", path, rec.Code)
 		}

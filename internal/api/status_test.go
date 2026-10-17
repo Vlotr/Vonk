@@ -28,6 +28,7 @@ type toolStatusResponse struct {
 	QueueCapacity  int      `json:"queueCapacity"`
 	LastBackup     *struct {
 		Name      string    `json:"name"`
+		Kind      string    `json:"kind"`
 		CreatedAt time.Time `json:"createdAt"`
 		SizeBytes int64     `json:"sizeBytes"`
 	} `json:"lastBackup"`
@@ -93,7 +94,7 @@ func TestStatus_ShowsHowTheToolIsDoing(t *testing.T) {
 		if got.LastBackup != nil {
 			t.Errorf("last backup on Postgres = %+v, want null", got.LastBackup)
 		}
-	case got.LastBackup == nil || got.LastBackup.Name != "pre-migrate-0003-20261015T080000Z.db" || got.LastBackup.SizeBytes != 6 ||
+	case got.LastBackup == nil || got.LastBackup.Name != "pre-migrate-0003-20261015T080000Z.db" || got.LastBackup.Kind != "pre-migrate" || got.LastBackup.SizeBytes != 6 ||
 		!got.LastBackup.CreatedAt.Equal(time.Date(2026, 10, 15, 8, 0, 0, 0, time.UTC)):
 		t.Errorf("last backup = %+v", got.LastBackup)
 	}

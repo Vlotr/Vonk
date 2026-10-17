@@ -61,13 +61,20 @@ type Handler struct {
 	maps      *sourcemaps.Service // Options.SourceMaps; may be nil
 	log       *slog.Logger
 	now       func() time.Time // the clock; tests set it
+
+	// maxRestoreBytes caps a restore upload (defaultMaxRestoreBytes); tests lower it.
+	maxRestoreBytes int64
+	// snapshots and restores let one backup download be made, and one
+	// restore be uploaded, at a time: each needs disk space for a copy.
+	snapshots, restores chan struct{}
 }
 
 // New returns the API handler.
 func New(o Options) *Handler {
 	h := &Handler{db: o.DB, auth: o.Auth, baseURL: o.BaseURL, health: o.Health, slack: o.Slack,
 		started: o.Started, stored: o.StoredLastHour, allowHTTP: o.AllowHTTPWebhooks, maps: o.SourceMaps,
-		log: o.Logger, now: time.Now}
+		log: o.Logger, now: time.Now,
+		maxRestoreBytes: defaultMaxRestoreBytes, snapshots: make(chan struct{}, 1), restores: make(chan struct{}, 1)}
 	if h.stored == nil {
 		h.stored = func() int { return 0 }
 	}
@@ -119,6 +126,11 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /ui/api/settings/status", h.adminOnly(h.status))
 	mux.HandleFunc("PUT /ui/api/settings/admin-slack", h.adminOnly(h.setAdminSlack))
 	mux.HandleFunc("POST /ui/api/settings/admin-slack/test", h.adminOnly(h.testAdminSlack))
+	mux.HandleFunc("GET /ui/api/backup", h.adminOnly(h.backupDownload))
+	mux.HandleFunc("GET /ui/api/settings/backup", h.adminOnly(h.backupPage))
+	mux.HandleFunc("POST /ui/api/settings/backup/restore", h.adminOnly(h.restoreUpload))
+	mux.HandleFunc("DELETE /ui/api/settings/backup/restore", h.adminOnly(h.cancelRestore))
+	mux.HandleFunc("POST /ui/api/privacy/delete-user", h.adminOnly(h.deleteUserData))
 }
 
 // adminOnly answers 404 to anyone but an admin, as if the route did not exist.

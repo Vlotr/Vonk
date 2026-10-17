@@ -135,3 +135,21 @@ func TestHealth_503WhenDatabaseFails(t *testing.T) {
 		t.Errorf("= %d %+v, want 503 failing db", code, body)
 	}
 }
+
+// Room leaves the disk just out of critical: writing all of it is fine,
+// one byte more is not.
+func TestRoom(t *testing.T) {
+	for _, d := range []struct{ free, total uint64 }{
+		{50 << 30, 100 << 30}, // 1 % of the disk is the larger reserve
+		{10 << 30, 12 << 30},  // 256 MiB is
+		{100 << 30, 999_999_999_999},
+	} {
+		room := Room(d.free, d.total)
+		if DiskCritical(d.free-room, d.total) || !DiskCritical(d.free-room-1, d.total) {
+			t.Errorf("Room(%d, %d) = %d: not the last byte before critical", d.free, d.total, room)
+		}
+	}
+	if got := Room(100<<20, 100<<30); got != 0 {
+		t.Errorf("Room of a critical disk = %d, want 0", got)
+	}
+}

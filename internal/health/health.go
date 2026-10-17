@@ -37,6 +37,17 @@ func DiskCritical(free, total uint64) bool {
 	return free < criticalDiskBytes || free*100 < total*criticalDiskPercent
 }
 
+// Room returns how many bytes can still be written to a disk with free
+// of total bytes free before it is critical (DiskCritical): what a backup
+// or an upload may take.
+func Room(free, total uint64) uint64 {
+	reserve := max(uint64(criticalDiskBytes), (total*criticalDiskPercent+99)/100)
+	if free <= reserve {
+		return 0
+	}
+	return free - reserve
+}
+
 // Report is the state of the tool at one moment.
 type Report struct {
 	// Status is "ok"; "degraded" when a check failed but the tool still
@@ -86,6 +97,14 @@ type Checker struct {
 	Log       *slog.Logger
 }
 
+// DiskSpace returns the free and total bytes of the file system under DataDir.
+func (c *Checker) DiskSpace() (free, total uint64, err error) {
+	if c.DiskUsage != nil {
+		return c.DiskUsage(c.DataDir)
+	}
+	return diskUsage(c.DataDir)
+}
+
 // Check runs every check, each within 2 seconds.
 func (c *Checker) Check(ctx context.Context) Report {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
@@ -100,11 +119,7 @@ func (c *Checker) Check(ctx context.Context) Report {
 		r.Failing = append(r.Failing, "db")
 	}
 
-	usage := c.DiskUsage
-	if usage == nil {
-		usage = diskUsage
-	}
-	free, total, err := usage(c.DataDir)
+	free, total, err := c.DiskSpace()
 	switch {
 	case err != nil:
 		r.Disk, r.DiskError = "error", err.Error()

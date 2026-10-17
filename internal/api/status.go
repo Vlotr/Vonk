@@ -21,7 +21,10 @@ import (
 // mail to every admin. Like project webhooks it is answered only masked.
 
 type backupJSON struct {
-	Name      string    `json:"name"`
+	Name string `json:"name"`
+	// Kind is "pre-migrate" (before a database update) or "pre-restore"
+	// (the database a restore replaced).
+	Kind      string    `json:"kind"`
 	CreatedAt time.Time `json:"createdAt"`
 	SizeBytes int64     `json:"sizeBytes"`
 }
@@ -56,8 +59,8 @@ type statusJSON struct {
 	EventsLastHour int `json:"eventsLastHour"`
 	QueueDepth     int `json:"queueDepth"`
 	QueueCapacity  int `json:"queueCapacity"`
-	// LastBackup is the newest backup made before a database update; null
-	// when none was needed yet, and always on Postgres.
+	// LastBackup is the newest automatic backup (before a database update
+	// or a restore); null when none was needed yet, and always on Postgres.
 	LastBackup *backupJSON `json:"lastBackup"`
 	// AdminAlerts are the last alert of each kind about the tool, newest first.
 	AdminAlerts []adminAlertJSON `json:"adminAlerts"`
@@ -107,7 +110,7 @@ func (h *Handler) status(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(backups) > 0 {
 		b := backups[0]
-		out.LastBackup = &backupJSON{Name: b.Name, CreatedAt: b.CreatedAt, SizeBytes: b.SizeBytes}
+		out.LastBackup = &backupJSON{Name: b.Name, Kind: b.Kind, CreatedAt: b.CreatedAt, SizeBytes: b.SizeBytes}
 	}
 	states, err := h.db.AlertStates(ctx, "admin:")
 	if err != nil {
