@@ -4,7 +4,7 @@ This gets Vonk running on one machine in about ten minutes: start the container,
 
 You need a Linux or macOS machine, x86-64 (amd64) or 64-bit ARM (arm64), with Docker and Docker Compose v2 (`docker compose version` prints 2.x), and `openssl` and `curl`. The tool needs little: the image is about 21 MB (8 MB to download), and the container used under 50 MB of memory in our tests.
 
-> **The image.** Vonk's source is at [github.com/Vlotr/Vonk](https://github.com/Vlotr/Vonk). Each release is published as `ghcr.io/vlotr/monitor`. The tag `1` follows every 1.x release; `1.2.3` stays on one. To build the image yourself instead, clone the repository (`git clone https://github.com/Vlotr/Vonk.git`) and run `make docker` in it; it makes `monitor:dev`, which you then put in `image:`.
+> **The image.** Vonk's source is at [github.com/Vlotr/Vonk](https://github.com/Vlotr/Vonk). Each release is published as `ghcr.io/vlotr/monitor`. The tag `1` follows every 1.x release; `1.2.3` stays on one; `main` is the newest build of the main branch (every merge, not a release). To build the image yourself instead, clone the repository (`git clone https://github.com/Vlotr/Vonk.git`) and run `make docker` in it; it makes `monitor:dev`, which you then put in `image:`.
 
 ## 1. Make a folder with two files
 

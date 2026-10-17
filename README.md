@@ -30,7 +30,7 @@ Tested with `sentry/sentry-laravel` 4.29, `sentry/sentry` 4.34, `@sentry/browser
 
 ## Status
 
-Version 1 is complete: errors, issues, accounts, alerts, health, page views, the journey, releases, custom events, source maps, optional Postgres, backup and restore, and deleting a user's data. Images are built for `linux/amd64` and `linux/arm64` by CI and published to the GitHub Container Registry for each release tag.
+Version 1 is complete: errors, issues, accounts, alerts, health, page views, the journey, releases, custom events, source maps, optional Postgres, backup and restore, and deleting a user's data. Images are built for `linux/amd64` and `linux/arm64` by CI and published to the GitHub Container Registry for each release tag and each merge to main.
 
 License: not decided yet. Whether the tool becomes open source, and under which license, is an open question of the project (see the spec's open questions); until it is answered, the repository has no license file.
 
@@ -51,7 +51,7 @@ A multi-platform image, as CI builds it: `make docker-multiarch` (`linux/amd64` 
 
 CI (`.github/workflows/ci.yml`) runs the same targets on every push and pull request: `make test` and `make build`, `make test-postgres`, `make e2e`, and the multi-platform image build.
 
-Releasing: push a tag `v1.2.3`. CI then pushes the image to `ghcr.io/<owner>/monitor` with the tags `1.2.3`, `1.2`, `1` and `latest` (a pre-release such as `v1.3.0-rc.1` gets only its own tag), labelled with the repository (`org.opencontainers.image.source`), so the package links to it. GitHub makes a new package private: after the first release, make it public once in the package's settings, or nobody else can pull it. Then replace `OWNER` in `docs/` and `examples/caddy` with the owner.
+Releasing: push a tag `v1.2.3`. CI then pushes the image to `ghcr.io/<owner>/monitor` with the tags `1.2.3`, `1.2`, `1` and `latest` (a pre-release such as `v1.3.0-rc.1` gets only its own tag), labelled with the repository (`org.opencontainers.image.source`), so the package links to it. Every merge to main pushes the tags `main` and `sha-<commit>` (never `1` or `latest`). GitHub makes a new package private: after the first release, make it public once in the package's settings, or nobody else can pull it. Then replace `OWNER` in `docs/` and `examples/caddy` with the owner.
 
 `make e2e` saves screenshots of the dashboard as it looked during the run in `e2e/screenshots/`.
 
