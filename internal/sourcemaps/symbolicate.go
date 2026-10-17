@@ -10,10 +10,10 @@ import (
 	"path"
 	"strconv"
 	"strings"
-	"unicode/utf8"
 
 	"monitor/internal/sentry"
 	"monitor/internal/store"
+	"monitor/internal/text"
 )
 
 const (
@@ -175,9 +175,9 @@ func (f *finder) frames(frames []any) ([]any, bool) {
 		if raw == nil {
 			continue
 		}
-		file := text(raw["abs_path"])
+		file := stringOf(raw["abs_path"])
 		if file == "" {
-			file = text(raw["filename"])
+			file = stringOf(raw["filename"])
 		}
 		infos[i].file = file
 		infos[i].line = number(raw["lineno"])
@@ -441,7 +441,7 @@ func mapFrame(info frameInfo, caller *frameInfo) map[string]any {
 	// Numbers as the JSON decoder makes them, so the event reads them back.
 	out["lineno"] = json.Number(strconv.Itoa(int(mp.line) + 1))
 	out["colno"] = json.Number(strconv.Itoa(int(mp.col) + 1))
-	if fn := text(info.raw["function"]); fn != "" {
+	if fn := stringOf(info.raw["function"]); fn != "" {
 		out["function"] = originalFunction(fn, info, caller)
 	}
 	if strings.Contains(source, "/node_modules/") {
@@ -501,10 +501,7 @@ func contextOf(lines []string) []any {
 
 // cutLine shortens a source line to maxContextLine characters.
 func cutLine(s string) string {
-	if utf8.RuneCountInString(s) <= maxContextLine {
-		return s
-	}
-	return string([]rune(s)[:maxContextLine-1]) + "…"
+	return text.Shorten(s, maxContextLine)
 }
 
 func withoutQuery(s string) string {
@@ -522,8 +519,8 @@ func copyMap(m map[string]any) map[string]any {
 	return out
 }
 
-// text returns a JSON string as it is, anything else as "".
-func text(v any) string {
+// stringOf returns a JSON string as it is, anything else as "".
+func stringOf(v any) string {
 	s, _ := v.(string)
 	return s
 }

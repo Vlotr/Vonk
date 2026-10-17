@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"monitor/internal/store"
+	"monitor/internal/text"
 )
 
 // message is one notification, written for mail and for Slack.
@@ -38,16 +39,16 @@ func (n *Notifier) issueMessage(kind string, p store.Project, issue store.Issue)
 		cameBack = "Came back in " + issue.RegressedRelease
 	}
 
-	var text strings.Builder
-	fmt.Fprintf(&text, "%s\n\n%s\n", lead, line)
+	var body strings.Builder
+	fmt.Fprintf(&body, "%s\n\n%s\n", lead, line)
 	if len(details) > 0 {
-		fmt.Fprintf(&text, "%s\n", strings.Join(details, " · "))
+		fmt.Fprintf(&body, "%s\n", strings.Join(details, " · "))
 	}
 	if cameBack != "" {
-		fmt.Fprintf(&text, "%s\n", cameBack)
+		fmt.Fprintf(&body, "%s\n", cameBack)
 	}
-	fmt.Fprintf(&text, "\nOpen the issue: %s\n", link)
-	text.WriteString(n.footer(p))
+	fmt.Fprintf(&body, "\nOpen the issue: %s\n", link)
+	body.WriteString(n.footer(p))
 
 	slack := fmt.Sprintf("*%s in %s*\n%s", head, slackEscape(p.Name), slackLink(link, line))
 	if issue.Culprit != "" {
@@ -57,8 +58,8 @@ func (n *Notifier) issueMessage(kind string, p store.Project, issue store.Issue)
 		slack += "\n" + slackEscape(cameBack)
 	}
 	return message{
-		subject: fmt.Sprintf("[%s] %s: %s", p.Name, head, cut(line, 150)),
-		text:    text.String(),
+		subject: fmt.Sprintf("[%s] %s: %s", p.Name, head, text.Shorten(line, 150)),
+		text:    body.String(),
 		slack:   slack,
 	}
 }
@@ -69,7 +70,7 @@ func issueLine(issue store.Issue) string {
 	if issue.Message != "" && issue.Message != issue.Title {
 		line += ": " + issue.Message
 	}
-	return cut(strings.Join(strings.Fields(line), " "), 300)
+	return text.Shorten(strings.Join(strings.Fields(line), " "), 300)
 }
 
 // sourceLabel is how the dashboard names a source.
@@ -81,15 +82,6 @@ func sourceLabel(source string) string {
 		return "Browser"
 	}
 	return source
-}
-
-// cut shortens s to at most n runes, ending in "…" when it was longer.
-func cut(s string, n int) string {
-	runes := []rune(s)
-	if len(runes) <= n {
-		return s
-	}
-	return string(runes[:n-1]) + "…"
 }
 
 // link is an address in the dashboard.
