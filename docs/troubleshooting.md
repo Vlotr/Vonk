@@ -29,6 +29,8 @@ The log names every setting that is wrong, one line each, for example `SECRET_KE
 
 On a laptop whose disk is nearly full, `degraded` is expected.
 
+On SQLite, a shorter retention stops the database from growing, but the file does not shrink: SQLite keeps the room of deleted rows and fills it with new data. For a compact file, download a backup in Settings → Backup (the download is a compacted copy) and restore it there; at the next start it replaces the database, and the old one moves to `backups/pre-restore-<version>-<time>.db`, which you delete once the tool runs well, or the disk gains nothing. Or stop the tool and run `VACUUM` on `monitor.db` with the `sqlite3` tool. Either needs free room for the compacted copy. On Postgres, `VACUUM FULL` does the same (it locks the tables while it runs).
+
 ## Errors do not arrive
 
 - Is the DSN's address reachable **from the app**? `localhost` in a DSN means the app's own machine or container. An app in another container needs `BASE_URL` set to an address it can reach (the server's name or IP), and its DSN taken from Setup and keys after that.
