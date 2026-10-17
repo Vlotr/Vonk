@@ -6,7 +6,7 @@
 // are gone.
 
 import { expect, test } from '@playwright/test'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -59,37 +59,43 @@ test('a backup is downloaded and restored at the next start; a user id is delete
     await ui.getByRole('link', { name: 'Download backup' }).click()
     const download = await downloading
     expect(download.suggestedFilename()).toMatch(/^monitor-backup-\d{8}T\d{6}Z\.db$/)
-    const file = join(tmpdir(), `monitor-e2e-${Date.now()}-${download.suggestedFilename()}`)
-    await download.saveAs(file)
-    const bytes = readFileSync(file)
-    expect(bytes.subarray(0, 16).toString('latin1')).toBe('SQLite format 3\u0000')
+    // The copies go in a folder of their own, removed at the end.
+    const copies = mkdtempSync(join(tmpdir(), 'monitor-e2e-backup-'))
+    try {
+      const file = join(copies, download.suggestedFilename())
+      await download.saveAs(file)
+      const bytes = readFileSync(file)
+      expect(bytes.subarray(0, 16).toString('latin1')).toBe('SQLite format 3\u0000')
 
-    // A damaged file is refused and nothing waits.
-    const damaged = `${file}.damaged.db`
-    writeFileSync(damaged, bytes.subarray(0, Math.min(bytes.length, 8192)))
-    await ui.getByLabel('Backup file').setInputFiles(damaged)
-    await ui.getByRole('button', { name: 'Upload and check' }).click()
-    await expect(ui.getByRole('alert')).toContainText('The file is damaged')
-    await expect(ui.getByText('Restart required')).toHaveCount(0)
+      // A damaged file is refused and nothing waits.
+      const damaged = `${file}.damaged.db`
+      writeFileSync(damaged, bytes.subarray(0, Math.min(bytes.length, 8192)))
+      await ui.getByLabel('Backup file').setInputFiles(damaged)
+      await ui.getByRole('button', { name: 'Upload and check' }).click()
+      await expect(ui.getByRole('alert')).toContainText('The file is damaged')
+      await expect(ui.getByText('Restart required')).toHaveCount(0)
 
-    // The download itself is accepted: it waits for the next start.
-    await ui.getByLabel('Backup file').setInputFiles(file)
-    await ui.getByRole('button', { name: 'Upload and check' }).click()
-    await expect(ui.getByText('Restart required')).toBeVisible()
-    await expect(ui.getByText(/is checked and waits for the next start/)).toBeVisible()
-    // The backups folder is this run's temp directory; the committed
-    // screenshot shows it as the container names it, so it names no machine.
-    await ui
-      .getByRole('region', { name: 'Automatic backups' })
-      .locator('code')
-      .evaluate((code) => {
-        code.textContent = '/data/backups'
-      })
-    await ui.screenshot({ path: join(screenshots, 'phase5-backup.png'), fullPage: true })
+      // The download itself is accepted: it waits for the next start.
+      await ui.getByLabel('Backup file').setInputFiles(file)
+      await ui.getByRole('button', { name: 'Upload and check' }).click()
+      await expect(ui.getByText('Restart required')).toBeVisible()
+      await expect(ui.getByText(/is checked and waits for the next start/)).toBeVisible()
+      // The backups folder is this run's temp directory; the committed
+      // screenshot shows it as the container names it, so it names no machine.
+      await ui
+        .getByRole('region', { name: 'Automatic backups' })
+        .locator('code')
+        .evaluate((code) => {
+          code.textContent = '/data/backups'
+        })
+      await ui.screenshot({ path: join(screenshots, 'phase5-backup.png'), fullPage: true })
 
-    // Cancelled: the next start keeps the database (the other specs' data stays).
-    await ui.getByRole('button', { name: 'Cancel the restore' }).click()
-    await expect(ui.getByText('Restart required')).toHaveCount(0)
+      // Cancelled: the next start keeps the database (the other specs' data stays).
+      await ui.getByRole('button', { name: 'Cancel the restore' }).click()
+      await expect(ui.getByText('Restart required')).toHaveCount(0)
+    } finally {
+      rmSync(copies, { recursive: true, force: true })
+    }
   }
 
   // Someone asks for their data to be deleted; they have errors in Webshop.
