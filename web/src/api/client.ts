@@ -686,8 +686,8 @@ export interface ToolStatus {
   eventsLastHour: number
   queueDepth: number
   queueCapacity: number
-  /** lastBackup is the newest backup made before a database update; always null on Postgres. */
-  lastBackup: { name: string; createdAt: string; sizeBytes: number } | null
+  /** lastBackup is the newest automatic backup (before an update or a restore); always null on Postgres. */
+  lastBackup: { name: string; kind: BackupKind; createdAt: string; sizeBytes: number } | null
   /** adminAlerts are the last alert of each kind about the tool, newest first. */
   adminAlerts: { kind: string; message: string; sentAt: string }[]
   /** adminSlackWebhook is masked; null when none is set. */
@@ -708,4 +708,85 @@ export function setAdminSlack(webhookUrl: string): Promise<{ adminSlackWebhook: 
 
 export function testAdminSlack(webhookUrl?: string): Promise<object> {
   return send('POST', '/ui/api/settings/admin-slack/test', webhookUrl ? { webhookUrl } : {})
+}
+
+// Settings → Backup, for admins. SQLite only: on Postgres the page explains
+// pg_dump and pg_restore.
+
+/** pre-migrate: made before a database update; pre-restore: the database a restore replaced. */
+export type BackupKind = 'pre-migrate' | 'pre-restore'
+
+export interface BackupFile {
+  name: string
+  kind: BackupKind
+  /** version is the database version the copy is at. */
+  version: number
+  createdAt: string
+  sizeBytes: number
+}
+
+export interface BackupInfo {
+  databaseKind: 'sqlite' | 'postgres'
+  databaseBytes: number
+  diskFreeBytes: number
+  /** canDownload is false while the disk has no room for the copy a download makes. */
+  canDownload: boolean
+  /** maxUploadBytes is the largest backup an upload may be now. */
+  maxUploadBytes: number
+  /** backupsDir is where the automatic backups are on the server. */
+  backupsDir: string
+  /** backups are the automatic backups, the newest first. */
+  backups: BackupFile[]
+  /** restorePending is the backup that becomes the database at the next start. */
+  restorePending: { sizeBytes: number; stagedAt: string } | null
+  /** restoreRejected is a restore the last start refused (the server log says why). */
+  restoreRejected: { name: string; rejectedAt: string } | null
+}
+
+/** BACKUP_DOWNLOAD_URL is the whole database as a file to save; the page links to it. */
+export const BACKUP_DOWNLOAD_URL = '/ui/api/backup'
+
+export function getBackupInfo(signal?: AbortSignal): Promise<BackupInfo> {
+  return getJSON('/ui/api/settings/backup', signal)
+}
+
+/**
+ * uploadRestore sends a backup file as it is (application/octet-stream); the
+ * server checks it and keeps it for the next start, and answers the page's
+ * data with the pending restore. A refused file is an ApiError saying why.
+ */
+export async function uploadRestore(file: Blob): Promise<BackupInfo> {
+  const token = await sessionCsrfToken()
+  const response = await fetch('/ui/api/settings/backup/restore', {
+    method: 'POST',
+    headers: { Accept: 'application/json', 'Content-Type': 'application/octet-stream', 'X-CSRF-Token': token },
+    body: file,
+  })
+  return readJSON(response)
+}
+
+/** cancelRestore removes the pending restore (and a refused one). */
+export function cancelRestore(): Promise<BackupInfo> {
+  return send('DELETE', '/ui/api/settings/backup/restore')
+}
+
+// Settings → Privacy, for admins.
+
+/** UserDataDeleted counts what deleting a user's data removed. */
+export interface UserDataDeleted {
+  projects: number
+  errorEvents: number
+  pageviews: number
+  pageleaves: number
+  customEvents: number
+  /** issuesDeleted had only events of this user. */
+  issuesDeleted: number
+  /** issuesUpdated keep events of others; their counts were corrected. */
+  issuesUpdated: number
+  rows: number
+}
+
+/** deleteUserData deletes everything stored with userId, in projectIds or (left out) every project. */
+export function deleteUserData(userId: string, projectIds?: number[]): Promise<UserDataDeleted> {
+  return send('POST', '/ui/api/privacy/delete-user', projectIds ? { userId, projectIds } : { userId })
 }

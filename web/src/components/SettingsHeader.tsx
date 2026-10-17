@@ -24,6 +24,8 @@ export function SettingsHeader({ title, lead, actions }: { title: string; lead: 
               <NavLink to="/settings/users">Users</NavLink>
               <NavLink to="/settings/api-tokens">API tokens</NavLink>
               <NavLink to="/settings/status">Status</NavLink>
+              <NavLink to="/settings/backup">Backup</NavLink>
+              <NavLink to="/settings/privacy">Privacy</NavLink>
               <NavLink to="/settings/account">Account</NavLink>
             </>
           )}

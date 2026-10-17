@@ -15,6 +15,8 @@ import { PagesPage } from './pages/PagesPage'
 import { ProjectSetupPage } from './pages/ProjectSetupPage'
 import { ResetPasswordPage } from './pages/ResetPasswordPage'
 import { SettingsApiTokensPage } from './pages/SettingsApiTokensPage'
+import { SettingsBackupPage } from './pages/SettingsBackupPage'
+import { SettingsPrivacyPage } from './pages/SettingsPrivacyPage'
 import { SettingsProjectsPage } from './pages/SettingsProjectsPage'
 import { SettingsStatusPage } from './pages/SettingsStatusPage'
 import { SettingsUsersPage } from './pages/SettingsUsersPage'
@@ -46,6 +48,8 @@ export function App() {
         <Route path="settings/users" element={<SettingsUsersPage />} />
         <Route path="settings/api-tokens" element={<SettingsApiTokensPage />} />
         <Route path="settings/status" element={<SettingsStatusPage />} />
+        <Route path="settings/backup" element={<SettingsBackupPage />} />
+        <Route path="settings/privacy" element={<SettingsPrivacyPage />} />
         <Route path="settings/account" element={<AccountPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>

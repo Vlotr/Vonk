@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { Link } from 'react-router'
 import { getToolStatus, setAdminSlack, testAdminSlack, type ToolStatus } from '../api/client'
 import { AdminOnly } from '../components/AdminOnly'
 import { CopyBlock } from '../components/CopyBlock'
@@ -6,6 +7,7 @@ import form from '../components/Form.module.css'
 import { LoadError } from '../components/LoadError'
 import { SettingsHeader } from '../components/SettingsHeader'
 import { SlackWebhook } from '../components/SlackWebhook'
+import { PG_DUMP, PG_RESTORE } from '../lib/backup'
 import { formatDateTime, timeAgo } from '../lib/format'
 import { adminAlertLabel, diskFree, formatBytes, formatUptime, healthSentence, statusHeadline } from '../lib/status'
 import { usePolling } from '../lib/usePolling'
@@ -116,9 +118,6 @@ function Stat({ label, problem, detail, children }: { label: string; problem?: b
   )
 }
 
-/** PG_DUMP is the backup command the page offers for a Postgres database. */
-export const PG_DUMP = 'pg_dump --format=custom --file=monitor.dump "$DATABASE_URL"'
-
 function BackupLine({ status, now }: { status: ToolStatus; now: Date }) {
   if (status.databaseKind === 'postgres') {
     return (
@@ -126,22 +125,31 @@ function BackupLine({ status, now }: { status: ToolStatus; now: Date }) {
         <p className={styles.none}>The database is Postgres, so the tool makes no backups of it. Back it up with pg_dump, also before each update:</p>
         <CopyBlock label="Backup command" value={PG_DUMP} />
         <p className={form.note}>
-          <code>pg_restore --clean --dbname="$DATABASE_URL" monitor.dump</code> puts it back. Your database host may make backups too.
+          <code>{PG_RESTORE}</code> puts it back. Your database host may make backups too.
         </p>
       </>
     )
   }
   const b = status.lastBackup
   if (!b) {
-    return <p className={styles.none}>No backup yet. One is made automatically before each database update, when the tool starts.</p>
+    return (
+      <p className={styles.none}>
+        No backup yet. One is made automatically before each database update, when the tool starts. <Link to="/settings/backup">Download one</Link>{' '}
+        to keep somewhere else.
+      </p>
+    )
   }
   return (
     <>
       <p className={styles.backup}>
         <code>{b.name}</code>, {formatBytes(b.sizeBytes)}, made{' '}
-        <time dateTime={b.createdAt}>{formatDateTime(new Date(b.createdAt), now)}</time>.
+        <time dateTime={b.createdAt}>{formatDateTime(new Date(b.createdAt), now)}</time>
+        {b.kind === 'pre-restore' ? ', before a restore.' : '.'}
       </p>
-      <p className={form.note}>Made before each database update, in the backups folder of DATA_DIR; the five newest are kept.</p>
+      <p className={form.note}>
+        Made before each database update and each restore, in the backups folder of DATA_DIR; the five newest of each kind are kept.{' '}
+        <Link to="/settings/backup">Backup</Link> lists them, downloads a copy and restores one.
+      </p>
     </>
   )
 }

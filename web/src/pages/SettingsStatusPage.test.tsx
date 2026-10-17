@@ -5,7 +5,8 @@ import { MemoryRouter } from 'react-router'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import type { Me, ToolStatus } from '../api/client'
 import { MeContext } from '../layout/MeContext'
-import { PG_DUMP, SettingsStatusPage } from './SettingsStatusPage'
+import { PG_DUMP } from '../lib/backup'
+import { SettingsStatusPage } from './SettingsStatusPage'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -25,7 +26,7 @@ const sqlite: ToolStatus = {
   eventsLastHour: 12,
   queueDepth: 0,
   queueCapacity: 10_000,
-  lastBackup: { name: 'pre-migrate-0007-20261015T080000Z.db', createdAt: '2026-10-15T08:00:00Z', sizeBytes: 2048 },
+  lastBackup: { name: 'pre-migrate-0007-20261015T080000Z.db', kind: 'pre-migrate', createdAt: '2026-10-15T08:00:00Z', sizeBytes: 2048 },
   adminAlerts: [],
   adminSlackWebhook: null,
   mailEnabled: false,

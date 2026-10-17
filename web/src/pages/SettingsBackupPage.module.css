@@ -1,0 +1,105 @@
+/* Settings → Backup, in the style of Settings → Status: cards with a
+   title, text and buttons, and the automatic backups as a table. */
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-top: var(--space-6);
+  padding: var(--form-card-padding);
+}
+
+.text {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-body);
+  line-height: normal;
+}
+
+.text code,
+.listText code {
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-culprit);
+  overflow-wrap: anywhere;
+}
+
+/* "Restart required": what waits for the next start. */
+.notice {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-radius: var(--radius-card);
+  background: var(--color-highlight-bg);
+}
+
+.noticeTitle {
+  margin: 0;
+  color: var(--color-highlight-text);
+  font-size: var(--font-size-name);
+  font-weight: var(--font-weight-semibold);
+  line-height: normal;
+}
+
+.upload {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.file {
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--font-size-body);
+}
+
+.list {
+  margin-top: var(--space-6);
+  margin-bottom: var(--space-6);
+}
+
+.listTitle {
+  padding: var(--card-padding-top) var(--space-4) var(--space-2);
+}
+
+.listIntro {
+  padding: 0 var(--space-4) var(--space-4);
+}
+
+.listText {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: 0 var(--space-4) var(--space-4);
+}
+
+.list .listText:last-child {
+  padding-top: var(--space-4);
+  border-top: var(--border-width) solid var(--color-divider);
+}
+
+.empty {
+  border-top: var(--border-width) solid var(--color-border);
+}
+
+.name {
+  color: var(--color-text);
+  font-size: var(--font-size-name);
+  font-weight: var(--font-weight-semibold);
+  line-height: normal;
+}
+
+.meta {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-body);
+  line-height: normal;
+}
+
+code.meta {
+  display: block;
+  margin-top: 3px;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-culprit);
+  overflow-wrap: anywhere;
+}
