@@ -1,0 +1,21 @@
+{
+  "case-1": [
+    "De omzet in Q3 2026 was € 12.400.",
+    "De omzet groeide met 24% ten opzichte van Q2 2026.",
+    "Katoenen tassen met logo waren het best verkocht.",
+    "De levertijd van 9 werkdagen lag onder het doel van 10 werkdagen.",
+    "De klant vraagt naar duurzame opties."
+  ],
+  "case-2": [
+    "De omzet in Q3 2026 was € 3.150.",
+    "De omzet daalde met 30%.",
+    "De levertijd was 14 werkdagen, langer dan het doel van 10 werkdagen.",
+    "Teamkleding wordt vaak laat besteld."
+  ],
+  "case-3": [
+    "De omzet in Q3 2026 was € 27.900.",
+    "Er kwamen 12 jassen retour omdat de maat te klein was.",
+    "Er is geen data over de levertijd.",
+    "De klant wil in Q4 werkbroeken met logo bestellen."
+  ]
+}

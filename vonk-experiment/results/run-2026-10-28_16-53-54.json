@@ -1,0 +1,5517 @@
+{
+  "id": "run-2026-10-28_16-53-54",
+  "datum": "2026-10-28T15:54:56.055Z",
+  "versies": {
+    "prompt": "klantrapporten/rapport v1",
+    "testInput": "1.0",
+    "goudenStandaard": "1.0.0",
+    "checks": "1"
+  },
+  "modellen": {
+    "test": "claude-sonnet-5-5",
+    "judge": "claude-opus-5-5",
+    "jev": "typesafe/jev-1.14"
+  },
+  "runs": 3,
+  "zekerheidMin": 0.6,
+  "testpunten": [
+    {
+      "nr": 1,
+      "naam": "Alle verplichte koppen",
+      "aan": true,
+      "gewicht": 1
+    },
+    {
+      "nr": 2,
+      "naam": "Koppen in goede volgorde",
+      "aan": true,
+      "gewicht": 1
+    },
+    {
+      "nr": 3,
+      "naam": "Lengte lijkt op gouden standaard",
+      "aan": true,
+      "gewicht": 1
+    },
+    {
+      "nr": 4,
+      "naam": "Formaat klopt (markdown)",
+      "aan": true,
+      "gewicht": 1
+    },
+    {
+      "nr": 5,
+      "naam": "Geen restjes",
+      "aan": true,
+      "gewicht": 1
+    },
+    {
+      "nr": 6,
+      "naam": "Juiste taal",
+      "aan": true,
+      "gewicht": 1
+    },
+    {
+      "nr": 7,
+      "naam": "Verplichte feiten",
+      "aan": true,
+      "gewicht": 1
+    },
+    {
+      "nr": 8,
+      "naam": "Getallen kloppen met input",
+      "aan": true,
+      "gewicht": 1
+    },
+    {
+      "nr": 9,
+      "naam": "Niets verzonnen",
+      "aan": true,
+      "gewicht": 1
+    },
+    {
+      "nr": 10,
+      "naam": "Geen tegenspraak met goud",
+      "aan": true,
+      "gewicht": 1
+    },
+    {
+      "nr": 11,
+      "naam": "Namen kloppen",
+      "aan": true,
+      "gewicht": 1
+    },
+    {
+      "nr": 12,
+      "naam": "Toon en stijl als goud",
+      "aan": true,
+      "gewicht": 1
+    },
+    {
+      "nr": 13,
+      "naam": "Even volledig en diep als goud",
+      "aan": true,
+      "gewicht": 1
+    },
+    {
+      "nr": 14,
+      "naam": "Duidelijk en goed leesbaar",
+      "aan": true,
+      "gewicht": 1
+    },
+    {
+      "nr": 15,
+      "naam": "Totaal minstens zo goed als goud",
+      "aan": true,
+      "gewicht": 1
+    },
+    {
+      "nr": 16,
+      "naam": "De runs lijken op elkaar",
+      "aan": true,
+      "gewicht": 1
+    },
+    {
+      "nr": 17,
+      "naam": "Tokens en kosten",
+      "aan": true,
+      "gewicht": 0
+    },
+    {
+      "nr": 18,
+      "naam": "Snelheid",
+      "aan": true,
+      "gewicht": 0
+    }
+  ],
+  "totaal": 0.9079167588424869,
+  "perTestpunt": {
+    "1": 1,
+    "2": 1,
+    "3": 0.6840156021546485,
+    "4": 1,
+    "5": 1,
+    "6": 0.9944444444444446,
+    "7": 0.9853333333333334,
+    "8": 0.994949494949495,
+    "9": 0.9329252665978675,
+    "10": 0.9455555555555555,
+    "11": 0.9700000000000001,
+    "12": 0.8333333333333334,
+    "13": 0.8333333333333334,
+    "14": 0.8888888888888888,
+    "15": 0.5555555555555556,
+    "16": 0.9083333333333333,
+    "17": null,
+    "18": null
+  },
+  "perCase": {
+    "case-1": {
+      "1": 1,
+      "2": 1,
+      "3": 0.7744360902255639,
+      "4": 1,
+      "5": 1,
+      "6": 0.9933333333333333,
+      "7": 0.9859999999999999,
+      "8": 0.9848484848484849,
+      "9": 0.9320465686274512,
+      "10": 0.9533333333333333,
+      "11": 0.9566666666666667,
+      "12": 0.8333333333333334,
+      "13": 1,
+      "14": 0.9166666666666666,
+      "15": 0.6666666666666666,
+      "16": 0.9550000000000001,
+      "17": null,
+      "18": null
+    },
+    "case-2": {
+      "1": 1,
+      "2": 1,
+      "3": 0.706989247311828,
+      "4": 1,
+      "5": 1,
+      "6": 1,
+      "7": 0.9899999999999999,
+      "8": 1,
+      "9": 0.9183023735810113,
+      "10": 0.9433333333333334,
+      "11": 0.9866666666666667,
+      "12": 0.8333333333333334,
+      "13": 0.75,
+      "14": 0.8333333333333334,
+      "15": 0.5,
+      "16": 0.8241666666666667,
+      "17": null,
+      "18": null
+    },
+    "case-3": {
+      "1": 1,
+      "2": 1,
+      "3": 0.5706214689265537,
+      "4": 1,
+      "5": 1,
+      "6": 0.9899999999999999,
+      "7": 0.98,
+      "8": 1,
+      "9": 0.9484268575851397,
+      "10": 0.94,
+      "11": 0.9666666666666667,
+      "12": 0.8333333333333334,
+      "13": 0.75,
+      "14": 0.9166666666666666,
+      "15": 0.5,
+      "16": 0.9458333333333333,
+      "17": null,
+      "18": null
+    }
+  },
+  "outputs": [
+    {
+      "case": "case-1",
+      "run": 1,
+      "tekst": "## Samenvatting\nJullie derde kwartaal van 2026 was sterk. De omzet groeide met 24% ten opzichte van Q2, en de leveringen waren sneller dan onze doelstelling. Bedankt voor het vertrouwen!\n\n## Cijfers\n- **Omzet Q3 2026:** € 12.400 (Q2 2026: € 10.000)\n- **Groei:** 24%\n- **Aantal orders:** 18 (Q2: 15)\n- **Best verkocht:** katoenen tassen met logo, 1.200 stuks\n- **Gemiddelde levertijd:** 9 werkdagen (doel: 10 werkdagen)\n- **Retouren:** 1 order\n\n## Opvallend\n- De katoenen tassen met logo waren veruit jullie bestseller, met 1.200 stuks.\n- We leverden gemiddeld in 9 werkdagen en bleven daarmee binnen het doel van 10 werkdagen.\n- Er was één retour, vanwege een verkeerde kleur. Dit nemen we mee in onze kwaliteitscontrole.\n- Jullie vroegen naar duurzame opties, zoals tassen van gerecycled katoen.\n\n## Advies\nOmdat de katoenen tas zo goed verkoopt, lijkt een uitvoering van gerecycled katoen een logische stap. We stellen voor dat jullie accountmanager de mogelijkheden met jullie bespreekt. Vooraf controleren we samen de kleur van elke bestelling, zodat een retour als dit kwartaal niet nog eens voorkomt.",
+      "tokensIn": 518,
+      "tokensUit": 852,
+      "kosten": 0.009556,
+      "seconden": 7.568568042,
+      "checks": [
+        {
+          "nr": 1,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Alle koppen gevonden"
+        },
+        {
+          "nr": 2,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Volgorde: samenvatting, cijfers, opvallend, advies"
+        },
+        {
+          "nr": 3,
+          "score": 0.7819548872180451,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "162 woorden, goud heeft er 133"
+        },
+        {
+          "nr": 4,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Markdown klopt"
+        },
+        {
+          "nr": 5,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Geen restjes"
+        },
+        {
+          "nr": 6,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "jev",
+          "twijfel": false,
+          "uitleg": "Kans op Nederlands: 1,00",
+          "details": {
+            "kans": 1,
+            "zekerheid": 1,
+            "bron": "jev",
+            "twijfel": false,
+            "jevKans": 1,
+            "jevZekerheid": 1
+          }
+        },
+        {
+          "nr": 7,
+          "score": 0.986,
+          "zekerheid": 0.96,
+          "bron": "jev",
+          "twijfel": false,
+          "uitleg": "Alle 5 feiten gevonden",
+          "details": [
+            {
+              "feit": "De omzet in Q3 2026 was € 12.400.",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "feit": "De omzet groeide met 24% ten opzichte van Q2 2026.",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "feit": "Katoenen tassen met logo waren het best verkocht.",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "feit": "De levertijd van 9 werkdagen lag onder het doel van 10 werkdagen.",
+              "kans": 0.98,
+              "zekerheid": 0.96,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.98,
+              "jevZekerheid": 0.96
+            },
+            {
+              "feit": "De klant vraagt naar duurzame opties.",
+              "kans": 0.98,
+              "zekerheid": 0.96,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.98,
+              "jevZekerheid": 0.96
+            }
+          ]
+        },
+        {
+          "nr": 8,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Alle 20 getallen staan in de input"
+        },
+        {
+          "nr": 9,
+          "score": 0.881764705882353,
+          "zekerheid": 0,
+          "bron": "llm",
+          "twijfel": true,
+          "uitleg": "Niet gesteund: \"De katoenen tassen met logo waren veruit jullie bestseller, met 1.200 stuks.\", \"Dit nemen we mee in onze kwaliteitscontrole.\". 4 vragen opnieuw door LLM. 3 vragen met twijfel",
+          "details": [
+            {
+              "zin": "Jullie derde kwartaal van 2026 was sterk.",
+              "kans": 0.85,
+              "zekerheid": 0.7,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.85,
+              "jevZekerheid": 0.7
+            },
+            {
+              "zin": "De omzet groeide met 24% ten opzichte van Q2, en de leveringen waren sneller dan onze doelstelling.",
+              "kans": 0.97,
+              "zekerheid": 0.94,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.97,
+              "jevZekerheid": 0.94
+            },
+            {
+              "zin": "Bedankt voor het vertrouwen!",
+              "kans": 1,
+              "zekerheid": 1,
+              "bron": "llm",
+              "twijfel": false,
+              "jevKans": 0.63,
+              "jevZekerheid": 0.26
+            },
+            {
+              "zin": "**Omzet Q3 2026:** € 12.400 (Q2 2026: € 10.000)",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "**Groei:** 24%",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "**Aantal orders:** 18 (Q2: 15)",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "**Best verkocht:** katoenen tassen met logo, 1.200 stuks",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "**Gemiddelde levertijd:** 9 werkdagen (doel: 10 werkdagen)",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "**Retouren:** 1 order",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "De katoenen tassen met logo waren veruit jullie bestseller, met 1.200 stuks.",
+              "kans": 0.3,
+              "zekerheid": 0,
+              "bron": "llm",
+              "twijfel": true,
+              "jevKans": 0.62,
+              "jevZekerheid": 0.24
+            },
+            {
+              "zin": "We leverden gemiddeld in 9 werkdagen en bleven daarmee binnen het doel van 10 werkdagen.",
+              "kans": 0.98,
+              "zekerheid": 0.96,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.98,
+              "jevZekerheid": 0.96
+            },
+            {
+              "zin": "Er was één retour, vanwege een verkeerde kleur.",
+              "kans": 0.98,
+              "zekerheid": 0.96,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.98,
+              "jevZekerheid": 0.96
+            },
+            {
+              "zin": "Dit nemen we mee in onze kwaliteitscontrole.",
+              "kans": 0.4,
+              "zekerheid": 0,
+              "bron": "llm",
+              "twijfel": true,
+              "jevKans": 0.79,
+              "jevZekerheid": 0.5800000000000001
+            },
+            {
+              "zin": "Jullie vroegen naar duurzame opties, zoals tassen van gerecycled katoen.",
+              "kans": 0.98,
+              "zekerheid": 0.96,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.98,
+              "jevZekerheid": 0.96
+            },
+            {
+              "zin": "Omdat de katoenen tas zo goed verkoopt, lijkt een uitvoering van gerecycled katoen een logische stap.",
+              "kans": 0.94,
+              "zekerheid": 0.8799999999999999,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.94,
+              "jevZekerheid": 0.8799999999999999
+            },
+            {
+              "zin": "We stellen voor dat jullie accountmanager de mogelijkheden met jullie bespreekt.",
+              "kans": 0.9,
+              "zekerheid": 0.8,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.9,
+              "jevZekerheid": 0.8
+            },
+            {
+              "zin": "Vooraf controleren we samen de kleur van elke bestelling, zodat een retour als dit kwartaal niet nog eens voorkomt.",
+              "kans": 0.75,
+              "zekerheid": 0,
+              "bron": "llm",
+              "twijfel": true,
+              "jevKans": 0.78,
+              "jevZekerheid": 0.56
+            }
+          ]
+        },
+        {
+          "nr": 10,
+          "score": 0.95,
+          "zekerheid": 0.9,
+          "bron": "jev",
+          "twijfel": false,
+          "uitleg": "Kans op tegenspraak: 0,05",
+          "details": {
+            "kans": 0.05,
+            "zekerheid": 0.9,
+            "bron": "jev",
+            "twijfel": false,
+            "jevKans": 0.05,
+            "jevZekerheid": 0.9
+          }
+        },
+        {
+          "nr": 11,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "llm",
+          "twijfel": false,
+          "uitleg": "Kans dat namen kloppen: 1,00. 1 vraag opnieuw door LLM",
+          "details": {
+            "kans": 1,
+            "zekerheid": 1,
+            "bron": "llm",
+            "twijfel": false,
+            "jevKans": 0.6,
+            "jevZekerheid": 0.19999999999999996
+          }
+        },
+        {
+          "nr": 12,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "llm",
+          "twijfel": false,
+          "uitleg": "Cijfer 5 van 5",
+          "details": {
+            "toon": 5,
+            "volledig": 5,
+            "leesbaar": 5,
+            "zeker": true
+          }
+        },
+        {
+          "nr": 13,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "llm",
+          "twijfel": false,
+          "uitleg": "Cijfer 5 van 5",
+          "details": {
+            "toon": 5,
+            "volledig": 5,
+            "leesbaar": 5,
+            "zeker": true
+          }
+        },
+        {
+          "nr": 14,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "llm",
+          "twijfel": false,
+          "uitleg": "Cijfer 5 van 5",
+          "details": {
+            "toon": 5,
+            "volledig": 5,
+            "leesbaar": 5,
+            "zeker": true
+          }
+        },
+        {
+          "nr": 15,
+          "score": 0,
+          "zekerheid": 1,
+          "bron": "llm",
+          "twijfel": false,
+          "uitleg": "Beide keren: output slechter dan goud",
+          "details": {
+            "eerst": "B beter",
+            "omgedraaid": "A beter"
+          }
+        },
+        {
+          "nr": 17,
+          "score": null,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "518 in, 852 uit, $0.0096",
+          "waarde": 0.009556
+        },
+        {
+          "nr": 18,
+          "score": null,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "7.6 s",
+          "waarde": 7.568568042
+        }
+      ]
+    },
+    {
+      "case": "case-1",
+      "run": 2,
+      "tekst": "## Samenvatting\nBeste Bakkerij De Gouden Korst, het derde kwartaal van 2026 was een sterk kwartaal. Jullie omzet groeide met 24% ten opzichte van Q2, en we leverden gemiddeld binnen de afgesproken levertijd.\n\n## Cijfers\n- **Omzet Q3 2026:** € 12.400 (Q2 2026: € 10.000)\n- **Groei:** 24%\n- **Aantal orders:** 18 (Q2: 15)\n- **Best verkocht:** katoenen tassen met logo, 1.200 stuks\n- **Gemiddelde levertijd:** 9 werkdagen (doel: 10 werkdagen)\n- **Retouren:** 1 order\n\n## Opvallend\nDe katoenen tassen met logo waren jullie bestseller, met 1.200 stuks. De gemiddelde levertijd van 9 werkdagen lag binnen ons doel van 10 werkdagen. Eén order kwam retour vanwege een verkeerde kleur. Daarnaast vroegen jullie naar duurzame opties, zoals tassen van gerecycled katoen.\n\n## Advies\n- **Duurzaam alternatief:** Wij raden jullie aan de mogelijkheden voor tassen van gerecycled katoen te bekijken. Dit sluit aan bij jullie bestseller en bij jullie vraag naar duurzaamheid.\n- **Kleurcontrole:** Bevestig de kleur bij nieuwe orders vooraf schriftelijk, zodat een retour zoals dit kwartaal wordt voorkomen.\n\nJullie accountmanager denkt graag met jullie mee over de volgende stappen.",
+      "tokensIn": 518,
+      "tokensUit": 1382,
+      "kosten": 0.014856,
+      "seconden": 10.016588874999998,
+      "checks": [
+        {
+          "nr": 1,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Alle koppen gevonden"
+        },
+        {
+          "nr": 2,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Volgorde: samenvatting, cijfers, opvallend, advies"
+        },
+        {
+          "nr": 3,
+          "score": 0.7593984962406015,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "165 woorden, goud heeft er 133"
+        },
+        {
+          "nr": 4,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Markdown klopt"
+        },
+        {
+          "nr": 5,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Geen restjes"
+        },
+        {
+          "nr": 6,
+          "score": 0.99,
+          "zekerheid": 0.99,
+          "bron": "jev",
+          "twijfel": false,
+          "uitleg": "Kans op Nederlands: 0,99",
+          "details": {
+            "kans": 0.99,
+            "zekerheid": 0.99,
+            "bron": "jev",
+            "twijfel": false,
+            "jevKans": 0.99,
+            "jevZekerheid": 0.99
+          }
+        },
+        {
+          "nr": 7,
+          "score": 0.9879999999999999,
+          "zekerheid": 0.96,
+          "bron": "jev",
+          "twijfel": false,
+          "uitleg": "Alle 5 feiten gevonden",
+          "details": [
+            {
+              "feit": "De omzet in Q3 2026 was € 12.400.",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "feit": "De omzet groeide met 24% ten opzichte van Q2 2026.",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "feit": "Katoenen tassen met logo waren het best verkocht.",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "feit": "De levertijd van 9 werkdagen lag onder het doel van 10 werkdagen.",
+              "kans": 0.98,
+              "zekerheid": 0.96,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.98,
+              "jevZekerheid": 0.96
+            },
+            {
+              "feit": "De klant vraagt naar duurzame opties.",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            }
+          ]
+        },
+        {
+          "nr": 8,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Alle 20 getallen staan in de input"
+        },
+        {
+          "nr": 9,
+          "score": 0.9562500000000002,
+          "zekerheid": 0,
+          "bron": "llm",
+          "twijfel": true,
+          "uitleg": "Alle 16 zinnen gesteund door de data. 1 vraag opnieuw door LLM. 1 vraag met twijfel",
+          "details": [
+            {
+              "zin": "Beste Bakkerij De Gouden Korst, het derde kwartaal van 2026 was een sterk kwartaal.",
+              "kans": 0.83,
+              "zekerheid": 0.6599999999999999,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.83,
+              "jevZekerheid": 0.6599999999999999
+            },
+            {
+              "zin": "Jullie omzet groeide met 24% ten opzichte van Q2, en we leverden gemiddeld binnen de afgesproken levertijd.",
+              "kans": 0.97,
+              "zekerheid": 0.94,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.97,
+              "jevZekerheid": 0.94
+            },
+            {
+              "zin": "**Omzet Q3 2026:** € 12.400 (Q2 2026: € 10.000)",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "**Groei:** 24%",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "**Aantal orders:** 18 (Q2: 15)",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "**Best verkocht:** katoenen tassen met logo, 1.200 stuks",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "**Gemiddelde levertijd:** 9 werkdagen (doel: 10 werkdagen)",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "**Retouren:** 1 order",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "De katoenen tassen met logo waren jullie bestseller, met 1.200 stuks.",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "De gemiddelde levertijd van 9 werkdagen lag binnen ons doel van 10 werkdagen.",
+              "kans": 0.97,
+              "zekerheid": 0.94,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.97,
+              "jevZekerheid": 0.94
+            },
+            {
+              "zin": "Eén order kwam retour vanwege een verkeerde kleur.",
+              "kans": 0.98,
+              "zekerheid": 0.96,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.98,
+              "jevZekerheid": 0.96
+            },
+            {
+              "zin": "Daarnaast vroegen jullie naar duurzame opties, zoals tassen van gerecycled katoen.",
+              "kans": 0.98,
+              "zekerheid": 0.96,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.98,
+              "jevZekerheid": 0.96
+            },
+            {
+              "zin": "**Duurzaam alternatief:** Wij raden jullie aan de mogelijkheden voor tassen van gerecycled katoen te bekijken.",
+              "kans": 0.96,
+              "zekerheid": 0.9199999999999999,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.96,
+              "jevZekerheid": 0.9199999999999999
+            },
+            {
+              "zin": "Dit sluit aan bij jullie bestseller en bij jullie vraag naar duurzaamheid.",
+              "kans": 0.97,
+              "zekerheid": 0.94,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.97,
+              "jevZekerheid": 0.94
+            },
+            {
+              "zin": "**Kleurcontrole:** Bevestig de kleur bij nieuwe orders vooraf schriftelijk, zodat een retour zoals dit kwartaal wordt voorkomen.",
+              "kans": 0.91,
+              "zekerheid": 0.8200000000000001,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.91,
+              "jevZekerheid": 0.8200000000000001
+            },
+            {
+              "zin": "Jullie accountmanager denkt graag met jullie mee over de volgende stappen.",
+              "kans": 0.8,
+              "zekerheid": 0,
+              "bron": "llm",
+              "twijfel": true,
+              "jevKans": 0.54,
+              "jevZekerheid": 0.08000000000000007
+            }
+          ]
+        },
+        {
+          "nr": 10,
+          "score": 0.96,
+          "zekerheid": 0.92,
+          "bron": "jev",
+          "twijfel": false,
+          "uitleg": "Kans op tegenspraak: 0,04",
+          "details": {
+            "kans": 0.04,
+            "zekerheid": 0.92,
+            "bron": "jev",
+            "twijfel": false,
+            "jevKans": 0.04,
+            "jevZekerheid": 0.92
+          }
+        },
+        {
+          "nr": 11,
+          "score": 0.93,
+          "zekerheid": 0.8600000000000001,
+          "bron": "jev",
+          "twijfel": false,
+          "uitleg": "Kans dat namen kloppen: 0,93",
+          "details": {
+            "kans": 0.93,
+            "zekerheid": 0.8600000000000001,
+            "bron": "jev",
+            "twijfel": false,
+            "jevKans": 0.93,
+            "jevZekerheid": 0.8600000000000001
+          }
+        },
+        {
+          "nr": 12,
+          "score": 0.75,
+          "zekerheid": 1,
+          "bron": "llm",
+          "twijfel": false,
+          "uitleg": "Cijfer 4 van 5",
+          "details": {
+            "toon": 4,
+            "volledig": 5,
+            "leesbaar": 5,
+            "zeker": true
+          }
+        },
+        {
+          "nr": 13,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "llm",
+          "twijfel": false,
+          "uitleg": "Cijfer 5 van 5",
+          "details": {
+            "toon": 4,
+            "volledig": 5,
+            "leesbaar": 5,
+            "zeker": true
+          }
+        },
+        {
+          "nr": 14,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "llm",
+          "twijfel": false,
+          "uitleg": "Cijfer 5 van 5",
+          "details": {
+            "toon": 4,
+            "volledig": 5,
+            "leesbaar": 5,
+            "zeker": true
+          }
+        },
+        {
+          "nr": 15,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "llm",
+          "twijfel": false,
+          "uitleg": "Beide keren: output beter dan goud",
+          "details": {
+            "eerst": "A beter",
+            "omgedraaid": "B beter"
+          }
+        },
+        {
+          "nr": 17,
+          "score": null,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "518 in, 1382 uit, $0.0149",
+          "waarde": 0.014856
+        },
+        {
+          "nr": 18,
+          "score": null,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "10.0 s",
+          "waarde": 10.016588874999998
+        }
+      ]
+    },
+    {
+      "case": "case-1",
+      "run": 3,
+      "tekst": "## Samenvatting\nQ3 2026 was een sterk kwartaal voor Bakkerij De Gouden Korst. De omzet groeide met 24% ten opzichte van Q2 en we leverden gemiddeld sneller dan ons doel.\n\n## Cijfers\n- **Omzet Q3 2026:** € 12.400 (Q2 2026: € 10.000)\n- **Groei:** 24%\n- **Aantal orders:** 18 (Q2: 15)\n- **Best verkocht:** katoenen tassen met logo, 1.200 stuks\n- **Gemiddelde levertijd:** 9 werkdagen (doel: 10 werkdagen)\n- **Retouren:** 1 order (verkeerde kleur)\n\n## Opvallend\n- De katoenen tassen met logo waren met 1.200 stuks jullie best verkochte product.\n- De gemiddelde levertijd van 9 werkdagen ligt binnen ons doel van 10 werkdagen.\n- Er was één retour vanwege een verkeerde kleur.\n- Jullie vroegen naar duurzame opties, zoals tassen van gerecycled katoen.\n\n## Advies\n- **Duurzaam alternatief:** Wij raden aan om tassen van gerecycled katoen te onderzoeken als aanvulling op jullie huidige katoenen tassen. Jullie accountmanager kan hiervoor opties uitwerken.\n- **Kleurcontrole:** Bevestig bij volgende bestellingen de kleur vooraf schriftelijk, zodat een retour als deze in de toekomst voorkomen wordt.\n\nWij kijken uit naar een vervolg in Q4!",
+      "tokensIn": 518,
+      "tokensUit": 1310,
+      "kosten": 0.014136,
+      "seconden": 9.853932917000005,
+      "checks": [
+        {
+          "nr": 1,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Alle koppen gevonden"
+        },
+        {
+          "nr": 2,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Volgorde: samenvatting, cijfers, opvallend, advies"
+        },
+        {
+          "nr": 3,
+          "score": 0.7819548872180451,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "162 woorden, goud heeft er 133"
+        },
+        {
+          "nr": 4,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Markdown klopt"
+        },
+        {
+          "nr": 5,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Geen restjes"
+        },
+        {
+          "nr": 6,
+          "score": 0.99,
+          "zekerheid": 0.99,
+          "bron": "jev",
+          "twijfel": false,
+          "uitleg": "Kans op Nederlands: 0,99",
+          "details": {
+            "kans": 0.99,
+            "zekerheid": 0.99,
+            "bron": "jev",
+            "twijfel": false,
+            "jevKans": 0.99,
+            "jevZekerheid": 0.99
+          }
+        },
+        {
+          "nr": 7,
+          "score": 0.984,
+          "zekerheid": 0.94,
+          "bron": "jev",
+          "twijfel": false,
+          "uitleg": "Alle 5 feiten gevonden",
+          "details": [
+            {
+              "feit": "De omzet in Q3 2026 was € 12.400.",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "feit": "De omzet groeide met 24% ten opzichte van Q2 2026.",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "feit": "Katoenen tassen met logo waren het best verkocht.",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "feit": "De levertijd van 9 werkdagen lag onder het doel van 10 werkdagen.",
+              "kans": 0.97,
+              "zekerheid": 0.94,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.97,
+              "jevZekerheid": 0.94
+            },
+            {
+              "feit": "De klant vraagt naar duurzame opties.",
+              "kans": 0.98,
+              "zekerheid": 0.96,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.98,
+              "jevZekerheid": 0.96
+            }
+          ]
+        },
+        {
+          "nr": 8,
+          "score": 0.9545454545454546,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "1 van 22 getallen niet in input: 4"
+        },
+        {
+          "nr": 9,
+          "score": 0.9581250000000002,
+          "zekerheid": 0,
+          "bron": "llm",
+          "twijfel": true,
+          "uitleg": "Alle 16 zinnen gesteund door de data. 2 vragen opnieuw door LLM. 1 vraag met twijfel",
+          "details": [
+            {
+              "zin": "Q3 2026 was een sterk kwartaal voor Bakkerij De Gouden Korst.",
+              "kans": 0.85,
+              "zekerheid": 0.7,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.85,
+              "jevZekerheid": 0.7
+            },
+            {
+              "zin": "De omzet groeide met 24% ten opzichte van Q2 en we leverden gemiddeld sneller dan ons doel.",
+              "kans": 0.98,
+              "zekerheid": 0.96,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.98,
+              "jevZekerheid": 0.96
+            },
+            {
+              "zin": "**Omzet Q3 2026:** € 12.400 (Q2 2026: € 10.000)",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "**Groei:** 24%",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "**Aantal orders:** 18 (Q2: 15)",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "**Best verkocht:** katoenen tassen met logo, 1.200 stuks",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "**Gemiddelde levertijd:** 9 werkdagen (doel: 10 werkdagen)",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "**Retouren:** 1 order (verkeerde kleur)",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "De katoenen tassen met logo waren met 1.200 stuks jullie best verkochte product.",
+              "kans": 0.98,
+              "zekerheid": 0.96,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.98,
+              "jevZekerheid": 0.96
+            },
+            {
+              "zin": "De gemiddelde levertijd van 9 werkdagen ligt binnen ons doel van 10 werkdagen.",
+              "kans": 0.97,
+              "zekerheid": 0.94,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.97,
+              "jevZekerheid": 0.94
+            },
+            {
+              "zin": "Er was één retour vanwege een verkeerde kleur.",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Jullie vroegen naar duurzame opties, zoals tassen van gerecycled katoen.",
+              "kans": 0.97,
+              "zekerheid": 0.94,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.97,
+              "jevZekerheid": 0.94
+            },
+            {
+              "zin": "**Duurzaam alternatief:** Wij raden aan om tassen van gerecycled katoen te onderzoeken als aanvulling op jullie huidige katoenen tassen.",
+              "kans": 0.95,
+              "zekerheid": 0.8999999999999999,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.95,
+              "jevZekerheid": 0.8999999999999999
+            },
+            {
+              "zin": "Jullie accountmanager kan hiervoor opties uitwerken.",
+              "kans": 0.8,
+              "zekerheid": 0,
+              "bron": "llm",
+              "twijfel": true,
+              "jevKans": 0.77,
+              "jevZekerheid": 0.54
+            },
+            {
+              "zin": "**Kleurcontrole:** Bevestig bij volgende bestellingen de kleur vooraf schriftelijk, zodat een retour als deze in de toekomst voorkomen wordt.",
+              "kans": 0.9,
+              "zekerheid": 0.8,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.9,
+              "jevZekerheid": 0.8
+            },
+            {
+              "zin": "Wij kijken uit naar een vervolg in Q4!",
+              "kans": 1,
+              "zekerheid": 1,
+              "bron": "llm",
+              "twijfel": false,
+              "jevKans": 0.36,
+              "jevZekerheid": 0.28
+            }
+          ]
+        },
+        {
+          "nr": 10,
+          "score": 0.95,
+          "zekerheid": 0.9,
+          "bron": "jev",
+          "twijfel": false,
+          "uitleg": "Kans op tegenspraak: 0,05",
+          "details": {
+            "kans": 0.05,
+            "zekerheid": 0.9,
+            "bron": "jev",
+            "twijfel": false,
+            "jevKans": 0.05,
+            "jevZekerheid": 0.9
+          }
+        },
+        {
+          "nr": 11,
+          "score": 0.94,
+          "zekerheid": 0.8799999999999999,
+          "bron": "jev",
+          "twijfel": false,
+          "uitleg": "Kans dat namen kloppen: 0,94",
+          "details": {
+            "kans": 0.94,
+            "zekerheid": 0.8799999999999999,
+            "bron": "jev",
+            "twijfel": false,
+            "jevKans": 0.94,
+            "jevZekerheid": 0.8799999999999999
+          }
+        },
+        {
+          "nr": 12,
+          "score": 0.75,
+          "zekerheid": 1,
+          "bron": "llm",
+          "twijfel": false,
+          "uitleg": "Cijfer 4 van 5",
+          "details": {
+            "toon": 4,
+            "volledig": 5,
+            "leesbaar": 4,
+            "zeker": true
+          }
+        },
+        {
+          "nr": 13,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "llm",
+          "twijfel": false,
+          "uitleg": "Cijfer 5 van 5",
+          "details": {
+            "toon": 4,
+            "volledig": 5,
+            "leesbaar": 4,
+            "zeker": true
+          }
+        },
+        {
+          "nr": 14,
+          "score": 0.75,
+          "zekerheid": 1,
+          "bron": "llm",
+          "twijfel": false,
+          "uitleg": "Cijfer 4 van 5",
+          "details": {
+            "toon": 4,
+            "volledig": 5,
+            "leesbaar": 4,
+            "zeker": true
+          }
+        },
+        {
+          "nr": 15,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "llm",
+          "twijfel": false,
+          "uitleg": "Beide keren: output beter dan goud",
+          "details": {
+            "eerst": "A beter",
+            "omgedraaid": "B beter"
+          }
+        },
+        {
+          "nr": 17,
+          "score": null,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "518 in, 1310 uit, $0.0141",
+          "waarde": 0.014136
+        },
+        {
+          "nr": 18,
+          "score": null,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "9.9 s",
+          "waarde": 9.853932917000005
+        }
+      ]
+    },
+    {
+      "case": "case-2",
+      "run": 1,
+      "tekst": "## Samenvatting\nIn Q3 2026 bedroeg de omzet van jullie bestellingen € 3.150. Dat is 30% lager dan in Q2 2026 (€ 4.500). De levertijd lag boven ons doel. Er waren geen retouren.\n\n## Cijfers\n- Omzet Q3 2026: € 3.150 (Q2 2026: € 4.500)\n- Daling: 30%\n- Aantal orders: 4 (Q2: 7)\n- Best verkocht: trainingsshirts, 210 stuks\n- Gemiddelde levertijd: 14 werkdagen (doel: 10 werkdagen)\n- Retouren: geen\n\n## Opvallend\n- Trainingsshirts waren met 210 stuks het best verkocht.\n- De gemiddelde levertijd van 14 werkdagen lag boven ons doel van 10 werkdagen. Het nieuwe seizoen start in september en teamkleding wordt vaak laat besteld. Daardoor staat de levertijd onder druk.\n- Er waren geen retouren.\n\n## Advies\nWe raden jullie aan teamkleding voor het nieuwe seizoen vroeger te bestellen. Zo kunnen wij binnen ons doel van 10 werkdagen leveren. We denken graag met jullie mee over een passende planning. Over de oorzaak van de lagere omzet hebben we geen data, dus daar doen we geen uitspraken over.",
+      "tokensIn": 518,
+      "tokensUit": 1178,
+      "kosten": 0.012816,
+      "seconden": 8.211655958000001,
+      "checks": [
+        {
+          "nr": 1,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Alle koppen gevonden"
+        },
+        {
+          "nr": 2,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Volgorde: samenvatting, cijfers, opvallend, advies"
+        },
+        {
+          "nr": 3,
+          "score": 0.7580645161290323,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "154 woorden, goud heeft er 124"
+        },
+        {
+          "nr": 4,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Markdown klopt"
+        },
+        {
+          "nr": 5,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Geen restjes"
+        },
+        {
+          "nr": 6,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "jev",
+          "twijfel": false,
+          "uitleg": "Kans op Nederlands: 1,00",
+          "details": {
+            "kans": 1,
+            "zekerheid": 1,
+            "bron": "jev",
+            "twijfel": false,
+            "jevKans": 1,
+            "jevZekerheid": 1
+          }
+        },
+        {
+          "nr": 7,
+          "score": 0.99,
+          "zekerheid": 0.98,
+          "bron": "jev",
+          "twijfel": false,
+          "uitleg": "Alle 4 feiten gevonden",
+          "details": [
+            {
+              "feit": "De omzet in Q3 2026 was € 3.150.",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "feit": "De omzet daalde met 30%.",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "feit": "De levertijd was 14 werkdagen, langer dan het doel van 10 werkdagen.",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "feit": "Teamkleding wordt vaak laat besteld.",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            }
+          ]
+        },
+        {
+          "nr": 8,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Alle 24 getallen staan in de input"
+        },
+        {
+          "nr": 9,
+          "score": 0.9557894736842105,
+          "zekerheid": 0,
+          "bron": "llm",
+          "twijfel": true,
+          "uitleg": "Alle 19 zinnen gesteund door de data. 1 vraag opnieuw door LLM. 1 vraag met twijfel",
+          "details": [
+            {
+              "zin": "In Q3 2026 bedroeg de omzet van jullie bestellingen € 3.150.",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Dat is 30% lager dan in Q2 2026 (€ 4.500).",
+              "kans": 0.97,
+              "zekerheid": 0.94,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.97,
+              "jevZekerheid": 0.94
+            },
+            {
+              "zin": "De levertijd lag boven ons doel.",
+              "kans": 0.98,
+              "zekerheid": 0.96,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.98,
+              "jevZekerheid": 0.96
+            },
+            {
+              "zin": "Er waren geen retouren.",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Omzet Q3 2026: € 3.150 (Q2 2026: € 4.500)",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Daling: 30%",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Aantal orders: 4 (Q2: 7)",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Best verkocht: trainingsshirts, 210 stuks",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Gemiddelde levertijd: 14 werkdagen (doel: 10 werkdagen)",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Retouren: geen",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Trainingsshirts waren met 210 stuks het best verkocht.",
+              "kans": 0.98,
+              "zekerheid": 0.96,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.98,
+              "jevZekerheid": 0.96
+            },
+            {
+              "zin": "De gemiddelde levertijd van 14 werkdagen lag boven ons doel van 10 werkdagen.",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Het nieuwe seizoen start in september en teamkleding wordt vaak laat besteld.",
+              "kans": 0.94,
+              "zekerheid": 0.8799999999999999,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.94,
+              "jevZekerheid": 0.8799999999999999
+            },
+            {
+              "zin": "Daardoor staat de levertijd onder druk.",
+              "kans": 0.92,
+              "zekerheid": 0.8400000000000001,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.92,
+              "jevZekerheid": 0.8400000000000001
+            },
+            {
+              "zin": "Er waren geen retouren.",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "We raden jullie aan teamkleding voor het nieuwe seizoen vroeger te bestellen.",
+              "kans": 0.96,
+              "zekerheid": 0.9199999999999999,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.96,
+              "jevZekerheid": 0.9199999999999999
+            },
+            {
+              "zin": "Zo kunnen wij binnen ons doel van 10 werkdagen leveren.",
+              "kans": 0.8,
+              "zekerheid": 0.6000000000000001,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.8,
+              "jevZekerheid": 0.6000000000000001
+            },
+            {
+              "zin": "We denken graag met jullie mee over een passende planning.",
+              "kans": 0.81,
+              "zekerheid": 0.6200000000000001,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.81,
+              "jevZekerheid": 0.6200000000000001
+            },
+            {
+              "zin": "Over de oorzaak van de lagere omzet hebben we geen data, dus daar doen we geen uitspraken over.",
+              "kans": 0.9,
+              "zekerheid": 0,
+              "bron": "llm",
+              "twijfel": true,
+              "jevKans": 0.77,
+              "jevZekerheid": 0.54
+            }
+          ]
+        },
+        {
+          "nr": 10,
+          "score": 0.9299999999999999,
+          "zekerheid": 0.86,
+          "bron": "jev",
+          "twijfel": false,
+          "uitleg": "Kans op tegenspraak: 0,07",
+          "details": {
+            "kans": 0.07,
+            "zekerheid": 0.86,
+            "bron": "jev",
+            "twijfel": false,
+            "jevKans": 0.07,
+            "jevZekerheid": 0.86
+          }
+        },
+        {
+          "nr": 11,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "llm",
+          "twijfel": false,
+          "uitleg": "Kans dat namen kloppen: 1,00. 1 vraag opnieuw door LLM",
+          "details": {
+            "kans": 1,
+            "zekerheid": 1,
+            "bron": "llm",
+            "twijfel": false,
+            "jevKans": 0.63,
+            "jevZekerheid": 0.26
+          }
+        },
+        {
+          "nr": 12,
+          "score": 0.75,
+          "zekerheid": 0,
+          "bron": "llm",
+          "twijfel": true,
+          "uitleg": "Cijfer 4 van 5, judge is niet zeker",
+          "details": {
+            "toon": 4,
+            "volledig": 4,
+            "leesbaar": 4,
+            "zeker": false
+          }
+        },
+        {
+          "nr": 13,
+          "score": 0.75,
+          "zekerheid": 0,
+          "bron": "llm",
+          "twijfel": true,
+          "uitleg": "Cijfer 4 van 5, judge is niet zeker",
+          "details": {
+            "toon": 4,
+            "volledig": 4,
+            "leesbaar": 4,
+            "zeker": false
+          }
+        },
+        {
+          "nr": 14,
+          "score": 0.75,
+          "zekerheid": 0,
+          "bron": "llm",
+          "twijfel": true,
+          "uitleg": "Cijfer 4 van 5, judge is niet zeker",
+          "details": {
+            "toon": 4,
+            "volledig": 4,
+            "leesbaar": 4,
+            "zeker": false
+          }
+        },
+        {
+          "nr": 15,
+          "score": 0.5,
+          "zekerheid": 0,
+          "bron": "llm",
+          "twijfel": true,
+          "uitleg": "Oneens: eerst slechter, omgedraaid beter",
+          "details": {
+            "eerst": "B beter",
+            "omgedraaid": "B beter"
+          }
+        },
+        {
+          "nr": 17,
+          "score": null,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "518 in, 1178 uit, $0.0128",
+          "waarde": 0.012816
+        },
+        {
+          "nr": 18,
+          "score": null,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "8.2 s",
+          "waarde": 8.211655958000001
+        }
+      ]
+    },
+    {
+      "case": "case-2",
+      "run": 2,
+      "tekst": "## Samenvatting\nIn Q3 2026 was jullie omzet 30% lager dan in Q2. Het nieuwe seizoen start in september en teamkleding wordt vaak laat besteld. Daardoor kwam de levertijd onder druk te staan. Positief is dat er geen retouren waren.\n\n## Cijfers\n- **Omzet Q3 2026:** € 3.150 (Q2 2026: € 4.500), een daling van 30%\n- **Aantal orders:** 4 (Q2: 7)\n- **Best verkocht:** trainingsshirts, 210 stuks\n- **Gemiddelde levertijd:** 14 werkdagen (doel: 10 werkdagen)\n- **Retouren:** geen\n\n## Opvallend\n- Trainingsshirts waren met 210 stuks het best verkochte product.\n- De gemiddelde levertijd van 14 werkdagen ligt boven ons doel van 10 werkdagen. Dit komt doordat teamkleding vaak laat wordt besteld, vlak voor de start van het seizoen in september.\n- Er zijn geen retouren geweest. Dat wijst op tevredenheid over de kwaliteit van de bestelde artikelen.\n\n## Advies\nWe raden jullie aan teamkleding eerder te bestellen, ruim voor de start van het nieuwe seizoen in september. Dan kunnen we binnen onze doelstelling van 10 werkdagen leveren. Jullie accountmanager denkt graag mee over een geschikt bestelmoment.",
+      "tokensIn": 518,
+      "tokensUit": 1212,
+      "kosten": 0.013156,
+      "seconden": 8.805349459,
+      "checks": [
+        {
+          "nr": 1,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Alle koppen gevonden"
+        },
+        {
+          "nr": 2,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Volgorde: samenvatting, cijfers, opvallend, advies"
+        },
+        {
+          "nr": 3,
+          "score": 0.6774193548387097,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "164 woorden, goud heeft er 124"
+        },
+        {
+          "nr": 4,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Markdown klopt"
+        },
+        {
+          "nr": 5,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Geen restjes"
+        },
+        {
+          "nr": 6,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "jev",
+          "twijfel": false,
+          "uitleg": "Kans op Nederlands: 1,00",
+          "details": {
+            "kans": 1,
+            "zekerheid": 1,
+            "bron": "jev",
+            "twijfel": false,
+            "jevKans": 1,
+            "jevZekerheid": 1
+          }
+        },
+        {
+          "nr": 7,
+          "score": 0.99,
+          "zekerheid": 0.98,
+          "bron": "jev",
+          "twijfel": false,
+          "uitleg": "Alle 4 feiten gevonden",
+          "details": [
+            {
+              "feit": "De omzet in Q3 2026 was € 3.150.",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "feit": "De omzet daalde met 30%.",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "feit": "De levertijd was 14 werkdagen, langer dan het doel van 10 werkdagen.",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "feit": "Teamkleding wordt vaak laat besteld.",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            }
+          ]
+        },
+        {
+          "nr": 8,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Alle 21 getallen staan in de input"
+        },
+        {
+          "nr": 9,
+          "score": 0.9041176470588236,
+          "zekerheid": 0,
+          "bron": "llm",
+          "twijfel": true,
+          "uitleg": "Niet gesteund: \"Dat wijst op tevredenheid over de kwaliteit van de bestelde artikelen.\". 2 vragen opnieuw door LLM. 2 vragen met twijfel",
+          "details": [
+            {
+              "zin": "In Q3 2026 was jullie omzet 30% lager dan in Q2.",
+              "kans": 0.98,
+              "zekerheid": 0.96,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.98,
+              "jevZekerheid": 0.96
+            },
+            {
+              "zin": "Het nieuwe seizoen start in september en teamkleding wordt vaak laat besteld.",
+              "kans": 0.97,
+              "zekerheid": 0.94,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.97,
+              "jevZekerheid": 0.94
+            },
+            {
+              "zin": "Daardoor kwam de levertijd onder druk te staan.",
+              "kans": 0.93,
+              "zekerheid": 0.8600000000000001,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.93,
+              "jevZekerheid": 0.8600000000000001
+            },
+            {
+              "zin": "Positief is dat er geen retouren waren.",
+              "kans": 0.96,
+              "zekerheid": 0.9199999999999999,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.96,
+              "jevZekerheid": 0.9199999999999999
+            },
+            {
+              "zin": "**Omzet Q3 2026:** € 3.150 (Q2 2026: € 4.500), een daling van 30%",
+              "kans": 0.97,
+              "zekerheid": 0.94,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.97,
+              "jevZekerheid": 0.94
+            },
+            {
+              "zin": "**Aantal orders:** 4 (Q2: 7)",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "**Best verkocht:** trainingsshirts, 210 stuks",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "**Gemiddelde levertijd:** 14 werkdagen (doel: 10 werkdagen)",
+              "kans": 0.98,
+              "zekerheid": 0.96,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.98,
+              "jevZekerheid": 0.96
+            },
+            {
+              "zin": "**Retouren:** geen",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Trainingsshirts waren met 210 stuks het best verkochte product.",
+              "kans": 0.98,
+              "zekerheid": 0.96,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.98,
+              "jevZekerheid": 0.96
+            },
+            {
+              "zin": "De gemiddelde levertijd van 14 werkdagen ligt boven ons doel van 10 werkdagen.",
+              "kans": 0.98,
+              "zekerheid": 0.96,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.98,
+              "jevZekerheid": 0.96
+            },
+            {
+              "zin": "Dit komt doordat teamkleding vaak laat wordt besteld, vlak voor de start van het seizoen in september.",
+              "kans": 0.94,
+              "zekerheid": 0.8799999999999999,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.94,
+              "jevZekerheid": 0.8799999999999999
+            },
+            {
+              "zin": "Er zijn geen retouren geweest.",
+              "kans": 0.98,
+              "zekerheid": 0.96,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.98,
+              "jevZekerheid": 0.96
+            },
+            {
+              "zin": "Dat wijst op tevredenheid over de kwaliteit van de bestelde artikelen.",
+              "kans": 0.3,
+              "zekerheid": 0,
+              "bron": "llm",
+              "twijfel": true,
+              "jevKans": 0.4,
+              "jevZekerheid": 0.19999999999999996
+            },
+            {
+              "zin": "We raden jullie aan teamkleding eerder te bestellen, ruim voor de start van het nieuwe seizoen in september.",
+              "kans": 0.93,
+              "zekerheid": 0.8600000000000001,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.93,
+              "jevZekerheid": 0.8600000000000001
+            },
+            {
+              "zin": "Dan kunnen we binnen onze doelstelling van 10 werkdagen leveren.",
+              "kans": 0.8,
+              "zekerheid": 0.6000000000000001,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.8,
+              "jevZekerheid": 0.6000000000000001
+            },
+            {
+              "zin": "Jullie accountmanager denkt graag mee over een geschikt bestelmoment.",
+              "kans": 0.7,
+              "zekerheid": 0,
+              "bron": "llm",
+              "twijfel": true,
+              "jevKans": 0.54,
+              "jevZekerheid": 0.08000000000000007
+            }
+          ]
+        },
+        {
+          "nr": 10,
+          "score": 0.94,
+          "zekerheid": 0.88,
+          "bron": "jev",
+          "twijfel": false,
+          "uitleg": "Kans op tegenspraak: 0,06",
+          "details": {
+            "kans": 0.06,
+            "zekerheid": 0.88,
+            "bron": "jev",
+            "twijfel": false,
+            "jevKans": 0.06,
+            "jevZekerheid": 0.88
+          }
+        },
+        {
+          "nr": 11,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "llm",
+          "twijfel": false,
+          "uitleg": "Kans dat namen kloppen: 1,00. 1 vraag opnieuw door LLM",
+          "details": {
+            "kans": 1,
+            "zekerheid": 1,
+            "bron": "llm",
+            "twijfel": false,
+            "jevKans": 0.74,
+            "jevZekerheid": 0.48
+          }
+        },
+        {
+          "nr": 12,
+          "score": 1,
+          "zekerheid": 0,
+          "bron": "llm",
+          "twijfel": true,
+          "uitleg": "Cijfer 5 van 5, judge is niet zeker",
+          "details": {
+            "toon": 5,
+            "volledig": 4,
+            "leesbaar": 4,
+            "zeker": false
+          }
+        },
+        {
+          "nr": 13,
+          "score": 0.75,
+          "zekerheid": 0,
+          "bron": "llm",
+          "twijfel": true,
+          "uitleg": "Cijfer 4 van 5, judge is niet zeker",
+          "details": {
+            "toon": 5,
+            "volledig": 4,
+            "leesbaar": 4,
+            "zeker": false
+          }
+        },
+        {
+          "nr": 14,
+          "score": 0.75,
+          "zekerheid": 0,
+          "bron": "llm",
+          "twijfel": true,
+          "uitleg": "Cijfer 4 van 5, judge is niet zeker",
+          "details": {
+            "toon": 5,
+            "volledig": 4,
+            "leesbaar": 4,
+            "zeker": false
+          }
+        },
+        {
+          "nr": 15,
+          "score": 0.5,
+          "zekerheid": 0,
+          "bron": "llm",
+          "twijfel": true,
+          "uitleg": "Oneens: eerst beter, omgedraaid slechter",
+          "details": {
+            "eerst": "A beter",
+            "omgedraaid": "A beter"
+          }
+        },
+        {
+          "nr": 17,
+          "score": null,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "518 in, 1212 uit, $0.0132",
+          "waarde": 0.013156
+        },
+        {
+          "nr": 18,
+          "score": null,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "8.8 s",
+          "waarde": 8.805349459
+        }
+      ]
+    },
+    {
+      "case": "case-2",
+      "run": 3,
+      "tekst": "## Samenvatting\nIn Q3 2026 was de omzet van Hockeyclub De Meeuwen lager dan in Q2. De gemiddelde levertijd lag boven ons doel. Er waren geen retouren.\n\n## Cijfers\n- Omzet Q3 2026: € 3.150 (Q2 2026: € 4.500), een daling van 30%\n- Aantal orders: 4 (Q2: 7)\n- Best verkocht: trainingsshirts, 210 stuks\n- Gemiddelde levertijd: 14 werkdagen (doel: 10 werkdagen)\n- Retouren: geen\n\n## Opvallend\nDe trainingsshirts waren met 210 stuks duidelijk het populairst. Daarnaast kwamen er dit kwartaal geen retouren voor, dus de kwaliteit van de geleverde producten gaf geen aanleiding tot klachten.\n\nDe levertijd is wel een aandachtspunt. Het nieuwe seizoen start in september en teamkleding wordt vaak laat besteld. Daardoor stond de levertijd onder druk en haalden we ons doel van 10 werkdagen niet.\n\n## Advies\nWe raden jullie aan om teamkleding eerder te bestellen, ruim voordat het seizoen begint. Dan kunnen wij beter plannen en dichter bij de doelstelling van 10 werkdagen leveren. Onze accountmanager denkt graag met jullie mee over een bestelmoment voor het volgende seizoen.",
+      "tokensIn": 518,
+      "tokensUit": 759,
+      "kosten": 0.008626,
+      "seconden": 6.763701916000006,
+      "checks": [
+        {
+          "nr": 1,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Alle koppen gevonden"
+        },
+        {
+          "nr": 2,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Volgorde: samenvatting, cijfers, opvallend, advies"
+        },
+        {
+          "nr": 3,
+          "score": 0.685483870967742,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "163 woorden, goud heeft er 124"
+        },
+        {
+          "nr": 4,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Markdown klopt"
+        },
+        {
+          "nr": 5,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Geen restjes"
+        },
+        {
+          "nr": 6,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "jev",
+          "twijfel": false,
+          "uitleg": "Kans op Nederlands: 1,00",
+          "details": {
+            "kans": 1,
+            "zekerheid": 1,
+            "bron": "jev",
+            "twijfel": false,
+            "jevKans": 1,
+            "jevZekerheid": 1
+          }
+        },
+        {
+          "nr": 7,
+          "score": 0.99,
+          "zekerheid": 0.98,
+          "bron": "jev",
+          "twijfel": false,
+          "uitleg": "Alle 4 feiten gevonden",
+          "details": [
+            {
+              "feit": "De omzet in Q3 2026 was € 3.150.",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "feit": "De omzet daalde met 30%.",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "feit": "De levertijd was 14 werkdagen, langer dan het doel van 10 werkdagen.",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "feit": "Teamkleding wordt vaak laat besteld.",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            }
+          ]
+        },
+        {
+          "nr": 8,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Alle 19 getallen staan in de input"
+        },
+        {
+          "nr": 9,
+          "score": 0.895,
+          "zekerheid": 0,
+          "bron": "llm",
+          "twijfel": true,
+          "uitleg": "Niet gesteund: \"Daarnaast kwamen er dit kwartaal geen retouren voor, dus de kwaliteit van de geleverde producten gaf geen aanleiding tot klachten.\". 3 vragen opnieuw door LLM. 3 vragen met twijfel",
+          "details": [
+            {
+              "zin": "In Q3 2026 was de omzet van Hockeyclub De Meeuwen lager dan in Q2.",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "De gemiddelde levertijd lag boven ons doel.",
+              "kans": 0.98,
+              "zekerheid": 0.96,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.98,
+              "jevZekerheid": 0.96
+            },
+            {
+              "zin": "Er waren geen retouren.",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Omzet Q3 2026: € 3.150 (Q2 2026: € 4.500), een daling van 30%",
+              "kans": 0.98,
+              "zekerheid": 0.96,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.98,
+              "jevZekerheid": 0.96
+            },
+            {
+              "zin": "Aantal orders: 4 (Q2: 7)",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Best verkocht: trainingsshirts, 210 stuks",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Gemiddelde levertijd: 14 werkdagen (doel: 10 werkdagen)",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Retouren: geen",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "De trainingsshirts waren met 210 stuks duidelijk het populairst.",
+              "kans": 0.7,
+              "zekerheid": 0,
+              "bron": "llm",
+              "twijfel": true,
+              "jevKans": 0.78,
+              "jevZekerheid": 0.56
+            },
+            {
+              "zin": "Daarnaast kwamen er dit kwartaal geen retouren voor, dus de kwaliteit van de geleverde producten gaf geen aanleiding tot klachten.",
+              "kans": 0.2,
+              "zekerheid": 0,
+              "bron": "llm",
+              "twijfel": true,
+              "jevKans": 0.34,
+              "jevZekerheid": 0.31999999999999995
+            },
+            {
+              "zin": "De levertijd is wel een aandachtspunt.",
+              "kans": 0.97,
+              "zekerheid": 0.94,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.97,
+              "jevZekerheid": 0.94
+            },
+            {
+              "zin": "Het nieuwe seizoen start in september en teamkleding wordt vaak laat besteld.",
+              "kans": 0.97,
+              "zekerheid": 0.94,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.97,
+              "jevZekerheid": 0.94
+            },
+            {
+              "zin": "Daardoor stond de levertijd onder druk en haalden we ons doel van 10 werkdagen niet.",
+              "kans": 0.95,
+              "zekerheid": 0.8999999999999999,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.95,
+              "jevZekerheid": 0.8999999999999999
+            },
+            {
+              "zin": "We raden jullie aan om teamkleding eerder te bestellen, ruim voordat het seizoen begint.",
+              "kans": 0.92,
+              "zekerheid": 0.8400000000000001,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.92,
+              "jevZekerheid": 0.8400000000000001
+            },
+            {
+              "zin": "Dan kunnen wij beter plannen en dichter bij de doelstelling van 10 werkdagen leveren.",
+              "kans": 0.91,
+              "zekerheid": 0.8200000000000001,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.91,
+              "jevZekerheid": 0.8200000000000001
+            },
+            {
+              "zin": "Onze accountmanager denkt graag met jullie mee over een bestelmoment voor het volgende seizoen.",
+              "kans": 0.8,
+              "zekerheid": 0,
+              "bron": "llm",
+              "twijfel": true,
+              "jevKans": 0.64,
+              "jevZekerheid": 0.28
+            }
+          ]
+        },
+        {
+          "nr": 10,
+          "score": 0.96,
+          "zekerheid": 0.92,
+          "bron": "jev",
+          "twijfel": false,
+          "uitleg": "Kans op tegenspraak: 0,04",
+          "details": {
+            "kans": 0.04,
+            "zekerheid": 0.92,
+            "bron": "jev",
+            "twijfel": false,
+            "jevKans": 0.04,
+            "jevZekerheid": 0.92
+          }
+        },
+        {
+          "nr": 11,
+          "score": 0.96,
+          "zekerheid": 0.9199999999999999,
+          "bron": "jev",
+          "twijfel": false,
+          "uitleg": "Kans dat namen kloppen: 0,96",
+          "details": {
+            "kans": 0.96,
+            "zekerheid": 0.9199999999999999,
+            "bron": "jev",
+            "twijfel": false,
+            "jevKans": 0.96,
+            "jevZekerheid": 0.9199999999999999
+          }
+        },
+        {
+          "nr": 12,
+          "score": 0.75,
+          "zekerheid": 0,
+          "bron": "llm",
+          "twijfel": true,
+          "uitleg": "Cijfer 4 van 5, judge is niet zeker",
+          "details": {
+            "toon": 4,
+            "volledig": 4,
+            "leesbaar": 5,
+            "zeker": false
+          }
+        },
+        {
+          "nr": 13,
+          "score": 0.75,
+          "zekerheid": 0,
+          "bron": "llm",
+          "twijfel": true,
+          "uitleg": "Cijfer 4 van 5, judge is niet zeker",
+          "details": {
+            "toon": 4,
+            "volledig": 4,
+            "leesbaar": 5,
+            "zeker": false
+          }
+        },
+        {
+          "nr": 14,
+          "score": 1,
+          "zekerheid": 0,
+          "bron": "llm",
+          "twijfel": true,
+          "uitleg": "Cijfer 5 van 5, judge is niet zeker",
+          "details": {
+            "toon": 4,
+            "volledig": 4,
+            "leesbaar": 5,
+            "zeker": false
+          }
+        },
+        {
+          "nr": 15,
+          "score": 0.5,
+          "zekerheid": 0,
+          "bron": "llm",
+          "twijfel": true,
+          "uitleg": "Oneens: eerst slechter, omgedraaid beter",
+          "details": {
+            "eerst": "B beter",
+            "omgedraaid": "B beter"
+          }
+        },
+        {
+          "nr": 17,
+          "score": null,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "518 in, 759 uit, $0.0086",
+          "waarde": 0.008626
+        },
+        {
+          "nr": 18,
+          "score": null,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "6.8 s",
+          "waarde": 6.763701916000006
+        }
+      ]
+    },
+    {
+      "case": "case-3",
+      "run": 1,
+      "tekst": "## Samenvatting\nIn Q3 2026 bedroeg jullie omzet € 27.900, tegenover € 27.500 in Q2 2026. Dat is een groei van 1%. Het aantal orders bleef gelijk op 3.\n\n## Cijfers\n- Omzet Q3 2026: € 27.900\n- Omzet Q2 2026: € 27.500\n- Groei: 1%\n- Aantal orders: 3 (Q2: 3)\n- Gemiddelde levertijd: geen data\n- Retouren: 1 order\n\n## Opvallend\n- Softshell jassen met logo waren het best verkocht, met 310 stuks.\n- Er was 1 retour: 12 jassen die te klein bleken.\n- Over de gemiddelde levertijd hebben we geen data, dus daar doen we geen uitspraak over.\n\n## Advies\nJullie willen in Q4 ook werkbroeken met logo bestellen. Laten we daar tijdig over doorpraten met jullie accountmanager, zodat de bestelling goed voorbereid is.\n\nOmdat de retour kwam door een te kleine maat, raden we aan de maten bij een volgende bestelling vooraf goed af te stemmen. Dat geldt zeker ook voor de werkbroeken.\n\nTot slot raden we aan om de levertijd volgend kwartaal wel vast te leggen, zodat we die in het volgende rapport kunnen meenemen.",
+      "tokensIn": 493,
+      "tokensUit": 1252,
+      "kosten": 0.013506,
+      "seconden": 9.500965707999999,
+      "checks": [
+        {
+          "nr": 1,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Alle koppen gevonden"
+        },
+        {
+          "nr": 2,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Volgorde: samenvatting, cijfers, opvallend, advies"
+        },
+        {
+          "nr": 3,
+          "score": 0.6101694915254237,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "164 woorden, goud heeft er 118"
+        },
+        {
+          "nr": 4,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Markdown klopt"
+        },
+        {
+          "nr": 5,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Geen restjes"
+        },
+        {
+          "nr": 6,
+          "score": 0.99,
+          "zekerheid": 0.99,
+          "bron": "jev",
+          "twijfel": false,
+          "uitleg": "Kans op Nederlands: 0,99",
+          "details": {
+            "kans": 0.99,
+            "zekerheid": 0.99,
+            "bron": "jev",
+            "twijfel": false,
+            "jevKans": 0.99,
+            "jevZekerheid": 0.99
+          }
+        },
+        {
+          "nr": 7,
+          "score": 0.975,
+          "zekerheid": 0.8999999999999999,
+          "bron": "jev",
+          "twijfel": false,
+          "uitleg": "Alle 4 feiten gevonden",
+          "details": [
+            {
+              "feit": "De omzet in Q3 2026 was € 27.900.",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "feit": "Er kwamen 12 jassen retour omdat de maat te klein was.",
+              "kans": 0.95,
+              "zekerheid": 0.8999999999999999,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.95,
+              "jevZekerheid": 0.8999999999999999
+            },
+            {
+              "feit": "Er is geen data over de levertijd.",
+              "kans": 0.98,
+              "zekerheid": 0.96,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.98,
+              "jevZekerheid": 0.96
+            },
+            {
+              "feit": "De klant wil in Q4 werkbroeken met logo bestellen.",
+              "kans": 0.98,
+              "zekerheid": 0.96,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.98,
+              "jevZekerheid": 0.96
+            }
+          ]
+        },
+        {
+          "nr": 8,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Alle 23 getallen staan in de input"
+        },
+        {
+          "nr": 9,
+          "score": 0.9723529411764709,
+          "zekerheid": 0.76,
+          "bron": "jev",
+          "twijfel": false,
+          "uitleg": "Alle 17 zinnen gesteund door de data",
+          "details": [
+            {
+              "zin": "In Q3 2026 bedroeg jullie omzet € 27.900, tegenover € 27.500 in Q2 2026.",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Dat is een groei van 1%.",
+              "kans": 0.97,
+              "zekerheid": 0.94,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.97,
+              "jevZekerheid": 0.94
+            },
+            {
+              "zin": "Het aantal orders bleef gelijk op 3.",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Omzet Q3 2026: € 27.900",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Omzet Q2 2026: € 27.500",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Groei: 1%",
+              "kans": 0.98,
+              "zekerheid": 0.96,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.98,
+              "jevZekerheid": 0.96
+            },
+            {
+              "zin": "Aantal orders: 3 (Q2: 3)",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Gemiddelde levertijd: geen data",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Retouren: 1 order",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Softshell jassen met logo waren het best verkocht, met 310 stuks.",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Er was 1 retour: 12 jassen die te klein bleken.",
+              "kans": 0.98,
+              "zekerheid": 0.96,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.98,
+              "jevZekerheid": 0.96
+            },
+            {
+              "zin": "Over de gemiddelde levertijd hebben we geen data, dus daar doen we geen uitspraak over.",
+              "kans": 0.98,
+              "zekerheid": 0.96,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.98,
+              "jevZekerheid": 0.96
+            },
+            {
+              "zin": "Jullie willen in Q4 ook werkbroeken met logo bestellen.",
+              "kans": 0.97,
+              "zekerheid": 0.94,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.97,
+              "jevZekerheid": 0.94
+            },
+            {
+              "zin": "Laten we daar tijdig over doorpraten met jullie accountmanager, zodat de bestelling goed voorbereid is.",
+              "kans": 0.93,
+              "zekerheid": 0.8600000000000001,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.93,
+              "jevZekerheid": 0.8600000000000001
+            },
+            {
+              "zin": "Omdat de retour kwam door een te kleine maat, raden we aan de maten bij een volgende bestelling vooraf goed af te stemmen.",
+              "kans": 0.98,
+              "zekerheid": 0.96,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.98,
+              "jevZekerheid": 0.96
+            },
+            {
+              "zin": "Dat geldt zeker ook voor de werkbroeken.",
+              "kans": 0.88,
+              "zekerheid": 0.76,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.88,
+              "jevZekerheid": 0.76
+            },
+            {
+              "zin": "Tot slot raden we aan om de levertijd volgend kwartaal wel vast te leggen, zodat we die in het volgende rapport kunnen meenemen.",
+              "kans": 0.94,
+              "zekerheid": 0.8799999999999999,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.94,
+              "jevZekerheid": 0.8799999999999999
+            }
+          ]
+        },
+        {
+          "nr": 10,
+          "score": 0.94,
+          "zekerheid": 0.88,
+          "bron": "jev",
+          "twijfel": false,
+          "uitleg": "Kans op tegenspraak: 0,06",
+          "details": {
+            "kans": 0.06,
+            "zekerheid": 0.88,
+            "bron": "jev",
+            "twijfel": false,
+            "jevKans": 0.06,
+            "jevZekerheid": 0.88
+          }
+        },
+        {
+          "nr": 11,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "llm",
+          "twijfel": false,
+          "uitleg": "Kans dat namen kloppen: 1,00. 1 vraag opnieuw door LLM",
+          "details": {
+            "kans": 1,
+            "zekerheid": 1,
+            "bron": "llm",
+            "twijfel": false,
+            "jevKans": 0.71,
+            "jevZekerheid": 0.41999999999999993
+          }
+        },
+        {
+          "nr": 12,
+          "score": 0.75,
+          "zekerheid": 0,
+          "bron": "llm",
+          "twijfel": true,
+          "uitleg": "Cijfer 4 van 5, judge is niet zeker",
+          "details": {
+            "toon": 4,
+            "volledig": 4,
+            "leesbaar": 4,
+            "zeker": false
+          }
+        },
+        {
+          "nr": 13,
+          "score": 0.75,
+          "zekerheid": 0,
+          "bron": "llm",
+          "twijfel": true,
+          "uitleg": "Cijfer 4 van 5, judge is niet zeker",
+          "details": {
+            "toon": 4,
+            "volledig": 4,
+            "leesbaar": 4,
+            "zeker": false
+          }
+        },
+        {
+          "nr": 14,
+          "score": 0.75,
+          "zekerheid": 0,
+          "bron": "llm",
+          "twijfel": true,
+          "uitleg": "Cijfer 4 van 5, judge is niet zeker",
+          "details": {
+            "toon": 4,
+            "volledig": 4,
+            "leesbaar": 4,
+            "zeker": false
+          }
+        },
+        {
+          "nr": 15,
+          "score": 0.5,
+          "zekerheid": 0,
+          "bron": "llm",
+          "twijfel": true,
+          "uitleg": "Oneens: eerst slechter, omgedraaid beter",
+          "details": {
+            "eerst": "B beter",
+            "omgedraaid": "B beter"
+          }
+        },
+        {
+          "nr": 17,
+          "score": null,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "493 in, 1252 uit, $0.0135",
+          "waarde": 0.013506
+        },
+        {
+          "nr": 18,
+          "score": null,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "9.5 s",
+          "waarde": 9.500965707999999
+        }
+      ]
+    },
+    {
+      "case": "case-3",
+      "run": 2,
+      "tekst": "## Samenvatting\n\nBeste Van Dijk Installatietechniek, in Q3 2026 bedroeg jullie omzet € 27.900. Dat is 1% groei ten opzichte van Q2 2026. Het aantal orders bleef gelijk op 3.\n\n## Cijfers\n\n- Omzet Q3 2026: € 27.900\n- Omzet Q2 2026: € 27.500\n- Groei: 1%\n- Aantal orders: 3 (Q2: 3)\n- Gemiddelde levertijd: geen data\n- Retouren: 1 order (12 jassen, maat te klein)\n\n## Opvallend\n\nJullie bestverkochte product was de softshell jas met logo, met 310 stuks. Daarnaast hadden we één retour: 12 jassen waren te klein. Over de gemiddelde levertijd hebben we over dit kwartaal geen data, dus daar kunnen we geen uitspraak over doen.\n\n## Advies\n\n- **Werkbroeken:** jullie willen in Q4 ook werkbroeken met logo bestellen. Onze accountmanager neemt hierover contact met jullie op om dit voor te bereiden.\n- **Maatvoering:** controleer bij een volgende bestelling vooraf de maten, zodat een retour zoals die van de 12 jassen wordt voorkomen. Voor werkbroeken kan dat ook handig zijn.\n- **Levertijd:** wij zorgen dat de levertijd vanaf Q4 wel wordt vastgelegd, zodat we die in het volgende rapport kunnen delen.\n\nMet vriendelijke groet,\nPromocat",
+      "tokensIn": 493,
+      "tokensUit": 749,
+      "kosten": 0.008476,
+      "seconden": 6.117301834000002,
+      "checks": [
+        {
+          "nr": 1,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Alle koppen gevonden"
+        },
+        {
+          "nr": 2,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Volgorde: samenvatting, cijfers, opvallend, advies"
+        },
+        {
+          "nr": 3,
+          "score": 0.5338983050847458,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "173 woorden, goud heeft er 118"
+        },
+        {
+          "nr": 4,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Markdown klopt"
+        },
+        {
+          "nr": 5,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Geen restjes"
+        },
+        {
+          "nr": 6,
+          "score": 0.99,
+          "zekerheid": 0.99,
+          "bron": "jev",
+          "twijfel": false,
+          "uitleg": "Kans op Nederlands: 0,99",
+          "details": {
+            "kans": 0.99,
+            "zekerheid": 0.99,
+            "bron": "jev",
+            "twijfel": false,
+            "jevKans": 0.99,
+            "jevZekerheid": 0.99
+          }
+        },
+        {
+          "nr": 7,
+          "score": 0.9825,
+          "zekerheid": 0.96,
+          "bron": "jev",
+          "twijfel": false,
+          "uitleg": "Alle 4 feiten gevonden",
+          "details": [
+            {
+              "feit": "De omzet in Q3 2026 was € 27.900.",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "feit": "Er kwamen 12 jassen retour omdat de maat te klein was.",
+              "kans": 0.98,
+              "zekerheid": 0.96,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.98,
+              "jevZekerheid": 0.96
+            },
+            {
+              "feit": "Er is geen data over de levertijd.",
+              "kans": 0.98,
+              "zekerheid": 0.96,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.98,
+              "jevZekerheid": 0.96
+            },
+            {
+              "feit": "De klant wil in Q4 werkbroeken met logo bestellen.",
+              "kans": 0.98,
+              "zekerheid": 0.96,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.98,
+              "jevZekerheid": 0.96
+            }
+          ]
+        },
+        {
+          "nr": 8,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Alle 24 getallen staan in de input"
+        },
+        {
+          "nr": 9,
+          "score": 0.9010526315789477,
+          "zekerheid": 0,
+          "bron": "llm",
+          "twijfel": true,
+          "uitleg": "Niet gesteund: \"Onze accountmanager neemt hierover contact met jullie op om dit voor te bereiden.\", \"**Levertijd:** wij zorgen dat de levertijd vanaf Q4 wel wordt vastgelegd, zodat we die in het volgende rapport kunnen delen.\". 4 vragen opnieuw door LLM. 2 vragen met twijfel",
+          "details": [
+            {
+              "zin": "Beste Van Dijk Installatietechniek, in Q3 2026 bedroeg jullie omzet € 27.900.",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Dat is 1% groei ten opzichte van Q2 2026.",
+              "kans": 0.97,
+              "zekerheid": 0.94,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.97,
+              "jevZekerheid": 0.94
+            },
+            {
+              "zin": "Het aantal orders bleef gelijk op 3.",
+              "kans": 0.98,
+              "zekerheid": 0.96,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.98,
+              "jevZekerheid": 0.96
+            },
+            {
+              "zin": "Omzet Q3 2026: € 27.900",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Omzet Q2 2026: € 27.500",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Groei: 1%",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Aantal orders: 3 (Q2: 3)",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Gemiddelde levertijd: geen data",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Retouren: 1 order (12 jassen, maat te klein)",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Jullie bestverkochte product was de softshell jas met logo, met 310 stuks.",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Daarnaast hadden we één retour: 12 jassen waren te klein.",
+              "kans": 0.98,
+              "zekerheid": 0.96,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.98,
+              "jevZekerheid": 0.96
+            },
+            {
+              "zin": "Over de gemiddelde levertijd hebben we over dit kwartaal geen data, dus daar kunnen we geen uitspraak over doen.",
+              "kans": 0.96,
+              "zekerheid": 0.9199999999999999,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.96,
+              "jevZekerheid": 0.9199999999999999
+            },
+            {
+              "zin": "**Werkbroeken:** jullie willen in Q4 ook werkbroeken met logo bestellen.",
+              "kans": 0.98,
+              "zekerheid": 0.96,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.98,
+              "jevZekerheid": 0.96
+            },
+            {
+              "zin": "Onze accountmanager neemt hierover contact met jullie op om dit voor te bereiden.",
+              "kans": 0.3,
+              "zekerheid": 0,
+              "bron": "llm",
+              "twijfel": true,
+              "jevKans": 0.59,
+              "jevZekerheid": 0.17999999999999994
+            },
+            {
+              "zin": "**Maatvoering:** controleer bij een volgende bestelling vooraf de maten, zodat een retour zoals die van de 12 jassen wordt voorkomen.",
+              "kans": 0.96,
+              "zekerheid": 0.9199999999999999,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.96,
+              "jevZekerheid": 0.9199999999999999
+            },
+            {
+              "zin": "Voor werkbroeken kan dat ook handig zijn.",
+              "kans": 0.87,
+              "zekerheid": 0.74,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.87,
+              "jevZekerheid": 0.74
+            },
+            {
+              "zin": "**Levertijd:** wij zorgen dat de levertijd vanaf Q4 wel wordt vastgelegd, zodat we die in het volgende rapport kunnen delen.",
+              "kans": 0.2,
+              "zekerheid": 0,
+              "bron": "llm",
+              "twijfel": true,
+              "jevKans": 0.52,
+              "jevZekerheid": 0.040000000000000036
+            },
+            {
+              "zin": "Met vriendelijke groet,",
+              "kans": 1,
+              "zekerheid": 1,
+              "bron": "llm",
+              "twijfel": false,
+              "jevKans": 0.64,
+              "jevZekerheid": 0.28
+            },
+            {
+              "zin": "Promocat",
+              "kans": 1,
+              "zekerheid": 1,
+              "bron": "llm",
+              "twijfel": false,
+              "jevKans": 0.3,
+              "jevZekerheid": 0.4
+            }
+          ]
+        },
+        {
+          "nr": 10,
+          "score": 0.9299999999999999,
+          "zekerheid": 0.86,
+          "bron": "jev",
+          "twijfel": false,
+          "uitleg": "Kans op tegenspraak: 0,07",
+          "details": {
+            "kans": 0.07,
+            "zekerheid": 0.86,
+            "bron": "jev",
+            "twijfel": false,
+            "jevKans": 0.07,
+            "jevZekerheid": 0.86
+          }
+        },
+        {
+          "nr": 11,
+          "score": 0.9,
+          "zekerheid": 0.8,
+          "bron": "jev",
+          "twijfel": false,
+          "uitleg": "Kans dat namen kloppen: 0,90",
+          "details": {
+            "kans": 0.9,
+            "zekerheid": 0.8,
+            "bron": "jev",
+            "twijfel": false,
+            "jevKans": 0.9,
+            "jevZekerheid": 0.8
+          }
+        },
+        {
+          "nr": 12,
+          "score": 0.75,
+          "zekerheid": 0,
+          "bron": "llm",
+          "twijfel": true,
+          "uitleg": "Cijfer 4 van 5, judge is niet zeker",
+          "details": {
+            "toon": 4,
+            "volledig": 4,
+            "leesbaar": 5,
+            "zeker": false
+          }
+        },
+        {
+          "nr": 13,
+          "score": 0.75,
+          "zekerheid": 0,
+          "bron": "llm",
+          "twijfel": true,
+          "uitleg": "Cijfer 4 van 5, judge is niet zeker",
+          "details": {
+            "toon": 4,
+            "volledig": 4,
+            "leesbaar": 5,
+            "zeker": false
+          }
+        },
+        {
+          "nr": 14,
+          "score": 1,
+          "zekerheid": 0,
+          "bron": "llm",
+          "twijfel": true,
+          "uitleg": "Cijfer 5 van 5, judge is niet zeker",
+          "details": {
+            "toon": 4,
+            "volledig": 4,
+            "leesbaar": 5,
+            "zeker": false
+          }
+        },
+        {
+          "nr": 15,
+          "score": 0,
+          "zekerheid": 1,
+          "bron": "llm",
+          "twijfel": false,
+          "uitleg": "Beide keren: output slechter dan goud",
+          "details": {
+            "eerst": "B beter",
+            "omgedraaid": "A beter"
+          }
+        },
+        {
+          "nr": 17,
+          "score": null,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "493 in, 749 uit, $0.0085",
+          "waarde": 0.008476
+        },
+        {
+          "nr": 18,
+          "score": null,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "6.1 s",
+          "waarde": 6.117301834000002
+        }
+      ]
+    },
+    {
+      "case": "case-3",
+      "run": 3,
+      "tekst": "## Samenvatting\nIn Q3 2026 hadden jullie een stabiel kwartaal. De omzet kwam uit op € 27.900, een groei van 1% ten opzichte van Q2. Het aantal orders bleef gelijk op 3.\n\n## Cijfers\n- Omzet Q3 2026: € 27.900\n- Omzet Q2 2026: € 27.500\n- Groei: 1%\n- Aantal orders: 3 (Q2: 3)\n- Gemiddelde levertijd: geen data\n- Retouren: 1 order (12 jassen)\n\n## Opvallend\nDe softshell jassen met logo waren het best verkocht: 310 stuks. Eén order kwam retour: 12 jassen bleken een maat te klein. Over de gemiddelde levertijd hebben we voor dit kwartaal geen data, dus daar kunnen we geen uitspraak over doen.\n\n## Advies\nJullie willen in Q4 ook werkbroeken met logo bestellen. Het is verstandig dit op tijd met jullie accountmanager te bespreken, zodat we de bestelling goed kunnen voorbereiden. Bij de volgende bestelling jassen raden we aan de maten vooraf goed na te lopen, zodat een retour zoals nu niet nodig is. Ook willen we graag afspreken hoe we de levertijd voortaan vastleggen, zodat jullie dit cijfer in het volgende rapport kunnen zien.",
+      "tokensIn": 493,
+      "tokensUit": 1227,
+      "kosten": 0.013256,
+      "seconden": 9.209459750000002,
+      "checks": [
+        {
+          "nr": 1,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Alle koppen gevonden"
+        },
+        {
+          "nr": 2,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Volgorde: samenvatting, cijfers, opvallend, advies"
+        },
+        {
+          "nr": 3,
+          "score": 0.5677966101694916,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "169 woorden, goud heeft er 118"
+        },
+        {
+          "nr": 4,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Markdown klopt"
+        },
+        {
+          "nr": 5,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Geen restjes"
+        },
+        {
+          "nr": 6,
+          "score": 0.99,
+          "zekerheid": 0.99,
+          "bron": "jev",
+          "twijfel": false,
+          "uitleg": "Kans op Nederlands: 0,99",
+          "details": {
+            "kans": 0.99,
+            "zekerheid": 0.99,
+            "bron": "jev",
+            "twijfel": false,
+            "jevKans": 0.99,
+            "jevZekerheid": 0.99
+          }
+        },
+        {
+          "nr": 7,
+          "score": 0.9825,
+          "zekerheid": 0.96,
+          "bron": "jev",
+          "twijfel": false,
+          "uitleg": "Alle 4 feiten gevonden",
+          "details": [
+            {
+              "feit": "De omzet in Q3 2026 was € 27.900.",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "feit": "Er kwamen 12 jassen retour omdat de maat te klein was.",
+              "kans": 0.98,
+              "zekerheid": 0.96,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.98,
+              "jevZekerheid": 0.96
+            },
+            {
+              "feit": "Er is geen data over de levertijd.",
+              "kans": 0.98,
+              "zekerheid": 0.96,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.98,
+              "jevZekerheid": 0.96
+            },
+            {
+              "feit": "De klant wil in Q4 werkbroeken met logo bestellen.",
+              "kans": 0.98,
+              "zekerheid": 0.96,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.98,
+              "jevZekerheid": 0.96
+            }
+          ]
+        },
+        {
+          "nr": 8,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Alle 21 getallen staan in de input"
+        },
+        {
+          "nr": 9,
+          "score": 0.9718750000000002,
+          "zekerheid": 0.8400000000000001,
+          "bron": "llm",
+          "twijfel": false,
+          "uitleg": "Alle 16 zinnen gesteund door de data. 1 vraag opnieuw door LLM",
+          "details": [
+            {
+              "zin": "In Q3 2026 hadden jullie een stabiel kwartaal.",
+              "kans": 0.9,
+              "zekerheid": 1,
+              "bron": "llm",
+              "twijfel": false,
+              "jevKans": 0.72,
+              "jevZekerheid": 0.43999999999999995
+            },
+            {
+              "zin": "De omzet kwam uit op € 27.900, een groei van 1% ten opzichte van Q2.",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Het aantal orders bleef gelijk op 3.",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Omzet Q3 2026: € 27.900",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Omzet Q2 2026: € 27.500",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Groei: 1%",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Aantal orders: 3 (Q2: 3)",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Gemiddelde levertijd: geen data",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Retouren: 1 order (12 jassen)",
+              "kans": 0.98,
+              "zekerheid": 0.96,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.98,
+              "jevZekerheid": 0.96
+            },
+            {
+              "zin": "De softshell jassen met logo waren het best verkocht: 310 stuks.",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Eén order kwam retour: 12 jassen bleken een maat te klein.",
+              "kans": 0.98,
+              "zekerheid": 0.96,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.98,
+              "jevZekerheid": 0.96
+            },
+            {
+              "zin": "Over de gemiddelde levertijd hebben we voor dit kwartaal geen data, dus daar kunnen we geen uitspraak over doen.",
+              "kans": 0.98,
+              "zekerheid": 0.96,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.98,
+              "jevZekerheid": 0.96
+            },
+            {
+              "zin": "Jullie willen in Q4 ook werkbroeken met logo bestellen.",
+              "kans": 0.97,
+              "zekerheid": 0.94,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.97,
+              "jevZekerheid": 0.94
+            },
+            {
+              "zin": "Het is verstandig dit op tijd met jullie accountmanager te bespreken, zodat we de bestelling goed kunnen voorbereiden.",
+              "kans": 0.94,
+              "zekerheid": 0.8799999999999999,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.94,
+              "jevZekerheid": 0.8799999999999999
+            },
+            {
+              "zin": "Bij de volgende bestelling jassen raden we aan de maten vooraf goed na te lopen, zodat een retour zoals nu niet nodig is.",
+              "kans": 0.96,
+              "zekerheid": 0.9199999999999999,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.96,
+              "jevZekerheid": 0.9199999999999999
+            },
+            {
+              "zin": "Ook willen we graag afspreken hoe we de levertijd voortaan vastleggen, zodat jullie dit cijfer in het volgende rapport kunnen zien.",
+              "kans": 0.92,
+              "zekerheid": 0.8400000000000001,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.92,
+              "jevZekerheid": 0.8400000000000001
+            }
+          ]
+        },
+        {
+          "nr": 10,
+          "score": 0.95,
+          "zekerheid": 0.9,
+          "bron": "jev",
+          "twijfel": false,
+          "uitleg": "Kans op tegenspraak: 0,05",
+          "details": {
+            "kans": 0.05,
+            "zekerheid": 0.9,
+            "bron": "jev",
+            "twijfel": false,
+            "jevKans": 0.05,
+            "jevZekerheid": 0.9
+          }
+        },
+        {
+          "nr": 11,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "llm",
+          "twijfel": false,
+          "uitleg": "Kans dat namen kloppen: 1,00. 1 vraag opnieuw door LLM",
+          "details": {
+            "kans": 1,
+            "zekerheid": 1,
+            "bron": "llm",
+            "twijfel": false,
+            "jevKans": 0.67,
+            "jevZekerheid": 0.3400000000000001
+          }
+        },
+        {
+          "nr": 12,
+          "score": 1,
+          "zekerheid": 0,
+          "bron": "llm",
+          "twijfel": true,
+          "uitleg": "Cijfer 5 van 5, judge is niet zeker",
+          "details": {
+            "toon": 5,
+            "volledig": 4,
+            "leesbaar": 5,
+            "zeker": false
+          }
+        },
+        {
+          "nr": 13,
+          "score": 0.75,
+          "zekerheid": 0,
+          "bron": "llm",
+          "twijfel": true,
+          "uitleg": "Cijfer 4 van 5, judge is niet zeker",
+          "details": {
+            "toon": 5,
+            "volledig": 4,
+            "leesbaar": 5,
+            "zeker": false
+          }
+        },
+        {
+          "nr": 14,
+          "score": 1,
+          "zekerheid": 0,
+          "bron": "llm",
+          "twijfel": true,
+          "uitleg": "Cijfer 5 van 5, judge is niet zeker",
+          "details": {
+            "toon": 5,
+            "volledig": 4,
+            "leesbaar": 5,
+            "zeker": false
+          }
+        },
+        {
+          "nr": 15,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "llm",
+          "twijfel": false,
+          "uitleg": "Beide keren: output beter dan goud",
+          "details": {
+            "eerst": "A beter",
+            "omgedraaid": "B beter"
+          }
+        },
+        {
+          "nr": 17,
+          "score": null,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "493 in, 1227 uit, $0.0133",
+          "waarde": 0.013256
+        },
+        {
+          "nr": 18,
+          "score": null,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "9.2 s",
+          "waarde": 9.209459750000002
+        }
+      ]
+    }
+  ],
+  "consistentie": [
+    {
+      "case": "case-1",
+      "check": {
+        "nr": 16,
+        "score": 0.9550000000000001,
+        "zekerheid": 0.83,
+        "bron": "jev",
+        "twijfel": false,
+        "uitleg": "run 1 en 2: 0,96, run 1 en 3: 0,95, run 2 en 3: 0,95",
+        "details": [
+          {
+            "paar": "run_1_2",
+            "kans": 0.9625,
+            "zekerheid": 0.88,
+            "bron": "jev",
+            "twijfel": false,
+            "jevKans": 0.9625,
+            "jevZekerheid": 0.88
+          },
+          {
+            "paar": "run_1_3",
+            "kans": 0.9525,
+            "zekerheid": 0.84,
+            "bron": "jev",
+            "twijfel": false,
+            "jevKans": 0.9525,
+            "jevZekerheid": 0.84
+          },
+          {
+            "paar": "run_2_3",
+            "kans": 0.95,
+            "zekerheid": 0.83,
+            "bron": "jev",
+            "twijfel": false,
+            "jevKans": 0.95,
+            "jevZekerheid": 0.83
+          }
+        ]
+      }
+    },
+    {
+      "case": "case-2",
+      "check": {
+        "nr": 16,
+        "score": 0.8241666666666667,
+        "zekerheid": 0,
+        "bron": "llm",
+        "twijfel": true,
+        "uitleg": "run 1 en 3: 0,81, run 2 en 3: 0,86, run 1 en 2: 0,80. 1 vraag opnieuw door LLM. 1 vraag met twijfel",
+        "details": [
+          {
+            "paar": "run_1_3",
+            "kans": 0.8125,
+            "zekerheid": 0.77,
+            "bron": "jev",
+            "twijfel": false,
+            "jevKans": 0.8125,
+            "jevZekerheid": 0.77
+          },
+          {
+            "paar": "run_2_3",
+            "kans": 0.86,
+            "zekerheid": 0.62,
+            "bron": "jev",
+            "twijfel": false,
+            "jevKans": 0.86,
+            "jevZekerheid": 0.62
+          },
+          {
+            "paar": "run_1_2",
+            "kans": 0.8,
+            "zekerheid": 0,
+            "bron": "llm",
+            "twijfel": true,
+            "jevKans": 0.875,
+            "jevZekerheid": 0.59
+          }
+        ]
+      }
+    },
+    {
+      "case": "case-3",
+      "check": {
+        "nr": 16,
+        "score": 0.9458333333333333,
+        "zekerheid": 0.78,
+        "bron": "jev",
+        "twijfel": false,
+        "uitleg": "run 1 en 2: 0,96, run 1 en 3: 0,94, run 2 en 3: 0,94",
+        "details": [
+          {
+            "paar": "run_1_2",
+            "kans": 0.9575,
+            "zekerheid": 0.86,
+            "bron": "jev",
+            "twijfel": false,
+            "jevKans": 0.9575,
+            "jevZekerheid": 0.86
+          },
+          {
+            "paar": "run_1_3",
+            "kans": 0.945,
+            "zekerheid": 0.82,
+            "bron": "jev",
+            "twijfel": false,
+            "jevKans": 0.945,
+            "jevZekerheid": 0.82
+          },
+          {
+            "paar": "run_2_3",
+            "kans": 0.935,
+            "zekerheid": 0.78,
+            "bron": "jev",
+            "twijfel": false,
+            "jevKans": 0.935,
+            "jevZekerheid": 0.78
+          }
+        ]
+      }
+    }
+  ],
+  "controles": [
+    {
+      "naam": "goud case-1",
+      "case": "case-1",
+      "checks": [
+        {
+          "nr": 1,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Alle koppen gevonden"
+        },
+        {
+          "nr": 2,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Volgorde: samenvatting, cijfers, opvallend, advies"
+        },
+        {
+          "nr": 3,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "133 woorden, goud heeft er 133"
+        },
+        {
+          "nr": 4,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Markdown klopt"
+        },
+        {
+          "nr": 5,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Geen restjes"
+        },
+        {
+          "nr": 6,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "jev",
+          "twijfel": false,
+          "uitleg": "Kans op Nederlands: 1,00",
+          "details": {
+            "kans": 1,
+            "zekerheid": 1,
+            "bron": "jev",
+            "twijfel": false,
+            "jevKans": 1,
+            "jevZekerheid": 1
+          }
+        },
+        {
+          "nr": 7,
+          "score": 0.986,
+          "zekerheid": 0.94,
+          "bron": "jev",
+          "twijfel": false,
+          "uitleg": "Alle 5 feiten gevonden",
+          "details": [
+            {
+              "feit": "De omzet in Q3 2026 was € 12.400.",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "feit": "De omzet groeide met 24% ten opzichte van Q2 2026.",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "feit": "Katoenen tassen met logo waren het best verkocht.",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "feit": "De levertijd van 9 werkdagen lag onder het doel van 10 werkdagen.",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "feit": "De klant vraagt naar duurzame opties.",
+              "kans": 0.97,
+              "zekerheid": 0.94,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.97,
+              "jevZekerheid": 0.94
+            }
+          ]
+        },
+        {
+          "nr": 8,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Alle 21 getallen staan in de input"
+        },
+        {
+          "nr": 9,
+          "score": 0.9583333333333335,
+          "zekerheid": 0.6200000000000001,
+          "bron": "jev",
+          "twijfel": false,
+          "uitleg": "Alle 18 zinnen gesteund door de data",
+          "details": [
+            {
+              "zin": "Bakkerij De Gouden Korst had een sterk Q3 2026.",
+              "kans": 0.81,
+              "zekerheid": 0.6200000000000001,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.81,
+              "jevZekerheid": 0.6200000000000001
+            },
+            {
+              "zin": "De omzet steeg naar € 12.400.",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Dat is 24% meer dan in Q2 2026.",
+              "kans": 0.98,
+              "zekerheid": 0.96,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.98,
+              "jevZekerheid": 0.96
+            },
+            {
+              "zin": "Ook het aantal orders groeide.",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Omzet: € 12.400 (Q2 2026: € 10.000)",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Groei: 24%",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Orders: 18 (Q2: 15)",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Best verkocht: katoenen tassen met logo, 1.200 stuks",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Gemiddelde levertijd: 9 werkdagen (doel: 10 werkdagen)",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Retouren: 1 order",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "De katoenen tassen met logo waren het best verkochte product.",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "De levertijd lag met 9 werkdagen onder het doel van 10 werkdagen.",
+              "kans": 0.89,
+              "zekerheid": 0.78,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.89,
+              "jevZekerheid": 0.78
+            },
+            {
+              "zin": "Er was 1 retour, omdat de kleur niet klopte.",
+              "kans": 0.98,
+              "zekerheid": 0.96,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.98,
+              "jevZekerheid": 0.96
+            },
+            {
+              "zin": "Jullie vragen naar duurzame opties.",
+              "kans": 0.97,
+              "zekerheid": 0.94,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.97,
+              "jevZekerheid": 0.94
+            },
+            {
+              "zin": "Een goede volgende stap is de katoenen tas ook in gerecycled katoen te maken.",
+              "kans": 0.95,
+              "zekerheid": 0.8999999999999999,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.95,
+              "jevZekerheid": 0.8999999999999999
+            },
+            {
+              "zin": "Zo bouwen jullie verder op het best verkochte product.",
+              "kans": 0.93,
+              "zekerheid": 0.8600000000000001,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.93,
+              "jevZekerheid": 0.8600000000000001
+            },
+            {
+              "zin": "Laten we bij nieuwe orders vooraf samen de kleur checken.",
+              "kans": 0.94,
+              "zekerheid": 0.8799999999999999,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.94,
+              "jevZekerheid": 0.8799999999999999
+            },
+            {
+              "zin": "Zo voorkomen we retouren.",
+              "kans": 0.89,
+              "zekerheid": 0.78,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.89,
+              "jevZekerheid": 0.78
+            }
+          ]
+        },
+        {
+          "nr": 10,
+          "score": 0.99,
+          "zekerheid": 0.98,
+          "bron": "jev",
+          "twijfel": false,
+          "uitleg": "Kans op tegenspraak: 0,01",
+          "details": {
+            "kans": 0.01,
+            "zekerheid": 0.98,
+            "bron": "jev",
+            "twijfel": false,
+            "jevKans": 0.01,
+            "jevZekerheid": 0.98
+          }
+        },
+        {
+          "nr": 11,
+          "score": 0.9,
+          "zekerheid": 0.8,
+          "bron": "jev",
+          "twijfel": false,
+          "uitleg": "Kans dat namen kloppen: 0,90",
+          "details": {
+            "kans": 0.9,
+            "zekerheid": 0.8,
+            "bron": "jev",
+            "twijfel": false,
+            "jevKans": 0.9,
+            "jevZekerheid": 0.8
+          }
+        },
+        {
+          "nr": 12,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "llm",
+          "twijfel": false,
+          "uitleg": "Cijfer 5 van 5",
+          "details": {
+            "toon": 5,
+            "volledig": 5,
+            "leesbaar": 5,
+            "zeker": true
+          }
+        },
+        {
+          "nr": 13,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "llm",
+          "twijfel": false,
+          "uitleg": "Cijfer 5 van 5",
+          "details": {
+            "toon": 5,
+            "volledig": 5,
+            "leesbaar": 5,
+            "zeker": true
+          }
+        },
+        {
+          "nr": 14,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "llm",
+          "twijfel": false,
+          "uitleg": "Cijfer 5 van 5",
+          "details": {
+            "toon": 5,
+            "volledig": 5,
+            "leesbaar": 5,
+            "zeker": true
+          }
+        },
+        {
+          "nr": 15,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "llm",
+          "twijfel": false,
+          "uitleg": "Beide keren: output gelijk dan goud",
+          "details": {
+            "eerst": "gelijk",
+            "omgedraaid": "gelijk"
+          }
+        }
+      ],
+      "perTestpunt": {
+        "1": 1,
+        "2": 1,
+        "3": 1,
+        "4": 1,
+        "5": 1,
+        "6": 1,
+        "7": 0.986,
+        "8": 1,
+        "9": 0.9583333333333335,
+        "10": 0.99,
+        "11": 0.9,
+        "12": 1,
+        "13": 1,
+        "14": 1,
+        "15": 1,
+        "16": null,
+        "17": null,
+        "18": null
+      },
+      "totaal": 0.9889555555555556
+    },
+    {
+      "naam": "goud case-2",
+      "case": "case-2",
+      "checks": [
+        {
+          "nr": 1,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Alle koppen gevonden"
+        },
+        {
+          "nr": 2,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Volgorde: samenvatting, cijfers, opvallend, advies"
+        },
+        {
+          "nr": 3,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "124 woorden, goud heeft er 124"
+        },
+        {
+          "nr": 4,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Markdown klopt"
+        },
+        {
+          "nr": 5,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Geen restjes"
+        },
+        {
+          "nr": 6,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "jev",
+          "twijfel": false,
+          "uitleg": "Kans op Nederlands: 1,00",
+          "details": {
+            "kans": 1,
+            "zekerheid": 1,
+            "bron": "jev",
+            "twijfel": false,
+            "jevKans": 1,
+            "jevZekerheid": 1
+          }
+        },
+        {
+          "nr": 7,
+          "score": 0.9874999999999999,
+          "zekerheid": 0.96,
+          "bron": "jev",
+          "twijfel": false,
+          "uitleg": "Alle 4 feiten gevonden",
+          "details": [
+            {
+              "feit": "De omzet in Q3 2026 was € 3.150.",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "feit": "De omzet daalde met 30%.",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "feit": "De levertijd was 14 werkdagen, langer dan het doel van 10 werkdagen.",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "feit": "Teamkleding wordt vaak laat besteld.",
+              "kans": 0.98,
+              "zekerheid": 0.96,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.98,
+              "jevZekerheid": 0.96
+            }
+          ]
+        },
+        {
+          "nr": 8,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Alle 19 getallen staan in de input"
+        },
+        {
+          "nr": 9,
+          "score": 0.9647058823529411,
+          "zekerheid": 0,
+          "bron": "llm",
+          "twijfel": true,
+          "uitleg": "Alle 17 zinnen gesteund door de data. 1 vraag opnieuw door LLM. 1 vraag met twijfel",
+          "details": [
+            {
+              "zin": "Hockeyclub De Meeuwen bestelde in Q3 2026 minder dan in Q2 2026.",
+              "kans": 0.98,
+              "zekerheid": 0.96,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.98,
+              "jevZekerheid": 0.96
+            },
+            {
+              "zin": "De omzet daalde met 30% naar € 3.150.",
+              "kans": 0.98,
+              "zekerheid": 0.96,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.98,
+              "jevZekerheid": 0.96
+            },
+            {
+              "zin": "De levertijd was langer dan het doel.",
+              "kans": 0.98,
+              "zekerheid": 0.96,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.98,
+              "jevZekerheid": 0.96
+            },
+            {
+              "zin": "Omzet: € 3.150 (Q2 2026: € 4.500)",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Daling: 30%",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Orders: 4 (Q2: 7)",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Best verkocht: trainingsshirts, 210 stuks",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Gemiddelde levertijd: 14 werkdagen (doel: 10 werkdagen)",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Retouren: geen",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "De gemiddelde levertijd was 14 werkdagen.",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Dat is langer dan het doel van 10 werkdagen.",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Een oorzaak is dat teamkleding vaak laat wordt besteld, vlak voor het seizoen in september start.",
+              "kans": 0.96,
+              "zekerheid": 0.9199999999999999,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.96,
+              "jevZekerheid": 0.9199999999999999
+            },
+            {
+              "zin": "Er waren geen retouren.",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Bestel teamkleding voor het nieuwe seizoen eerder.",
+              "kans": 0.95,
+              "zekerheid": 0.8999999999999999,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.95,
+              "jevZekerheid": 0.8999999999999999
+            },
+            {
+              "zin": "Dan is er meer tijd om op tijd te leveren.",
+              "kans": 0.91,
+              "zekerheid": 0.8200000000000001,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.91,
+              "jevZekerheid": 0.8200000000000001
+            },
+            {
+              "zin": "De trainingsshirts lopen goed.",
+              "kans": 0.85,
+              "zekerheid": 0,
+              "bron": "llm",
+              "twijfel": true,
+              "jevKans": 0.79,
+              "jevZekerheid": 0.5800000000000001
+            },
+            {
+              "zin": "Het is slim om die voor het volgende seizoen alvast in te plannen.",
+              "kans": 0.88,
+              "zekerheid": 0.76,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.88,
+              "jevZekerheid": 0.76
+            }
+          ]
+        },
+        {
+          "nr": 10,
+          "score": 0.99,
+          "zekerheid": 0.98,
+          "bron": "jev",
+          "twijfel": false,
+          "uitleg": "Kans op tegenspraak: 0,01",
+          "details": {
+            "kans": 0.01,
+            "zekerheid": 0.98,
+            "bron": "jev",
+            "twijfel": false,
+            "jevKans": 0.01,
+            "jevZekerheid": 0.98
+          }
+        },
+        {
+          "nr": 11,
+          "score": 0.95,
+          "zekerheid": 0.8999999999999999,
+          "bron": "jev",
+          "twijfel": false,
+          "uitleg": "Kans dat namen kloppen: 0,95",
+          "details": {
+            "kans": 0.95,
+            "zekerheid": 0.8999999999999999,
+            "bron": "jev",
+            "twijfel": false,
+            "jevKans": 0.95,
+            "jevZekerheid": 0.8999999999999999
+          }
+        },
+        {
+          "nr": 12,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "llm",
+          "twijfel": false,
+          "uitleg": "Cijfer 5 van 5",
+          "details": {
+            "toon": 5,
+            "volledig": 5,
+            "leesbaar": 5,
+            "zeker": true
+          }
+        },
+        {
+          "nr": 13,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "llm",
+          "twijfel": false,
+          "uitleg": "Cijfer 5 van 5",
+          "details": {
+            "toon": 5,
+            "volledig": 5,
+            "leesbaar": 5,
+            "zeker": true
+          }
+        },
+        {
+          "nr": 14,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "llm",
+          "twijfel": false,
+          "uitleg": "Cijfer 5 van 5",
+          "details": {
+            "toon": 5,
+            "volledig": 5,
+            "leesbaar": 5,
+            "zeker": true
+          }
+        },
+        {
+          "nr": 15,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "llm",
+          "twijfel": false,
+          "uitleg": "Beide keren: output gelijk dan goud",
+          "details": {
+            "eerst": "gelijk",
+            "omgedraaid": "gelijk"
+          }
+        }
+      ],
+      "perTestpunt": {
+        "1": 1,
+        "2": 1,
+        "3": 1,
+        "4": 1,
+        "5": 1,
+        "6": 1,
+        "7": 0.9874999999999999,
+        "8": 1,
+        "9": 0.9647058823529411,
+        "10": 0.99,
+        "11": 0.95,
+        "12": 1,
+        "13": 1,
+        "14": 1,
+        "15": 1,
+        "16": null,
+        "17": null,
+        "18": null
+      },
+      "totaal": 0.992813725490196
+    },
+    {
+      "naam": "goud case-3",
+      "case": "case-3",
+      "checks": [
+        {
+          "nr": 1,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Alle koppen gevonden"
+        },
+        {
+          "nr": 2,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Volgorde: samenvatting, cijfers, opvallend, advies"
+        },
+        {
+          "nr": 3,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "118 woorden, goud heeft er 118"
+        },
+        {
+          "nr": 4,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Markdown klopt"
+        },
+        {
+          "nr": 5,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Geen restjes"
+        },
+        {
+          "nr": 6,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "jev",
+          "twijfel": false,
+          "uitleg": "Kans op Nederlands: 1,00",
+          "details": {
+            "kans": 1,
+            "zekerheid": 1,
+            "bron": "jev",
+            "twijfel": false,
+            "jevKans": 1,
+            "jevZekerheid": 1
+          }
+        },
+        {
+          "nr": 7,
+          "score": 0.985,
+          "zekerheid": 0.96,
+          "bron": "jev",
+          "twijfel": false,
+          "uitleg": "Alle 4 feiten gevonden",
+          "details": [
+            {
+              "feit": "De omzet in Q3 2026 was € 27.900.",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "feit": "Er kwamen 12 jassen retour omdat de maat te klein was.",
+              "kans": 0.98,
+              "zekerheid": 0.96,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.98,
+              "jevZekerheid": 0.96
+            },
+            {
+              "feit": "Er is geen data over de levertijd.",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "feit": "De klant wil in Q4 werkbroeken met logo bestellen.",
+              "kans": 0.98,
+              "zekerheid": 0.96,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.98,
+              "jevZekerheid": 0.96
+            }
+          ]
+        },
+        {
+          "nr": 8,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Alle 19 getallen staan in de input"
+        },
+        {
+          "nr": 9,
+          "score": 0.9626666666666669,
+          "zekerheid": 0.6200000000000001,
+          "bron": "jev",
+          "twijfel": false,
+          "uitleg": "Alle 15 zinnen gesteund door de data",
+          "details": [
+            {
+              "zin": "Van Dijk Installatietechniek had een stabiel Q3 2026.",
+              "kans": 0.81,
+              "zekerheid": 0.6200000000000001,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.81,
+              "jevZekerheid": 0.6200000000000001
+            },
+            {
+              "zin": "De omzet was € 27.900, iets hoger dan in Q2 2026.",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Het aantal orders bleef gelijk.",
+              "kans": 0.98,
+              "zekerheid": 0.96,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.98,
+              "jevZekerheid": 0.96
+            },
+            {
+              "zin": "Omzet: € 27.900 (Q2 2026: € 27.500)",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Groei: 1%",
+              "kans": 0.98,
+              "zekerheid": 0.96,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.98,
+              "jevZekerheid": 0.96
+            },
+            {
+              "zin": "Orders: 3 (Q2: 3)",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Best verkocht: softshell jassen met logo, 310 stuks",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Gemiddelde levertijd: geen data",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Retouren: 1 order (12 jassen)",
+              "kans": 0.97,
+              "zekerheid": 0.94,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.97,
+              "jevZekerheid": 0.94
+            },
+            {
+              "zin": "De softshell jassen met logo waren het best verkochte product.",
+              "kans": 0.98,
+              "zekerheid": 0.96,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.98,
+              "jevZekerheid": 0.96
+            },
+            {
+              "zin": "Bij 1 order kwamen 12 jassen retour, omdat de maat te klein was.",
+              "kans": 0.98,
+              "zekerheid": 0.96,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.98,
+              "jevZekerheid": 0.96
+            },
+            {
+              "zin": "Over de levertijd is geen data.",
+              "kans": 0.99,
+              "zekerheid": 0.98,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.99,
+              "jevZekerheid": 0.98
+            },
+            {
+              "zin": "Jullie willen in Q4 ook werkbroeken met logo bestellen.",
+              "kans": 0.97,
+              "zekerheid": 0.94,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.97,
+              "jevZekerheid": 0.94
+            },
+            {
+              "zin": "Vraag eerst een paar passtukken aan, of stuur een maattabel mee.",
+              "kans": 0.91,
+              "zekerheid": 0.8200000000000001,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.91,
+              "jevZekerheid": 0.8200000000000001
+            },
+            {
+              "zin": "Zo voorkomen we dat er weer kleding retour komt omdat de maat niet past.",
+              "kans": 0.92,
+              "zekerheid": 0.8400000000000001,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.92,
+              "jevZekerheid": 0.8400000000000001
+            }
+          ]
+        },
+        {
+          "nr": 10,
+          "score": 0.99,
+          "zekerheid": 0.98,
+          "bron": "jev",
+          "twijfel": false,
+          "uitleg": "Kans op tegenspraak: 0,01",
+          "details": {
+            "kans": 0.01,
+            "zekerheid": 0.98,
+            "bron": "jev",
+            "twijfel": false,
+            "jevKans": 0.01,
+            "jevZekerheid": 0.98
+          }
+        },
+        {
+          "nr": 11,
+          "score": 0.9,
+          "zekerheid": 0.8,
+          "bron": "jev",
+          "twijfel": false,
+          "uitleg": "Kans dat namen kloppen: 0,90",
+          "details": {
+            "kans": 0.9,
+            "zekerheid": 0.8,
+            "bron": "jev",
+            "twijfel": false,
+            "jevKans": 0.9,
+            "jevZekerheid": 0.8
+          }
+        },
+        {
+          "nr": 12,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "llm",
+          "twijfel": false,
+          "uitleg": "Cijfer 5 van 5",
+          "details": {
+            "toon": 5,
+            "volledig": 5,
+            "leesbaar": 5,
+            "zeker": true
+          }
+        },
+        {
+          "nr": 13,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "llm",
+          "twijfel": false,
+          "uitleg": "Cijfer 5 van 5",
+          "details": {
+            "toon": 5,
+            "volledig": 5,
+            "leesbaar": 5,
+            "zeker": true
+          }
+        },
+        {
+          "nr": 14,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "llm",
+          "twijfel": false,
+          "uitleg": "Cijfer 5 van 5",
+          "details": {
+            "toon": 5,
+            "volledig": 5,
+            "leesbaar": 5,
+            "zeker": true
+          }
+        },
+        {
+          "nr": 15,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "llm",
+          "twijfel": false,
+          "uitleg": "Beide keren: output gelijk dan goud",
+          "details": {
+            "eerst": "gelijk",
+            "omgedraaid": "gelijk"
+          }
+        }
+      ],
+      "perTestpunt": {
+        "1": 1,
+        "2": 1,
+        "3": 1,
+        "4": 1,
+        "5": 1,
+        "6": 1,
+        "7": 0.985,
+        "8": 1,
+        "9": 0.9626666666666669,
+        "10": 0.99,
+        "11": 0.9,
+        "12": 1,
+        "13": 1,
+        "14": 1,
+        "15": 1,
+        "16": null,
+        "17": null,
+        "18": null
+      },
+      "totaal": 0.9891777777777778
+    },
+    {
+      "naam": "slecht case-1",
+      "case": "case-1",
+      "checks": [
+        {
+          "nr": 1,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Alle koppen gevonden"
+        },
+        {
+          "nr": 2,
+          "score": 0,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Volgorde: samenvatting, opvallend, cijfers, advies"
+        },
+        {
+          "nr": 3,
+          "score": 0.24060150375939848,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "32 woorden, goud heeft er 133"
+        },
+        {
+          "nr": 4,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "Markdown klopt"
+        },
+        {
+          "nr": 5,
+          "score": 0,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "restje {periode}; lege sectie Advies"
+        },
+        {
+          "nr": 6,
+          "score": 0.78,
+          "zekerheid": 0.71,
+          "bron": "jev",
+          "twijfel": false,
+          "uitleg": "Kans op Nederlands: 0,78",
+          "details": {
+            "kans": 0.78,
+            "zekerheid": 0.71,
+            "bron": "jev",
+            "twijfel": false,
+            "jevKans": 0.78,
+            "jevZekerheid": 0.71
+          }
+        },
+        {
+          "nr": 7,
+          "score": 0.022000000000000002,
+          "zekerheid": 0.94,
+          "bron": "jev",
+          "twijfel": false,
+          "uitleg": "Mist: \"De omzet in Q3 2026 was € 12.400.\", \"De omzet groeide met 24% ten opzichte van Q2 2026.\", \"Katoenen tassen met logo waren het best verkocht.\", \"De levertijd van 9 werkdagen lag onder het doel van 10 werkdagen.\", \"De klant vraagt naar duurzame opties.\"",
+          "details": [
+            {
+              "feit": "De omzet in Q3 2026 was € 12.400.",
+              "kans": 0.02,
+              "zekerheid": 0.96,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.02,
+              "jevZekerheid": 0.96
+            },
+            {
+              "feit": "De omzet groeide met 24% ten opzichte van Q2 2026.",
+              "kans": 0.03,
+              "zekerheid": 0.94,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.03,
+              "jevZekerheid": 0.94
+            },
+            {
+              "feit": "Katoenen tassen met logo waren het best verkocht.",
+              "kans": 0.02,
+              "zekerheid": 0.96,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.02,
+              "jevZekerheid": 0.96
+            },
+            {
+              "feit": "De levertijd van 9 werkdagen lag onder het doel van 10 werkdagen.",
+              "kans": 0.02,
+              "zekerheid": 0.96,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.02,
+              "jevZekerheid": 0.96
+            },
+            {
+              "feit": "De klant vraagt naar duurzame opties.",
+              "kans": 0.02,
+              "zekerheid": 0.96,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.02,
+              "jevZekerheid": 0.96
+            }
+          ]
+        },
+        {
+          "nr": 8,
+          "score": 0.3333333333333333,
+          "zekerheid": 1,
+          "bron": "code",
+          "twijfel": false,
+          "uitleg": "2 van 3 getallen niet in input: 14.000, 14.000"
+        },
+        {
+          "nr": 9,
+          "score": 0.366,
+          "zekerheid": 0,
+          "bron": "llm",
+          "twijfel": true,
+          "uitleg": "Niet gesteund: \"De omzet steeg naar € 14.000 in {periode}.\", \"De bakkerij opent binnenkort een nieuwe vestiging in Utrecht.\", \"Omzet: € 14.000\". 1 vraag opnieuw door LLM. 1 vraag met twijfel",
+          "details": [
+            {
+              "zin": "Bakkerij De Gouden Korst had a great quarter.",
+              "kans": 0.8,
+              "zekerheid": 0,
+              "bron": "llm",
+              "twijfel": true,
+              "jevKans": 0.73,
+              "jevZekerheid": 0.45999999999999996
+            },
+            {
+              "zin": "De omzet steeg naar € 14.000 in {periode}.",
+              "kans": 0.02,
+              "zekerheid": 0.96,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.02,
+              "jevZekerheid": 0.96
+            },
+            {
+              "zin": "De bakkerij opent binnenkort een nieuwe vestiging in Utrecht.",
+              "kans": 0.02,
+              "zekerheid": 0.96,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.02,
+              "jevZekerheid": 0.96
+            },
+            {
+              "zin": "Omzet: € 14.000",
+              "kans": 0.02,
+              "zekerheid": 0.96,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.02,
+              "jevZekerheid": 0.96
+            },
+            {
+              "zin": "Orders: 18",
+              "kans": 0.97,
+              "zekerheid": 0.94,
+              "bron": "jev",
+              "twijfel": false,
+              "jevKans": 0.97,
+              "jevZekerheid": 0.94
+            }
+          ]
+        },
+        {
+          "nr": 10,
+          "score": 0.040000000000000036,
+          "zekerheid": 0.9199999999999999,
+          "bron": "jev",
+          "twijfel": false,
+          "uitleg": "Kans op tegenspraak: 0,96",
+          "details": {
+            "kans": 0.96,
+            "zekerheid": 0.9199999999999999,
+            "bron": "jev",
+            "twijfel": false,
+            "jevKans": 0.96,
+            "jevZekerheid": 0.9199999999999999
+          }
+        },
+        {
+          "nr": 11,
+          "score": 1,
+          "zekerheid": 1,
+          "bron": "llm",
+          "twijfel": false,
+          "uitleg": "Kans dat namen kloppen: 1,00. 1 vraag opnieuw door LLM",
+          "details": {
+            "kans": 1,
+            "zekerheid": 1,
+            "bron": "llm",
+            "twijfel": false,
+            "jevKans": 0.44,
+            "jevZekerheid": 0.12
+          }
+        },
+        {
+          "nr": 12,
+          "score": 0,
+          "zekerheid": 1,
+          "bron": "llm",
+          "twijfel": false,
+          "uitleg": "Cijfer 1 van 5",
+          "details": {
+            "toon": 1,
+            "volledig": 1,
+            "leesbaar": 2,
+            "zeker": true
+          }
+        },
+        {
+          "nr": 13,
+          "score": 0,
+          "zekerheid": 1,
+          "bron": "llm",
+          "twijfel": false,
+          "uitleg": "Cijfer 1 van 5",
+          "details": {
+            "toon": 1,
+            "volledig": 1,
+            "leesbaar": 2,
+            "zeker": true
+          }
+        },
+        {
+          "nr": 14,
+          "score": 0.25,
+          "zekerheid": 1,
+          "bron": "llm",
+          "twijfel": false,
+          "uitleg": "Cijfer 2 van 5",
+          "details": {
+            "toon": 1,
+            "volledig": 1,
+            "leesbaar": 2,
+            "zeker": true
+          }
+        },
+        {
+          "nr": 15,
+          "score": 0,
+          "zekerheid": 1,
+          "bron": "llm",
+          "twijfel": false,
+          "uitleg": "Beide keren: output slechter dan goud",
+          "details": {
+            "eerst": "B beter",
+            "omgedraaid": "A beter"
+          }
+        }
+      ],
+      "perTestpunt": {
+        "1": 1,
+        "2": 0,
+        "3": 0.24060150375939848,
+        "4": 1,
+        "5": 0,
+        "6": 0.78,
+        "7": 0.022000000000000002,
+        "8": 0.3333333333333333,
+        "9": 0.366,
+        "10": 0.040000000000000036,
+        "11": 1,
+        "12": 0,
+        "13": 0,
+        "14": 0.25,
+        "15": 0,
+        "16": null,
+        "17": null,
+        "18": null
+      },
+      "totaal": 0.33546232247284885
+    }
+  ],
+  "twijfel": [
+    {
+      "case": "case-1",
+      "run": "1",
+      "nr": 9,
+      "uitleg": "Niet gesteund: \"De katoenen tassen met logo waren veruit jullie bestseller, met 1.200 stuks.\", \"Dit nemen we mee in onze kwaliteitscontrole.\". 4 vragen opnieuw door LLM. 3 vragen met twijfel"
+    },
+    {
+      "case": "case-1",
+      "run": "2",
+      "nr": 9,
+      "uitleg": "Alle 16 zinnen gesteund door de data. 1 vraag opnieuw door LLM. 1 vraag met twijfel"
+    },
+    {
+      "case": "case-1",
+      "run": "3",
+      "nr": 9,
+      "uitleg": "Alle 16 zinnen gesteund door de data. 2 vragen opnieuw door LLM. 1 vraag met twijfel"
+    },
+    {
+      "case": "case-2",
+      "run": "1",
+      "nr": 9,
+      "uitleg": "Alle 19 zinnen gesteund door de data. 1 vraag opnieuw door LLM. 1 vraag met twijfel"
+    },
+    {
+      "case": "case-2",
+      "run": "1",
+      "nr": 12,
+      "uitleg": "Cijfer 4 van 5, judge is niet zeker"
+    },
+    {
+      "case": "case-2",
+      "run": "1",
+      "nr": 13,
+      "uitleg": "Cijfer 4 van 5, judge is niet zeker"
+    },
+    {
+      "case": "case-2",
+      "run": "1",
+      "nr": 14,
+      "uitleg": "Cijfer 4 van 5, judge is niet zeker"
+    },
+    {
+      "case": "case-2",
+      "run": "1",
+      "nr": 15,
+      "uitleg": "Oneens: eerst slechter, omgedraaid beter"
+    },
+    {
+      "case": "case-2",
+      "run": "2",
+      "nr": 9,
+      "uitleg": "Niet gesteund: \"Dat wijst op tevredenheid over de kwaliteit van de bestelde artikelen.\". 2 vragen opnieuw door LLM. 2 vragen met twijfel"
+    },
+    {
+      "case": "case-2",
+      "run": "2",
+      "nr": 12,
+      "uitleg": "Cijfer 5 van 5, judge is niet zeker"
+    },
+    {
+      "case": "case-2",
+      "run": "2",
+      "nr": 13,
+      "uitleg": "Cijfer 4 van 5, judge is niet zeker"
+    },
+    {
+      "case": "case-2",
+      "run": "2",
+      "nr": 14,
+      "uitleg": "Cijfer 4 van 5, judge is niet zeker"
+    },
+    {
+      "case": "case-2",
+      "run": "2",
+      "nr": 15,
+      "uitleg": "Oneens: eerst beter, omgedraaid slechter"
+    },
+    {
+      "case": "case-2",
+      "run": "3",
+      "nr": 9,
+      "uitleg": "Niet gesteund: \"Daarnaast kwamen er dit kwartaal geen retouren voor, dus de kwaliteit van de geleverde producten gaf geen aanleiding tot klachten.\". 3 vragen opnieuw door LLM. 3 vragen met twijfel"
+    },
+    {
+      "case": "case-2",
+      "run": "3",
+      "nr": 12,
+      "uitleg": "Cijfer 4 van 5, judge is niet zeker"
+    },
+    {
+      "case": "case-2",
+      "run": "3",
+      "nr": 13,
+      "uitleg": "Cijfer 4 van 5, judge is niet zeker"
+    },
+    {
+      "case": "case-2",
+      "run": "3",
+      "nr": 14,
+      "uitleg": "Cijfer 5 van 5, judge is niet zeker"
+    },
+    {
+      "case": "case-2",
+      "run": "3",
+      "nr": 15,
+      "uitleg": "Oneens: eerst slechter, omgedraaid beter"
+    },
+    {
+      "case": "case-3",
+      "run": "1",
+      "nr": 12,
+      "uitleg": "Cijfer 4 van 5, judge is niet zeker"
+    },
+    {
+      "case": "case-3",
+      "run": "1",
+      "nr": 13,
+      "uitleg": "Cijfer 4 van 5, judge is niet zeker"
+    },
+    {
+      "case": "case-3",
+      "run": "1",
+      "nr": 14,
+      "uitleg": "Cijfer 4 van 5, judge is niet zeker"
+    },
+    {
+      "case": "case-3",
+      "run": "1",
+      "nr": 15,
+      "uitleg": "Oneens: eerst slechter, omgedraaid beter"
+    },
+    {
+      "case": "case-3",
+      "run": "2",
+      "nr": 9,
+      "uitleg": "Niet gesteund: \"Onze accountmanager neemt hierover contact met jullie op om dit voor te bereiden.\", \"**Levertijd:** wij zorgen dat de levertijd vanaf Q4 wel wordt vastgelegd, zodat we die in het volgende rapport kunnen delen.\". 4 vragen opnieuw door LLM. 2 vragen met twijfel"
+    },
+    {
+      "case": "case-3",
+      "run": "2",
+      "nr": 12,
+      "uitleg": "Cijfer 4 van 5, judge is niet zeker"
+    },
+    {
+      "case": "case-3",
+      "run": "2",
+      "nr": 13,
+      "uitleg": "Cijfer 4 van 5, judge is niet zeker"
+    },
+    {
+      "case": "case-3",
+      "run": "2",
+      "nr": 14,
+      "uitleg": "Cijfer 5 van 5, judge is niet zeker"
+    },
+    {
+      "case": "case-3",
+      "run": "3",
+      "nr": 12,
+      "uitleg": "Cijfer 5 van 5, judge is niet zeker"
+    },
+    {
+      "case": "case-3",
+      "run": "3",
+      "nr": 13,
+      "uitleg": "Cijfer 4 van 5, judge is niet zeker"
+    },
+    {
+      "case": "case-3",
+      "run": "3",
+      "nr": 14,
+      "uitleg": "Cijfer 5 van 5, judge is niet zeker"
+    },
+    {
+      "case": "case-2",
+      "run": "alle",
+      "nr": 16,
+      "uitleg": "run 1 en 3: 0,81, run 2 en 3: 0,86, run 1 en 2: 0,80. 1 vraag opnieuw door LLM. 1 vraag met twijfel"
+    },
+    {
+      "case": "goud case-2",
+      "run": "-",
+      "nr": 9,
+      "uitleg": "Alle 17 zinnen gesteund door de data. 1 vraag opnieuw door LLM. 1 vraag met twijfel"
+    },
+    {
+      "case": "slecht case-1",
+      "run": "-",
+      "nr": 9,
+      "uitleg": "Niet gesteund: \"De omzet steeg naar € 14.000 in {periode}.\", \"De bakkerij opent binnenkort een nieuwe vestiging in Utrecht.\", \"Omzet: € 14.000\". 1 vraag opnieuw door LLM. 1 vraag met twijfel"
+    }
+  ],
+  "jev": {
+    "vragen": 313,
+    "onzeker": 27
+  },
+  "kosten": {
+    "test": {
+      "calls": 9,
+      "kosten": 0.108384,
+      "seconden": 76.04752445900002
+    },
+    "judge": {
+      "calls": 66,
+      "kosten": 0.5989960000000002,
+      "seconden": 218.73332187999995
+    },
+    "jev": {
+      "calls": 42,
+      "kosten": 0.0027187020000000004,
+      "seconden": 12.073929626000018
+    },
+    "totaal": 0.7100987020000002
+  },
+  "duurSeconden": 61.778859499999996
+}

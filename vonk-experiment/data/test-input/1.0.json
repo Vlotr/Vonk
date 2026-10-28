@@ -1,0 +1,30 @@
+{
+  "versie": "1.0",
+  "notitie": "Alle data is verzonnen. Er gaat geen klantdata naar Anthropic.",
+  "cases": [
+    {
+      "id": "case-1",
+      "variabelen": {
+        "klant": "Bakkerij De Gouden Korst",
+        "periode": "Q3 2026",
+        "data": "Omzet Q3 2026: € 12.400\nOmzet Q2 2026: € 10.000\nGroei: 24%\nAantal orders: 18 (Q2: 15)\nBest verkocht: katoenen tassen met logo, 1.200 stuks\nGemiddelde levertijd: 9 werkdagen (doel: 10 werkdagen)\nRetouren: 1 order (verkeerde kleur)\nNotitie accountmanager: de klant vraagt naar duurzame opties, zoals tassen van gerecycled katoen."
+      }
+    },
+    {
+      "id": "case-2",
+      "variabelen": {
+        "klant": "Hockeyclub De Meeuwen",
+        "periode": "Q3 2026",
+        "data": "Omzet Q3 2026: € 3.150\nOmzet Q2 2026: € 4.500\nDaling: 30%\nAantal orders: 4 (Q2: 7)\nBest verkocht: trainingsshirts, 210 stuks\nGemiddelde levertijd: 14 werkdagen (doel: 10 werkdagen)\nRetouren: geen\nNotitie accountmanager: het nieuwe seizoen start in september. Teamkleding wordt vaak laat besteld. Daardoor staat de levertijd onder druk."
+      }
+    },
+    {
+      "id": "case-3",
+      "variabelen": {
+        "klant": "Van Dijk Installatietechniek",
+        "periode": "Q3 2026",
+        "data": "Omzet Q3 2026: € 27.900\nOmzet Q2 2026: € 27.500\nGroei: 1%\nAantal orders: 3 (Q2: 3)\nBest verkocht: softshell jassen met logo, 310 stuks\nGemiddelde levertijd: geen data\nRetouren: 1 order (12 jassen, maat te klein)\nNotitie accountmanager: de klant wil in Q4 ook werkbroeken met logo bestellen."
+      }
+    }
+  ]
+}

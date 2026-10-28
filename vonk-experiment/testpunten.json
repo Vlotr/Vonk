@@ -1,0 +1,20 @@
+[
+  { "nr": 1, "naam": "Alle verplichte koppen", "aan": true, "gewicht": 1 },
+  { "nr": 2, "naam": "Koppen in goede volgorde", "aan": true, "gewicht": 1 },
+  { "nr": 3, "naam": "Lengte lijkt op gouden standaard", "aan": true, "gewicht": 1 },
+  { "nr": 4, "naam": "Formaat klopt (markdown)", "aan": true, "gewicht": 1 },
+  { "nr": 5, "naam": "Geen restjes", "aan": true, "gewicht": 1 },
+  { "nr": 6, "naam": "Juiste taal", "aan": true, "gewicht": 1 },
+  { "nr": 7, "naam": "Verplichte feiten", "aan": true, "gewicht": 1 },
+  { "nr": 8, "naam": "Getallen kloppen met input", "aan": true, "gewicht": 1 },
+  { "nr": 9, "naam": "Niets verzonnen", "aan": true, "gewicht": 1 },
+  { "nr": 10, "naam": "Geen tegenspraak met goud", "aan": true, "gewicht": 1 },
+  { "nr": 11, "naam": "Namen kloppen", "aan": true, "gewicht": 1 },
+  { "nr": 12, "naam": "Toon en stijl als goud", "aan": true, "gewicht": 1 },
+  { "nr": 13, "naam": "Even volledig en diep als goud", "aan": true, "gewicht": 1 },
+  { "nr": 14, "naam": "Duidelijk en goed leesbaar", "aan": true, "gewicht": 1 },
+  { "nr": 15, "naam": "Totaal minstens zo goed als goud", "aan": true, "gewicht": 1 },
+  { "nr": 16, "naam": "De runs lijken op elkaar", "aan": true, "gewicht": 1 },
+  { "nr": 17, "naam": "Tokens en kosten", "aan": true, "gewicht": 0 },
+  { "nr": 18, "naam": "Snelheid", "aan": true, "gewicht": 0 }
+]
