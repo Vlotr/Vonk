@@ -1,0 +1,20 @@
+[
+  { "id": "tp01-koppen", "nr": 1, "case": "case-1", "bestand": "tp01-koppen.md", "max": 0.7, "fout": "Twee verplichte koppen vervangen door \"Overig\"" },
+  { "id": "tp02-volgorde", "nr": 2, "case": "case-1", "bestand": "tp02-volgorde.md", "max": 0, "fout": "Cijfers en Producten omgedraaid" },
+  { "id": "tp03-lengte", "nr": 3, "case": "case-1", "bestand": "tp03-lengte.md", "max": 0.5, "fout": "Twee keer zo lang, wel met correcte inhoud" },
+  { "id": "tp04-formaat", "nr": 4, "case": "case-1", "bestand": "tp04-formaat.md", "max": 0, "fout": "Hele rapport in een ``` blok" },
+  { "id": "tp05-restjes", "nr": 5, "case": "case-1", "bestand": "tp05-restjes.md", "max": 0, "fout": "{klant} laten staan" },
+  { "id": "tp06-taal", "nr": 6, "case": "case-1", "bestand": "tp06-taal.md", "max": 0.5, "fout": "Sectie Advies in het Engels" },
+  { "id": "tp06-een-zin", "nr": 6, "case": "case-1", "bestand": "tp06-een-zin.md", "max": 0.5, "fout": "Eén Engelse zin (bekend zwak punt)" },
+  { "id": "tp07-feiten", "nr": 7, "case": "case-1", "bestand": "tp07-feiten.md", "max": 0.6, "fout": "Omzet, groei en de gevonden verbanden weggelaten of vaag gemaakt" },
+  { "id": "tp08-rekenfout", "nr": 8, "case": "case-1", "bestand": "tp08-rekenfout.md", "max": 0.85, "fout": "Fout gerekend: geannuleerde orders meegeteld, regels als orders geteld, levertijd en % op tijd fout" },
+  { "id": "tp09-verzonnen", "nr": 9, "case": "case-1", "bestand": "tp09-verzonnen.md", "max": 0.85, "fout": "Zes verzonnen zinnen zonder getallen" },
+  { "id": "tp10-tegenspraak", "nr": 10, "case": "case-2", "bestand": "tp10-tegenspraak.md", "max": 0.5, "fout": "Verkeerde verklaring voor daling en late levering, getallen gelijk" },
+  { "id": "tp11-namen", "nr": 11, "case": "case-1", "bestand": "tp11-namen.md", "max": 0.5, "fout": "Klantnaam en twee productnamen fout gespeld" },
+  { "id": "tp12-toon", "nr": 12, "case": "case-1", "bestand": "tp12-toon.md", "max": 0.5, "fout": "Zelfde inhoud, informeel met \"je\" en emoji's" },
+  { "id": "tp13-oppervlakkig", "nr": 13, "case": "case-1", "bestand": "tp13-oppervlakkig.md", "max": 0.5, "fout": "Alleen kale getallen, geen verbanden of uitleg" },
+  { "id": "tp14-onleesbaar", "nr": 14, "case": "case-1", "bestand": "tp14-onleesbaar.md", "max": 0.5, "fout": "Zelfde inhoud in lange kronkelzinnen, zonder lijstjes" },
+  { "id": "slecht-case-1", "nr": 15, "case": "case-1", "bestand": "slecht-case-1.md", "max": 0, "fout": "Veel fouten tegelijk (ook gebruikt in de eval)" },
+  { "id": "tp16-gelijk", "nr": 16, "case": "case-1", "bestanden": ["goud", "tp16-gelijk-1.md", "tp16-gelijk-2.md"], "min": 0.75, "fout": "Drie runs met dezelfde inhoud, andere woorden" },
+  { "id": "tp16-anders", "nr": 16, "case": "case-1", "bestanden": ["goud", "tp16-anders-1.md", "tp16-anders-2.md"], "max": 0.5, "fout": "Drie runs met andere getallen, verklaringen en advies" }
+]

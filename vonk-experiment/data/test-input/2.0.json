@@ -1,0 +1,36 @@
+{
+  "versie": "2.0",
+  "notitie": "Alle data is verzonnen, gemaakt met npm run testdata. Er gaat geen klantdata naar Anthropic.",
+  "cases": [
+    {
+      "id": "case-1",
+      "variabelen": {
+        "klant": "Bakkerij De Gouden Korst",
+        "periode": "Q3 2026"
+      },
+      "bestanden": {
+        "data": "data/test-input/2.0/case-1.xlsx"
+      }
+    },
+    {
+      "id": "case-2",
+      "variabelen": {
+        "klant": "Hockeyclub De Meeuwen",
+        "periode": "Q3 2026"
+      },
+      "bestanden": {
+        "data": "data/test-input/2.0/case-2.xlsx"
+      }
+    },
+    {
+      "id": "case-3",
+      "variabelen": {
+        "klant": "Van Dijk Installatietechniek",
+        "periode": "Q3 2026"
+      },
+      "bestanden": {
+        "data": "data/test-input/2.0/case-3.xlsx"
+      }
+    }
+  ]
+}

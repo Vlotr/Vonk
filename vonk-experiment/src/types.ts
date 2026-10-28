@@ -28,6 +28,7 @@ export interface Prompt {
 export interface Case {
   id: string;
   variabelen: Record<string, string>;
+  bestanden?: Record<string, string>; // Excel per variabele, wordt tekst bij het laden
 }
 
 export interface TestInput {
@@ -45,6 +46,7 @@ export interface Config {
   testInput: string;
   goudenStandaard: string;
   controleSlecht: { case: string; bestand: string };
+  controles: string;
   judgeModel: string;
   jevModel: string;
   zekerheidMin: number;
@@ -58,11 +60,15 @@ export interface Testpunt {
   gewicht: number;
 }
 
+// Het juiste antwoord, uitgerekend door code uit de Excel. Getallen zijn exact.
+export type Kerncijfers = Record<string, number | string>;
+
 // Alles wat een check nodig heeft over één case.
 export interface CaseInfo {
   case: Case;
   goud: string;
   feiten: string[];
+  kerncijfers: Kerncijfers; // leeg als de case geen Excel heeft
 }
 
 // Teller voor kosten en tijd van een soort call.
@@ -118,5 +124,49 @@ export interface Resultaat {
   twijfel: Twijfel[];
   jev: { vragen: number; onzeker: number };
   kosten: { test: Teller; judge: Teller; jev: Teller; totaal: number };
+  duurSeconden: number;
+}
+
+// Een controle uit controles.json: een rapport met een bekende fout.
+export interface ControleDef {
+  id: string;
+  nr: number; // het testpunt dat de fout moet vangen
+  case: string;
+  fout: string;
+  bestand?: string;
+  bestanden?: string[]; // testpunt 16: meerdere runs. "goud" is het gouden rapport.
+  max?: number; // de score moet hier op of onder komen
+  min?: number; // de score moet hier op of boven komen
+}
+
+export interface ControleUitslag {
+  id: string;
+  nr: number;
+  case: string;
+  fout: string;
+  max?: number;
+  min?: number;
+  verwacht?: string; // bij 17 en 18, die geen score hebben
+  goud: number | null; // score van het gouden rapport op dit testpunt
+  score: number | null;
+  geslaagd: boolean;
+  uitleg: string;
+  ookGeraakt: { nr: number; goud: number; score: number }[];
+  checks: Check[];
+}
+
+export interface ControleResultaat {
+  id: string;
+  datum: string;
+  versies: { prompt: string; testInput: string; goudenStandaard: string; checks: string; controles: string };
+  modellen: { judge: string; jev: string };
+  zekerheidMin: number;
+  testpunten: Testpunt[];
+  goud: Controle[];
+  uitslagen: ControleUitslag[];
+  geslaagd: number;
+  twijfel: Twijfel[];
+  jev: { vragen: number; onzeker: number };
+  kosten: { judge: Teller; jev: Teller; totaal: number };
   duurSeconden: number;
 }

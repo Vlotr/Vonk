@@ -1,7 +1,7 @@
 import type { CaseInfo, Check, Prompt } from "./types";
 
 // Verhoog dit als je de werking van een check verandert.
-export const CHECKS_VERSIE = "1";
+export const CHECKS_VERSIE = "2";
 
 function codeCheck(nr: number, score: number, uitleg: string): Check {
   return { nr, score, zekerheid: 1, bron: "code", twijfel: false, uitleg };
@@ -99,12 +99,19 @@ export function codeChecks(tekst: string, info: CaseInfo, prompt: Prompt, aan: S
 
   if (aan.has(8)) {
     const toegestaan = new Set(getallen(Object.values(info.case.variabelen).join("\n")).map((g) => g.waarde));
+    // Goed uitgerekende getallen mogen ook, afgerond op 0 of 1 decimaal.
+    // Zonder min-teken, want een daling van 34% schrijf je als 34.
+    for (const w of Object.values(info.kerncijfers)) {
+      if (typeof w !== "number") continue;
+      const a = Math.abs(w);
+      for (const x of [a, Math.round(a), Math.round(a * 10) / 10]) toegestaan.add(x);
+    }
     const gevonden = getallen(tekst);
     const fout = gevonden.filter((g) => !toegestaan.has(g.waarde)).map((g) => g.ruw);
     const score = gevonden.length ? (gevonden.length - fout.length) / gevonden.length : 1;
     const uitleg = fout.length
-      ? `${fout.length} van ${gevonden.length} getallen niet in input: ${fout.join(", ")}`
-      : `Alle ${gevonden.length} getallen staan in de input`;
+      ? `${fout.length} van ${gevonden.length} getallen niet in input of kerncijfers: ${fout.join(", ")}`
+      : `Alle ${gevonden.length} getallen staan in de input of kerncijfers`;
     checks.push(codeCheck(8, score, uitleg));
   }
 

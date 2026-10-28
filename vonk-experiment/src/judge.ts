@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { config } from "./config";
+import { invoer } from "./kerncijfers";
 import type { CaseInfo, Check, Teller } from "./types";
 
 export const client = new Anthropic();
@@ -9,6 +10,13 @@ export function kostenVan(model: string, usage: Anthropic.Usage): number {
   const prijs = config.prijzen[model];
   if (!prijs) throw new Error(`Geen prijs voor ${model} in config.json`);
   return (usage.input_tokens * prijs.input + usage.output_tokens * prijs.output) / 1_000_000;
+}
+
+// Meet hoe lang iets duurt. Voor testpunt 18.
+export async function meet<T>(fn: () => Promise<T>): Promise<{ uitkomst: T; seconden: number }> {
+  const start = performance.now();
+  const uitkomst = await fn();
+  return { uitkomst, seconden: (performance.now() - start) / 1000 };
 }
 
 // Zet inhoud om naar tekst met tags, bijvoorbeeld <rapport>...</rapport>.
@@ -90,9 +98,10 @@ async function totaalVergelijk(tekst: string, info: CaseInfo): Promise<Check> {
       `Je vergelijkt twee kwartaalrapporten voor dezelfde klant van Promocat. Beide zijn gemaakt met dezelfde data.
 
 Welk rapport is in totaal beter? Let op juiste feiten en getallen, volledigheid, toon en leesbaarheid.
+Staan er kerncijfers bij? Die zijn met code uit de data uitgerekend en kloppen.
 Antwoord met "A beter", "gelijk" of "B beter".
 
-${alsTekst({ ...info.case.variabelen, rapport_a: a, rapport_b: b })}`,
+${alsTekst({ ...invoer(info), rapport_a: a, rapport_b: b })}`,
       { oordeel: { type: "string", enum: ["A beter", "gelijk", "B beter"] } },
     );
   const [eerst, omgedraaid] = await Promise.all([vraag(tekst, info.goud), vraag(info.goud, tekst)]);
@@ -138,6 +147,7 @@ export async function herCheck(
   const a = await vraagJudge<{ score: number; zeker: boolean }>(
     `Je controleert een kwartaalrapport voor een klant van Promocat. Hieronder staan de inhoud en een vraag.
 Geef een score van 0 tot 1, zoals de vraag uitlegt. Zet "zeker" op false als je het niet zeker weet.
+Staan er kerncijfers bij? Die zijn met code uit de data uitgerekend en kloppen.
 
 <inhoud>
 ${alsTekst(inhoud)}

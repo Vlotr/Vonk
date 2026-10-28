@@ -7,6 +7,10 @@ try {
   // Geen .env: dan komen de sleutels uit de omgeving.
 }
 
+export function fout(bericht: string): never {
+  throw new Error(bericht);
+}
+
 export function leesJson<T>(pad: string): T {
   return JSON.parse(readFileSync(pad, "utf8")) as T;
 }

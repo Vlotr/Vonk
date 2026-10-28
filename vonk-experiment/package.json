@@ -7,10 +7,13 @@
   },
   "scripts": {
     "eval": "tsx src/eval.ts",
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit",
+    "testdata": "tsx src/maak-testdata.ts",
+    "controles": "tsx src/controles.ts"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^1.3.0"
+    "@anthropic-ai/sdk": "^1.3.0",
+    "exceljs": "^4.4.0"
   },
   "devDependencies": {
     "@types/node": "^20.19.43",

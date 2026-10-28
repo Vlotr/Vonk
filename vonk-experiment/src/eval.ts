@@ -1,19 +1,17 @@
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { parseArgs } from "node:util";
-import { CHECKS_VERSIE, alleenTonen, codeChecks } from "./checks";
-import { config, leesJson, testpunten } from "./config";
-import { consistentie, jevChecks, jevTeller } from "./jev";
-import { client, judgeTeller, kostenVan, llmChecks } from "./judge";
+import { aan, beoordeel, controlePunten, perTestpunt, totaalScore } from "./beoordeel";
+import { CHECKS_VERSIE, alleenTonen } from "./checks";
+import { config, fout, leesJson, testpunten } from "./config";
+import { consistentie, jevTeller } from "./jev";
+import { client, judgeTeller, kostenVan, meet } from "./judge";
+import { laad, vulIn } from "./laden";
 import { maakRapport } from "./rapport";
-import type { Case, CaseInfo, Check, Controle, Output, Prompt, Resultaat, Scores, TestInput, Twijfel } from "./types";
-
-function fout(bericht: string): never {
-  throw new Error(bericht);
-}
+import type { Check, Controle, Output, Resultaat, Scores, Twijfel } from "./types";
 
 // Toon fouten kort, zonder stack trace.
-function stopMetFout(e: unknown) {
+function stopMetFout(e: unknown): never {
   console.error(`Fout: ${e instanceof Error ? e.message : String(e)}`);
   process.exit(1);
 }
@@ -32,32 +30,10 @@ for (const sleutel of ["ANTHROPIC_API_KEY", "OPENROUTER_API_KEY"]) {
   if (!process.env[sleutel]) fout(`${sleutel} ontbreekt. Zet hem in .env (zie .env.example)`);
 }
 
-// 1. Lees prompt, test-input en gouden standaard.
-const prompt = leesJson<Prompt>(config.prompt);
-const input = leesJson<TestInput>(config.testInput);
-const goudVersie = path.basename(config.goudenStandaard);
-const feiten = leesJson<Record<string, string[]>>(path.join(config.goudenStandaard, "feiten.json"));
-const infos: CaseInfo[] = input.cases.map((c) => ({
-  case: c,
-  goud: readFileSync(path.join(config.goudenStandaard, `${c.id}.md`), "utf8"),
-  feiten: feiten[c.id] ?? fout(`Geen feiten voor ${c.id} in feiten.json`),
-}));
+// 1 en 2. Lees prompt, test-input (Excel wordt tekst) en gouden standaard. Vul de variabelen in.
+const { prompt, input, goudVersie, infos } = await laad().catch(stopMetFout);
+const systemPrompts = new Map(infos.map((i) => [i.case.id, vulIn(prompt, i.case)]));
 
-// 2. Vul de variabelen in. Mist er een? Dan stoppen we.
-function vulIn(c: Case): string {
-  let tekst = prompt.tekst;
-  for (const naam of prompt.variabelen) {
-    const waarde = c.variabelen[naam] ?? fout(`Case ${c.id} mist variabele "${naam}"`);
-    tekst = tekst.replaceAll(`{${naam}}`, waarde);
-  }
-  const rest = tekst.match(/\{[a-z_]+\}/);
-  if (rest) fout(`${rest[0]} staat in de prompt, maar niet in de lijst variabelen`);
-  return tekst;
-}
-const systemPrompts = new Map(input.cases.map((c) => [c.id, vulIn(c)]));
-
-const aan = new Set(testpunten.filter((t) => t.aan).map((t) => t.nr));
-const controlePunten = new Set([...aan].filter((nr) => nr <= 15));
 const testTeller = { calls: 0, kosten: 0, seconden: 0 };
 
 function log(bericht: string) {
@@ -65,14 +41,14 @@ function log(bericht: string) {
 }
 
 async function schrijfRapport(systeem: string) {
-  const start = performance.now();
-  const res = await client.messages.create({
-    model,
-    max_tokens: 16000,
-    system: systeem,
-    messages: [{ role: "user", content: prompt.userBericht }],
-  });
-  const seconden = (performance.now() - start) / 1000;
+  const { uitkomst: res, seconden } = await meet(() =>
+    client.messages.create({
+      model,
+      max_tokens: 16000,
+      system: systeem,
+      messages: [{ role: "user", content: prompt.userBericht }],
+    }),
+  );
   if (res.stop_reason !== "end_turn") fout(`Test-model stopte met reden "${res.stop_reason}"`);
   const kosten = kostenVan(model, res.usage);
   testTeller.calls++;
@@ -87,48 +63,18 @@ async function schrijfRapport(systeem: string) {
   };
 }
 
-// Eerst code, dan Jev, dan LLM.
-async function beoordeel(tekst: string, info: CaseInfo, punten: Set<number>): Promise<Check[]> {
-  const code = codeChecks(tekst, info, prompt, punten);
-  const jev = await jevChecks(tekst, info, punten);
-  const llm = await llmChecks(tekst, info, punten);
-  return [...code, ...jev, ...llm].sort((a, b) => a.nr - b.nr);
-}
-
-function gemiddelde(xs: number[]): number | null {
-  return xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : null;
-}
-
-// Per testpunt het gemiddelde over alle checks met dat nummer.
-function perTestpunt(checks: Check[]): Scores {
-  const uit: Scores = {};
-  for (const t of testpunten.filter((t) => aan.has(t.nr))) {
-    uit[t.nr] = gemiddelde(checks.filter((c) => c.nr === t.nr && c.score !== null).map((c) => c.score!));
-  }
-  return uit;
-}
-
-// Gewogen gemiddelde van de testpunten die aan staan.
-function totaalScore(scores: Scores): number | null {
-  let som = 0;
-  let gewicht = 0;
-  for (const t of testpunten) {
-    const s = scores[t.nr];
-    if (!aan.has(t.nr) || t.gewicht <= 0 || s === null || s === undefined) continue;
-    som += s * t.gewicht;
-    gewicht += t.gewicht;
-  }
-  return gewicht ? som / gewicht : null;
-}
-
 function twijfelsVan(checks: Check[], caseId: string, run: string): Twijfel[] {
   return checks.filter((c) => c.twijfel).map((c) => ({ case: caseId, run, nr: c.nr, uitleg: c.uitleg }));
 }
 
+// De laatste run met dezelfde test-input. Andere input is niet te vergelijken.
 function vorigeRun(): Resultaat | null {
-  const bestanden = readdirSync("results").filter((f) => /^run-.*\.json$/.test(f)).sort();
-  const laatste = bestanden.at(-1);
-  return laatste ? leesJson<Resultaat>(path.join("results", laatste)) : null;
+  const runs = readdirSync("results")
+    .filter((f) => /^run-.*\.json$/.test(f))
+    .sort()
+    .map((f) => leesJson<Resultaat>(path.join("results", f)))
+    .filter((r) => r.versies.testInput === input.versie);
+  return runs.at(-1) ?? null;
 }
 
 async function main() {
@@ -147,7 +93,7 @@ async function main() {
         log(`${info.case.id} run ${run}: schrijven`);
         const r = await schrijfRapport(systemPrompts.get(info.case.id)!);
         log(`${info.case.id} run ${run}: checken`);
-        const checks = await beoordeel(r.tekst, info, aan);
+        const checks = await beoordeel(r.tekst, info, prompt, aan);
         if (aan.has(17)) {
           checks.push(alleenTonen(17, r.kosten, `${r.tokensIn} in, ${r.tokensUit} uit, $${r.kosten.toFixed(4)}`));
         }
@@ -173,7 +119,7 @@ async function main() {
   ];
   const controles: Controle[] = await Promise.all(
     teControleren.map(async (c) => {
-      const checks = await beoordeel(c.tekst, c.info, controlePunten);
+      const checks = await beoordeel(c.tekst, c.info, prompt, controlePunten);
       const scores = perTestpunt(checks);
       return { naam: c.naam, case: c.info.case.id, checks, perTestpunt: scores, totaal: totaalScore(scores) };
     }),

@@ -1,8 +1,9 @@
 {
-  "prompt": "data/rapport.v1.json",
-  "testInput": "data/test-input/1.0.json",
-  "goudenStandaard": "data/gouden-standaard/1.0.0",
-  "controleSlecht": { "case": "case-1", "bestand": "data/controle/slecht-case-1.md" },
+  "prompt": "data/rapport.v2.json",
+  "testInput": "data/test-input/2.0.json",
+  "goudenStandaard": "data/gouden-standaard/2.0.0",
+  "controleSlecht": { "case": "case-1", "bestand": "data/controle/2.0.0/slecht-case-1.md" },
+  "controles": "data/controle/2.0.0/controles.json",
   "judgeModel": "claude-opus-5-5",
   "jevModel": "typesafe/jev-1.14",
   "zekerheidMin": 0.6,

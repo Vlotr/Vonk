@@ -1,6 +1,7 @@
 import { zinnen } from "./checks";
 import { config } from "./config";
 import { herCheck } from "./judge";
+import { invoer } from "./kerncijfers";
 import type { Bron, CaseInfo, Check, Teller } from "./types";
 
 const JEV_URL = "https://openrouter.ai/api/alpha/decisions";
@@ -169,7 +170,7 @@ export async function jevChecks(tekst: string, info: CaseInfo, aan: Set<number>)
   zinLijst.forEach((zin, i) => {
     vragenData[`zin_${i + 1}`] = {
       type: "noul",
-      instructions: `Is this sentence from the report supported by the input data (klant, periode, data)?\n\nSentence: "${zin}"`,
+      instructions: `Is this sentence from the report supported by the input data (klant, periode, data)? If kerncijfers are given, they are computed from the data by code and are correct.\n\nSentence: "${zin}"`,
       criteria: {
         true: "Everything in the sentence follows from the input data. Advice is fine if it follows logically from the data.",
         false: "The sentence has a fact, number or claim that is not in the input data, or that conflicts with it.",
@@ -202,7 +203,7 @@ export async function jevChecks(tekst: string, info: CaseInfo, aan: Set<number>)
 
   const [rapport, data, goud] = await Promise.all([
     vraagJev({ rapport: tekst }, vragenRapport),
-    vraagJev({ ...info.case.variabelen, rapport: tekst }, vragenData),
+    vraagJev({ ...invoer(info), rapport: tekst }, vragenData),
     vraagJev({ gouden_standaard: info.goud, rapport: tekst }, vragenGoud),
   ]);
 

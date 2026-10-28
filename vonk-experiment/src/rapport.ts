@@ -1,4 +1,4 @@
-import type { Resultaat } from "./types";
+import type { ControleResultaat, Resultaat } from "./types";
 
 // Getallen in Nederlandse notatie: 0,87.
 function getal(x: number | null | undefined, decimalen = 2): string {
@@ -137,6 +137,94 @@ export function maakRapport(r: Resultaat, vorige: Resultaat | null): string {
         `- Test-model: gemiddeld ${Math.round(tokensIn)} tokens in en ${Math.round(tokensUit)} tokens uit per call.`,
         `- De hele run duurde ${duur(r.duurSeconden)}.`,
       ].join("\n"),
+  );
+
+  return delen.join("\n\n") + "\n";
+}
+
+export function maakControleRapport(r: ControleResultaat): string {
+  const naam = (nr: number) => r.testpunten.find((t) => t.nr === nr)?.naam ?? `Testpunt ${nr}`;
+  const delen: string[] = [];
+
+  delen.push(`# Controle-rapport ${r.id}`);
+  delen.push(
+    [
+      `- Prompt: ${r.versies.prompt}`,
+      `- Test-input: ${r.versies.testInput}`,
+      `- Gouden standaard: ${r.versies.goudenStandaard}`,
+      `- Checks: versie ${r.versies.checks}`,
+      `- Controles: ${r.versies.controles}`,
+      `- Judge: ${r.modellen.judge}`,
+      `- Jev: ${r.modellen.jev}, drempel zekerheid ${getal(r.zekerheidMin, 1)}`,
+    ].join("\n"),
+  );
+
+  // 1. Uitslag per controle
+  const verwacht = (u: ControleResultaat["uitslagen"][number]) =>
+    u.verwacht ?? (u.max !== undefined ? `≤ ${getal(u.max)}` : `≥ ${getal(u.min)}`);
+  const rijen = r.uitslagen.map((u) => [
+    String(u.nr),
+    u.id,
+    cel(u.fout),
+    u.case,
+    getal(u.goud),
+    getal(u.score),
+    verwacht(u),
+    u.geslaagd ? "geslaagd" : "**niet geslaagd**",
+  ]);
+  delen.push(
+    `## Uitslag\n\n**${r.geslaagd} van de ${r.uitslagen.length} controles geslaagd.**\n\nElk controle-rapport heeft een bekende fout. Een controle is geslaagd als de check die fout vangt: de score op het testpunt valt binnen "Verwacht", en het gouden rapport scoort op dat testpunt ${getal(0.9, 1)} of meer. Bij 16 gaat het om drie runs samen; bij 17 en 18 om de meting zelf.\n\n${tabel(["#", "Controle", "Fout", "Case", "Goud", "Score", "Verwacht", "Uitslag"], rijen)}`,
+  );
+
+  const mis = r.uitslagen.filter((u) => !u.geslaagd);
+  if (mis.length) {
+    delen.push(`## Niet geslaagd\n\n${mis.map((u) => `- ${u.id}, ${u.nr}. ${naam(u.nr)} (${getal(u.score)}): ${u.uitleg}`).join("\n")}`);
+  }
+
+  // 2. Ook geraakt
+  const geraakt = r.uitslagen.filter((u) => u.ookGeraakt.length);
+  delen.push(
+    `## Ook geraakt\n\nAndere testpunten die meer dan ${getal(0.3, 1)} onder goud zakten. Dat mag: één fout raakt vaak meer testpunten. De judge (12 tot 15) draait alleen bij controles voor 12 tot 15.\n\n` +
+      (geraakt.length
+        ? tabel(
+            ["Controle", "Testpunten (goud → controle)"],
+            geraakt.map((u) => [u.id, u.ookGeraakt.map((g) => `${g.nr} (${getal(g.goud)} → ${getal(g.score)})`).join(", ")]),
+          )
+        : "Geen."),
+  );
+
+  // 3. De gouden rapporten
+  const punten = r.testpunten.filter((t) => t.aan && t.nr <= 15);
+  const goudRijen = punten.map((t) => [String(t.nr), t.naam, ...r.goud.map((g) => getal(g.perTestpunt[t.nr]))]);
+  goudRijen.push(["", "**Totaal**", ...r.goud.map((g) => `**${getal(g.totaal)}**`)]);
+  const laag = r.goud.flatMap((g) =>
+    g.checks
+      .filter((c) => c.score !== null && c.score < 0.9)
+      .map((c) => `- ${g.naam}, ${c.nr}. ${naam(c.nr)} (${getal(c.score)}): ${c.uitleg}`),
+  );
+  delen.push(
+    `## Gouden rapporten\n\nDe basis waarmee we vergelijken. Ze moeten op elk testpunt hoog scoren.\n\n${tabel(["#", "Testpunt", ...r.goud.map((g) => g.naam)], goudRijen)}` +
+      (laag.length ? `\n\nScores onder 0,9:\n\n${laag.join("\n")}` : ""),
+  );
+
+  // 4. Twijfelgevallen
+  const jevZin = `Jev was niet zeker bij ${r.jev.onzeker} van de ${r.jev.vragen} vragen (zekerheid onder ${getal(r.zekerheidMin, 1)}). Die vragen deed de LLM opnieuw.`;
+  const twijfelTabel = r.twijfel.length
+    ? tabel(["Rapport", "Testpunt", "Waarom"], r.twijfel.map((t) => [t.case, `${t.nr}. ${naam(t.nr)}`, cel(t.uitleg)]))
+    : "Geen twijfelgevallen.";
+  delen.push(`## Twijfelgevallen\n\n${jevZin}\n\n${twijfelTabel}`);
+
+  // 5. Kosten
+  const k = r.kosten;
+  delen.push(
+    `## Kosten en snelheid\n\n${tabel(
+      ["Onderdeel", "Calls", "Kosten", "Tijd (opgeteld)"],
+      [
+        ["Judge (LLM)", String(k.judge.calls), dollar(k.judge.kosten), `${getal(k.judge.seconden, 1)} s`],
+        ["Jev", String(k.jev.calls), dollar(k.jev.kosten), `${getal(k.jev.seconden, 1)} s`],
+        ["**Totaal**", "", `**${dollar(k.totaal)}**`, ""],
+      ],
+    )}\n\n- De hele run duurde ${duur(r.duurSeconden)}.`,
   );
 
   return delen.join("\n\n") + "\n";
