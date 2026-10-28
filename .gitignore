@@ -1,23 +1,7 @@
 .DS_Store
-/data/
+
 bin/
 node_modules/
-.superpowers/
-
-# Vite build output. The committed placeholder web/dist/.keep lets `go build`
-# embed web/dist before the dashboard has been built (see web/embed.go).
-/web/dist/*
-!/web/dist/.keep
-
-# Composer packages (fixture recipes, the Laravel example).
 vendor/
-# Build output of the browser fixture recipes.
-/internal/sentry/testdata/capture/browser/dist/
-/internal/posthog/testdata/capture/dist/
-/internal/sourcemaps/testdata/capture/dist/
-# Vite build output of the browser and PostHog examples.
-/examples/browser/dist/
-/examples/posthog/dist/
-# Playwright results and the logs of the processes the e2e setup starts.
-/e2e/test-results/
-/e2e/.logs/
+.idea/
+.superpowers/
